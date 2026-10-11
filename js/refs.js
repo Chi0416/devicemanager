@@ -134,10 +134,11 @@ const Refs = (() => {
   }
 
   // 設定裡的「清單」：每一份清單一列（狀態一列，選項依清單分，人員、廠商各一列）
+  //   sortable：可以在清單頁用 ↑ ↓ 排順序（狀態、SORTED_LISTS 裡的選項）
   function lists() {
     return [
-      { key: 'statuses', table: 'statuses', title: SCHEMAS.statuses.title },
-      ...OPTION_LISTS.map(list => ({ key: `options:${list}`, table: 'options', list, title: list })),
+      { key: 'statuses', table: 'statuses', title: SCHEMAS.statuses.title, sortable: true },
+      ...OPTION_LISTS.map(list => ({ key: `options:${list}`, table: 'options', list, title: list, sortable: SORTED_LISTS.includes(list) })),
       { key: 'people', table: 'people', title: SCHEMAS.people.title },
       { key: 'vendors', table: 'vendors', title: SCHEMAS.vendors.title },
     ];
@@ -151,11 +152,27 @@ const Refs = (() => {
       .sort((a, b) => (active(l.table, b) - active(l.table, a)) || cmp(a, b));
   }
 
+  // 排序：把這份清單裡的一項往前（dir 是 -1）或往後（+1）移一格，沒停用的重新編成 1、2、3…（停用的排在後面）
+  //   只改順序有變的；回傳有沒有移動
+  function move(l, id, dir) {
+    const key = targetOf(l.table).order;
+    const all = listItems(l);
+    const on = all.filter(r => active(l.table, r));
+    const i = on.findIndex(r => r.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= on.length) return false;
+    [on[i], on[j]] = [on[j], on[i]];
+    [...on, ...all.filter(r => !active(l.table, r))].forEach((r, k) => {
+      if (r[key] !== k + 1) Store.update(l.table, r.id, { [key]: k + 1 });
+    });
+    return true;
+  }
+
   // 範圍的 key（options:位置、people:）對到設定裡的哪一份清單
   const listOfScope = key => lists().find(l => l.key === key || l.key === key.split(':')[0]) || null;
 
   return {
     isTarget, targetOf, norm, multi, inScope, items, find, nameOf, active, sub, tone, blankRecord, quickAdd,
-    usesOf, usesText, removeBlock, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, listOfScope,
+    usesOf, usesText, removeBlock, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, move, listOfScope,
   };
 })();

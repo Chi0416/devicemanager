@@ -12,7 +12,8 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   const fields = schema.fields;
   const byKey = Object.fromEntries(fields.map(f => [f.key, f]));
   const period = schema.period || null;
-  const { code, title, badge, primary, grid } = schema.card;
+  const card = schema.card;
+  const { code, title, badge, primary, grid } = card;
   const titleOf = r => (typeof title === 'function' ? title(r) : r[title]);
   const gridFields = grid
     ? grid.map(k => byKey[k])
@@ -158,6 +159,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
           ${tag ? `<span class="badge ${tag.cls}">${U.esc(tag.label)}</span>` : ''}
           ${pf ? `<span class="card-primary"><small>${cardLabel(pf)}</small><b>${show(pf, r[primary])}</b></span>` : ''}
         </span>
+        ${card.sub?.(r) ? `<span class="card-sub">${U.esc(card.sub(r))}</span>` : ''}
         ${cells ? `<span class="card-grid">${cells}</span>` : ''}
         ${note ? `<span class="card-note${note.warn ? ' warn' : ''}">${U.esc(note.text)}</span>` : ''}
       </button>`;
@@ -260,5 +262,13 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     refresh();
   }
 
-  return { el, refresh, changed, reset };
+  // 從別的地方帶著條件打開（總覽點一個型號）：篩選按鈕、搜尋框換成給的，分組不動
+  function showWith({ filter = '', keyword = '' } = {}) {
+    state.filter = filter;
+    state.keyword = keyword;
+    if (keywordInput) keywordInput.value = keyword;
+    refresh();
+  }
+
+  return { el, refresh, changed, reset, show: showWith };
 }

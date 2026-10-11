@@ -261,20 +261,12 @@ const Sync = (() => {
   }
 
   // 設備的編號：沒有的補上、重複的換下一號，這台裝置上新增的紀錄跟著換（見 records.js 的 followCodes）
-  //   換號的在提醒留一則（貼了標籤的話要改）
+  //   編號只在系統裡用、畫面上看不到（認機器看機型＋名稱），所以換號不用提醒
   function fixCodes(snap) {
     const local = new Set(snap.items.map(i => `${i.table}:${i.id}`));
     const fixed = fixDeviceCodes();
     const followed = Records.followCodes(fixed, (t, id) => local.has(`${t}:${id}`));
     addToSnap([...fixed.map(f => ({ table: 'devices', id: f.id })), ...followed], snap);
-    const moved = fixed.filter(f => f.from);
-    if (moved.length) {
-      hooks.notify({
-        title: `${moved.length} 台設備的編號重複，換了新的編號`,
-        body: `${moved.map(f => `${f.name}：${f.from} → ${f.to}`).join('\n')}\n可能是兩台裝置沒有網路時各新增了一台。`
-          + `${followed.length ? `這台的 ${followed.length} 筆紀錄也跟著換了。` : ''}已經貼了標籤的話，請換成新的編號。`,
-      });
-    }
   }
 
   // 回傳這次處理到的表；缺欄位的表不處理，修改留在待同步清單

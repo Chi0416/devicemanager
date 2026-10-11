@@ -160,7 +160,9 @@ const Form = (() => {
         const opts = f.toggle || f.choices.map(c => ({ value: c, label: c, tone: '' }));
         const seg = document.createElement('div');
         seg.className = `seg toggle${f.type === 'multi' ? ' multi' : ''}`;
-        seg.style.gridTemplateColumns = `repeat(${opts.length}, 1fr)`;
+        // 選項多的（選項的清單有 6 份）排成兩排，一排 3 個
+        seg.style.gridTemplateColumns = `repeat(${opts.length > 4 ? 3 : opts.length}, 1fr)`;
+        if (opts.length > 4) seg.classList.add('rows');
         seg.setAttribute('role', 'group');
         seg.setAttribute('aria-label', f.label);
         seg.innerHTML = opts.map(o => `<button type="button" class="${U.esc(o.tone || 'plain')}" data-${f.type === 'multi' ? 'multi' : 'toggle'}="${i}"` +
@@ -519,7 +521,8 @@ const Form = (() => {
       let v = raw;
       let msg = '';
       if (f.auto || locked[i] || f.hidden) {
-        rec[f.key] = raw; // 系統產生的新值等其他欄位讀好之後才算（年份照購買日期）；不能改的照原本的；藏起來的照 calc 填的
+        // 系統產生的新值等其他欄位讀好之後才算（年份照購買日期）；不能改的照原本的；藏起來的照 calc 填的、照原本的（選項的順序）
+        rec[f.key] = f.type === 'number' ? U.parseNum(raw) : raw;
         return;
       }
       if (f.type === 'flag') {

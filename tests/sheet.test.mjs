@@ -34,9 +34,9 @@ const sample = () => ({
     { id: 's2', name: '報廢', order: 4, color: '灰', quiet: true, disabled: false },
   ],
   options: [
-    { id: 'o1', list: '類別', name: '筆電', disabled: false },
-    { id: 'o2', list: '位置', name: '3F 會議室', disabled: false },
-    { id: 'o3', list: '位置', name: '舊倉庫', disabled: true },
+    { id: 'o1', list: '類別', name: '筆電', order: 1, disabled: false },
+    { id: 'o2', list: '位置', name: '3F 會議室', order: null, disabled: false },
+    { id: 'o3', list: '位置', name: '舊倉庫', order: null, disabled: true },
   ],
   people: [
     person('p1', { name: '王小明', code: 'E001', jobTitle: '資訊組長', dept: '資訊組', joinDate: '2020-02-01' }),
@@ -80,7 +80,7 @@ function withTab(title, rows) {
   return v;
 }
 
-const HEADERS = ['編號', '名稱', '狀態', '類別', '品牌', '型號', '序號', '主機板號碼', '位置', '保管人', '購買日期', '購買金額', '購買廠商', '保固到期', '連結', '備註', 'id'];
+const HEADERS = ['編號', '名稱', '狀態', '類別', '品牌', '機型', '序號', '主機板號碼', '位置', '保管人', '購買日期', '購買金額', '購買廠商', '保固到期', '連結', '備註', 'id'];
 
 test('日期序號：2023-03-15 是 45000，來回轉換不變', () => {
   assert.equal(Sheet.toSerial('2023-03-15'), 45000);
@@ -172,15 +172,18 @@ test('缺了 id 欄又缺選填的欄：id 補在最後一個標題右邊，選�
     ['位置', '2F'],
   ])));
   assert.deepEqual(r.addIdHeader, [{ tab: '選項', col: 2 }]);
-  assert.deepEqual(r.addColumns, [{ table: 'options', tab: '選項', key: 'disabled', col: 3 }]);
-  assert.deepEqual(r.headers['選項'], ['清單', '名稱', 'id', '停用']);
+  assert.deepEqual(r.addColumns, [
+    { table: 'options', tab: '選項', key: 'order', col: 3 },
+    { table: 'options', tab: '選項', key: 'disabled', col: 4 },
+  ]);
+  assert.deepEqual(r.headers['選項'], ['清單', '名稱', 'id', '順序', '停用']);
   assert.equal(r.data.options[0].name, '2F');
   assert.ok(!('disabled' in r.data.options[0]));
 });
 
 test('勾選的欄位：寫成 true／false（核取方塊）；手打的「是」「v」「1」也算有勾，看不懂的列成問題', () => {
   const v = plain(Sheet.toValues(sample()));
-  assert.deepEqual(v['選項'].map(row => row[2]), ['停用', false, false, true]);
+  assert.deepEqual(v['選項'].map(row => row[3]), ['停用', false, false, true]);
   const r = plain(Sheet.fromValues(withTab('選項', [
     ['清單', '名稱', '停用', 'id'],
     ['位置', 'A', true, 'a'], ['位置', 'B', '是', 'b'], ['位置', 'C', 'v', 'c'], ['位置', 'D', 1, 'd'],
@@ -302,7 +305,7 @@ test('建立試算表：分頁、格式、下拉選單、保護', () => {
   assert.equal(listOf(listsOf(Sheet.TAB.statuses.sheetId), 2), '藍,紫,橘,綠,灰,紅');
   // 勾選的欄位是核取方塊
   const opt = Sheet.TAB.options.sheetId;
-  const box = reqs.find(r => r.setDataValidation?.range.sheetId === opt && r.setDataValidation.range.startColumnIndex === 2);
+  const box = reqs.find(r => r.setDataValidation?.range.sheetId === opt && r.setDataValidation.range.startColumnIndex === 3);
   assert.equal(box.setDataValidation.rule.condition.type, 'BOOLEAN');
   assert.equal(reqs.filter(r => r.addProtectedRange).length, 22); // 11 個分頁 × 標題列與 id 欄
   // 左右切換的欄位（異動的類型）有下拉選單
@@ -356,4 +359,13 @@ test('抄表的結算月份：文字 2026/9、被改成日期格式的序號都�
   ])));
   assert.deepEqual(r.data.readings.map(x => x.month), ['2026-09', '2026-10', '']);
   assert.deepEqual(r.problems.filter(p => p.tab === '抄表').map(Sheet.problemText), ['抄表第 4 列：結算月份看不懂（十一月），要寫成 2026/09']);
+});
+
+test('機型以前叫「型號」：舊標題讀得到，同步時改成「機型」', () => {
+  const r = plain(Sheet.fromValues(withTab('設備', [
+    HEADERS.map(h => (h === '機型' ? '型號' : h)),
+    ['24-0001', '影印機', '出租中', '', 'Ricoh', 'IM C6000', '', '', '', '', '', '', '', '', '', '', 'd9'],
+  ])));
+  assert.equal(r.data.devices[0].model, 'IM C6000');
+  assert.deepEqual(r.rewrites, [{ table: 'devices', tab: '設備', row: 1, col: 5, value: '機型' }]);
 });

@@ -313,7 +313,7 @@ test('在試算表刪掉一列，App 也跟著刪除（少量刪除不詢問）'
   // 提醒留一則，列出是哪一筆，點了打開試算表
   const m = d.inbox.at(-1);
   assert.equal(m.title, '試算表刪了 1 筆，這台也跟著刪了');
-  assert.match(m.body, /設備：NB-001 會議室筆電 使用中/);
+  assert.match(m.body, /設備：會議室筆電/);
   assert.match(m.body, /檔案 → 版本記錄/);
   assert.equal(m.action.type, 'sheet');
   // 再同步一次不會再留
@@ -715,9 +715,9 @@ test('連結：只有預設的項目（類別、保養項目、選配件）時�
   assert.deepEqual(d.asked.messages, []);
   assert.equal(d.Sync.state().linked, true);
   const id = d.Sync.state().url.split('/').pop();
-  assert.deepEqual(fake.values(id, '選項')[0], ['清單', '名稱', '停用', 'id']);
+  assert.deepEqual(fake.values(id, '選項')[0], ['清單', '名稱', '順序', '停用', 'id']);
   assert.equal(fake.values(id, '選項').length, 19); // 類別 7、保養項目 7、選配件 4
-  assert.deepEqual(fake.values(id, '選項')[1].slice(0, 3), ['類別', '筆電', false]);
+  assert.deepEqual(fake.values(id, '選項')[1].slice(0, 4), ['類別', '筆電', 1, false]);
 });
 
 test('連結：試算表上只有預設的類別時，當作雲端還沒有資料，這台裝置的資料存過去', async () => {
@@ -747,7 +747,7 @@ test('試算表少了選填的欄（舊版建立的、被刪掉的）：補在�
   const dev = d.Store.list('devices')[0];
   d.Store.update('devices', dev.id, { model: 'B5402', note: '附充電器' });
   await d.Sync.syncNow();
-  // 刪掉「型號」那一欄（第 6 欄）
+  // 刪掉「機型」那一欄（第 6 欄）
   fake.sheet(id, '設備').grid.forEach(row => row.splice(5, 1));
   await d.Sync.syncNow();
   const st = d.Sync.state();
@@ -756,12 +756,12 @@ test('試算表少了選填的欄（舊版建立的、被刪掉的）：補在�
   assert.equal(st.pending, 0);
   assert.equal(d.Store.list('devices')[0].model, 'B5402');
   const rows = fake.values(id, '設備');
-  assert.equal(rows[0].at(-1), '型號');
+  assert.equal(rows[0].at(-1), '機型');
   assert.equal(rows[0].at(-2), 'id');
   assert.equal(rows[1].at(-1), 'B5402');
   // 再同步一次：已經補好，不會再補
   await d.Sync.syncNow();
-  assert.equal(fake.values(id, '設備')[0].filter(h => h === '型號').length, 1);
+  assert.equal(fake.values(id, '設備')[0].filter(h => h === '機型').length, 1);
   // 在試算表裡改補上的那一欄，讀得回來
   fake.setCell(id, '設備', 2, rows[0].length - 1, 'X13');
   await d.Sync.syncNow();
@@ -774,7 +774,7 @@ test('試算表少了選填的欄，同一次也有新增的設備：新的那�
   d.Store.add('devices', { ...PRINTER, model: 'L3210' });
   await d.Sync.syncNow();
   const rows = fake.values(id, '設備');
-  assert.equal(rows[0].at(-1), '型號');
+  assert.equal(rows[0].at(-1), '機型');
   assert.equal(rows[2][rows[0].length - 1], 'L3210');
 });
 
@@ -809,7 +809,7 @@ test('在這台裝置改了清單的名字（還沒同步），試算表也改�
 test('在試算表裡勾「停用」、新增人員（沒有 id），同步後 App 也有', async () => {
   const { fake, d, id } = await linked();
   const row = fake.values(id, '選項').findIndex(r => r[1] === '平板') + 1;
-  fake.setCell(id, '選項', row, 2, true);
+  fake.setCell(id, '選項', row, 3, true);
   fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '2020/2/1', '', '備註']);
   await d.Sync.syncNow();
   assert.equal(d.Store.list('options').find(o => o.name === '平板').disabled, true);
@@ -853,7 +853,7 @@ test('在試算表裡手打、沒填編號的設備：同步時補上編號，�
   assert.deepEqual(d.inbox.filter(m => /編號/.test(m.title)), []); // 補上的不用提醒
 });
 
-test('兩台裝置沒網路時各新增一台、拿到同一個編號：同步時後新增的那台換下一號，提醒裡寫出來', async () => {
+test('兩台裝置沒網路時各新增一台、拿到同一個編號：同步時後新增的那台換下一號（編號畫面上看不到，不用提醒）', async () => {
   const { fake, d } = await linked();
   const phone = device(fake);
   await phone.Sync.startLink();
@@ -868,9 +868,7 @@ test('兩台裝置沒網路時各新增一台、拿到同一個編號：同步�
   await phone.Sync.syncNow();
   assert.equal(phone.Store.get('devices', a.id).code, '26-0001');
   assert.equal(phone.Store.get('devices', b.id).code, '26-0002');
-  const m = phone.inbox.find(x => /編號重複/.test(x.title));
-  assert.equal(m.title, '1 台設備的編號重複，換了新的編號');
-  assert.match(m.body, /手機上新增的：26-0001 → 26-0002/);
+  assert.equal(phone.inbox.filter(x => /編號/.test(x.title)).length, 0);
   // 另一台同步後也一樣，不會再換一次
   await d.Sync.syncNow();
   assert.equal(d.Store.get('devices', b.id).code, '26-0002');
@@ -908,7 +906,6 @@ test('兩台裝置各新增一台、拿到同一個編號：換號的那台在�
   assert.equal(phone.Store.get('devices', b.id).code, '26-0002');
   assert.equal(phone.Store.get('readings', rb.id).device, '26-0002');
   assert.equal(phone.Store.list('readings').find(r => r.id !== rb.id).device, '26-0001');
-  assert.match(phone.inbox.find(x => /編號重複/.test(x.title)).body, /這台的 1 筆紀錄也跟著換了/);
   await d.Sync.syncNow();
   assert.equal(d.Store.get('readings', rb.id).device, '26-0002');
 });

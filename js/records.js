@@ -25,11 +25,20 @@ const Records = (() => {
   const of = (table, code) => (key(code) ? Store.list(table).filter(r => key(r.device) === key(code)) : []);
   const latest = (table, code, k) => of(table, code).sort(byDate(k)).at(-1) || null;
 
-  // 表單上位置欄（設備）下面：這台設備的編號和名稱
-  const deviceNote = code => {
-    const d = device(code);
-    return d ? [d.code, d.name].filter(Boolean).join(' ') : '';
-  };
+  // 認一台機器：機型＋名稱（IMC4500 #1234）；編號只在系統裡用，畫面上不顯示
+  const label = d => [d?.model, d?.name].filter(Boolean).join(' ') || d?.code || '';
+  // 再加上機器序號（查機器、印紀錄時最常用的）：IMC4500 #1234 · 3101R800451
+  const fullLabel = d => [label(d), d?.serial].filter(Boolean).join(' · ');
+  // 表單上位置欄（設備）下面：這台設備的機型、名稱、序號
+  const deviceNote = code => fullLabel(device(code));
+
+  // 設備表單上名稱下面：同機型已經有一樣的名稱時提醒（還是可以存）
+  function nameNote(values) {
+    const n = key(values.name);
+    if (!n) return '';
+    const dup = Store.list('devices').find(d => d.id !== values.id && key(d.name) === n && key(d.model) === key(values.model));
+    return dup ? { text: '同機型已經有這個名稱', warn: true } : '';
+  }
 
   // 某一天設備在哪裡：那天（含）之前最後一筆異動的新位置；那天之前還沒有異動時是第一筆異動的原位置；沒有異動時是設備現在的位置
   function locationAt(code, date) {
@@ -39,18 +48,24 @@ const Records = (() => {
     return last ? last.to : moves[0].from || '';
   }
 
-  // 紀錄的卡片最上面一行（底部「紀錄」分頁）：那時候在哪裡、哪一台設備；找不到時提醒
-  //   date 沒給時不寫位置（異動的卡片標題已經寫了）
-  function deviceLine(code, date = null) {
-    const d = device(code);
-    if (!d) return { text: `${code || '沒有填設備'}：找不到這台設備`, warn: true };
-    const where = date ? locationAt(code, date) : '';
-    return { text: [where, [d.code, d.name].filter(Boolean).join(' ')].filter(Boolean).join(' · '), warn: false };
+  // 「紀錄」分頁的卡片最上面一行：在哪裡 · 機型 名稱（序號不寫，搜尋找得到）；找不到設備時提醒
+  //   保養、抄表、翻新：那時候的位置
+  //   合約：合約期間在哪裡（還沒到期的寫現在的位置，到期了的寫到期那天的位置）；簽約時機器多半還在倉庫，不能用簽約日
+  //   異動：只寫機器（標題已經寫了從哪裡到哪裡）
+  function recordLine(table, r) {
+    const d = device(r.device);
+    if (!d) return { text: `${r.device || '沒有填設備'}：找不到這台設備`, warn: true };
+    const when = table === 'moves' ? null : table === 'contracts' ? [r.endDate || U.today(), U.today()].sort()[0] : r.date;
+    return { text: [when && locationAt(r.device, when), label(d)].filter(Boolean).join(' · '), warn: false };
   }
-  // 搜尋紀錄時，打設備名稱、現在的位置、那時候的位置都找得到
-  const deviceText = (code, date = null) => [device(code)?.name, device(code)?.location, date && locationAt(code, date)].filter(Boolean).join(' ');
 
-  // 一筆紀錄的簡短說明（儲存後的提示、提醒裡用），例如「24-0001 2026/10/11 移機」
+  // 搜尋紀錄時，打設備的名稱、機型、序號、現在的位置、那時候的位置都找得到
+  const deviceText = (code, date = null) => {
+    const d = device(code);
+    return [d?.name, d?.model, d?.serial, d?.location, date && locationAt(code, date)].filter(Boolean).join(' ');
+  };
+
+  // 一筆紀錄的簡短說明（儲存後的提示、提醒裡用），例如「IMC4500 #1234 2026/10/11 移機」；找不到設備時寫編號
   function describe(table, r) {
     const parts = {
       moves: [U.fmtDate(r.date), r.type],
@@ -60,7 +75,7 @@ const Records = (() => {
       refurbs: [U.fmtDate(r.date), '翻新'],
       parts: [r.name],
     }[table] || [];
-    return [r.device, ...parts].filter(Boolean).join(' ');
+    return [label(device(r.device)) || r.device, ...parts].filter(Boolean).join(' ');
   }
 
   // 卡片最下面的備註（只寫第一行）
@@ -208,6 +223,41 @@ const Records = (() => {
     return text ? { text, warn: false } : null;
   }
 
+  // ---------- 總覽 ----------
+  // 設備的狀態，照狀態清單的寫法（大小寫、全形半形不同也認得）
+  const statusField = () => SCHEMAS.devices.fields.find(f => f.key === 'status');
+  const statusOf = d => Refs.nameOf('statuses', Refs.find(statusField(), d.status)) || String(d.status ?? '').trim();
+
+  // 各機型有幾台：status 是狀態的名字（空字串是全部）；機型的大小寫、全形半形、空格不同算同一種
+  //   回傳 [{ model, brand, count }]：model、brand 用最多台的寫法
+  //   照機型清單的順序（設定 → 清單 → 機型 →「排序」）；清單裡沒排過、不在清單裡的依名字排在後面；沒填機型的排最後
+  // 機型在機型清單裡的順序；沒排過、不在清單裡的是 Infinity
+  function modelOrder(m) {
+    const o = m ? Refs.find(SCHEMAS.devices.fields.find(f => f.key === 'model'), m) : null;
+    return typeof o?.order === 'number' ? o.order : Infinity;
+  }
+  const byText = (x, y) => String(x ?? '').localeCompare(String(y ?? ''), 'zh-Hant', { numeric: true });
+
+  // 設備列表的順序：照機型清單的順序（沒填機型的排最後），同一個機型依名稱（#1234 照數字大小）
+  const deviceOrder = (a, b) => (!a.model - !b.model) || (modelOrder(a.model) - modelOrder(b.model)) || byText(a.model, b.model) || byText(a.name, b.name);
+
+  function modelCounts(status = '') {
+    const orderOf = modelOrder;
+    const groups = new Map();
+    Store.list('devices').filter(d => !status || statusOf(d) === status).forEach(d => {
+      const model = String(d.model ?? '').trim();
+      const k = key(model).replace(/\s+/g, '');
+      if (!groups.has(k)) groups.set(k, { names: new Map(), brands: new Map(), count: 0 });
+      const g = groups.get(k);
+      g.count++;
+      g.names.set(model, (g.names.get(model) || 0) + 1);
+      if (d.brand) g.brands.set(d.brand, (g.brands.get(d.brand) || 0) + 1);
+    });
+    const most = m => [...m].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    return [...groups].map(([k, g]) => ({ model: k ? most(g.names) : '', brand: most(g.brands), count: g.count }))
+      .sort((a, b) => (!a.model - !b.model) || (orderOf(a.model) - orderOf(b.model)) || a.model.localeCompare(b.model, 'zh-Hant', { numeric: true }));
+  }
+
   // ---------- 對不上的設備 ----------
   // 找不到設備的紀錄（在試算表裡打錯了設備編號）：[{ table, rec }]
   function orphans() {
@@ -234,11 +284,11 @@ const Records = (() => {
   }
 
   return {
-    TABLES, firstLine, noteLine, device, of, latest, deviceNote, locationAt, deviceLine, deviceText, describe,
+    TABLES, firstLine, noteLine, device, of, latest, label, fullLabel, deviceNote, nameNote, locationAt, recordLine, deviceText, describe, deviceOrder,
     hasMoves, moveTitle, syncLocations,
     currentContract, isCurrentContract, contractNote, endText,
     countsText, usage, usageNote, readingNote, monthNote, countNote,
     workNote, refurbNote, serialNote,
-    partOrder, partNote, orphans, followCodes,
+    partOrder, partNote, statusOf, modelCounts, orphans, followCodes,
   };
 })();

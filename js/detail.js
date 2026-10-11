@@ -1,5 +1,5 @@
 // 設備詳情：點設備卡片打開（見 app.js）
-//   上面：設備資訊（編號、名稱、狀態、型號、主機板號碼、保管人、保固）；右上角「編輯」打開設備的表單
+//   上面：設備資訊（名稱、狀態、序號、機型、主機板號碼、保管人、保固）；標題寫機型＋名稱（編號不顯示）；右上角「編輯」打開設備的表單
 //   下面：一張表一列（位置、合約、抄表、保養、翻新、配件），寫最新的狀況和筆數
 //     點一列打開那張表的頁面（這台設備的紀錄、右上角新增）；右邊的「＋」直接新增
 //   在這裡新增紀錄時自動帶入這台設備；設備被刪掉時這一頁跟著關
@@ -75,7 +75,7 @@ const Detail = (() => {
   // ---------- 畫面 ----------
   function infoHTML(d) {
     const tone = Refs.tone('statuses', Refs.find(statusField, d.status));
-    const cells = [['型號', d.model], ['主機板號碼', d.board], ['保管人', d.keeper]]
+    const cells = [['序號', d.serial], ['機型', d.model], ['主機板號碼', d.board], ['保管人', d.keeper]]
       .map(([label, v]) => `<span class="cell"><small>${label}</small><span>${U.esc(v) || '—'}</span></span>`).join('');
     const w = warrantyNote(d);
     return `
@@ -111,11 +111,11 @@ const Detail = (() => {
       if (dlg.open) dlg.close();
       return;
     }
-    titleEl.textContent = d.code || '設備';
+    titleEl.textContent = Records.label(d) || '設備';
     infoEl.innerHTML = infoHTML(d);
     rowsEl.innerHTML = ROWS.map(r => rowHTML(r, d)).join('');
     if (open) {
-      subTitle.textContent = `${d.code} ${ROWS.find(r => r.key === open).label}`;
+      subTitle.textContent = `${d.name || Records.label(d)} ${ROWS.find(r => r.key === open).label}`;
       lists[open].refresh();
     }
   }

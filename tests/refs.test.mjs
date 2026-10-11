@@ -44,9 +44,10 @@ function withData() {
   return a;
 }
 
-test('全新的裝置：類別先放預設項目，沒改過時不算這台裝置的資料', () => {
+test('全新的裝置：類別先放預設項目（照寫的順序），沒改過時不算這台裝置的資料', () => {
   const { Store, Refs, field } = app();
-  assert.deepEqual(names(Refs.items(field('devices', 'category'))), ['手機', '平板', '印表機', '桌機', '筆電', '網路設備', '螢幕'].sort((a, b) => a.localeCompare(b, 'zh-Hant')));
+  assert.deepEqual(names(Refs.items(field('devices', 'category'))), ['筆電', '桌機', '螢幕', '印表機', '網路設備', '手機', '平板']);
+  assert.deepEqual(names(Refs.items(field('maintenance', 'item'))), ['碳粉 K', '碳粉 C', '碳粉 M', '碳粉 Y', '感光鼓', '廢粉盒', '清潔保養']);
   assert.equal(Store.ownCount(), 0);
   // 改過一項就算
   const seed = Store.list('options')[0];
@@ -150,9 +151,10 @@ test('不在清單裡的值：每個範圍一組（保管人、工程師都是�
   assert.equal(Refs.listOfScope('options:位置').key, 'options:位置');
 });
 
-test('設定裡的清單：狀態、類別、位置、品牌、保養項目、選配件、人員、廠商；停用的排在後面', () => {
+test('設定裡的清單：狀態、類別、位置、品牌、機型、保養項目、選配件、人員、廠商；停用的排在後面', () => {
   const { Refs } = withData();
-  assert.deepEqual(plain(Refs.lists().map(l => l.title)), ['狀態', '類別', '位置', '品牌', '保養項目', '選配件', '人員', '廠商']);
+  assert.deepEqual(plain(Refs.lists().map(l => l.title)), ['狀態', '類別', '位置', '品牌', '機型', '保養項目', '選配件', '人員', '廠商']);
+  assert.deepEqual(plain(Refs.lists().filter(l => l.sortable).map(l => l.title)), ['狀態', '類別', '機型', '保養項目', '選配件']);
   const loc = Refs.lists().find(l => l.key === 'options:位置');
   assert.deepEqual(names(Refs.listItems(loc)), ['2F 辦公室', '3F 會議室', '舊倉庫']);
   const people = Refs.lists().find(l => l.key === 'people');
@@ -240,6 +242,27 @@ test('設備：主機板號碼有填的話不能重複，搜尋找得到', () =>
   const { SCHEMAS } = app();
   const s = SCHEMAS.devices;
   assert.deepEqual(plain(s.unique), [['code'], ['board']]);
-  assert.equal(s.uniqueMsg({ code: '24-0001', name: 'IM C6000' }, ['board']), '這個主機板號碼已經用在 24-0001 IM C6000');
+  assert.equal(s.uniqueMsg({ code: '24-0001', name: '#1234', model: 'IMC6000' }, ['board']), '這個主機板號碼已經用在 IMC6000 #1234');
   assert.ok(s.search.includes('board'));
+});
+
+test('排序：↑ ↓ 移一格，沒停用的重新編成 1、2、3…，停用的排在後面；新加的排在最後', () => {
+  const { Store, Refs, field } = app();
+  const l = Refs.lists().find(x => x.key === 'options:機型');
+  ['IMC4500', 'IMC6000', 'IMC5500'].forEach(name => Refs.quickAdd(field('devices', 'model'), name));
+  Store.add('options', { list: '機型', name: 'MP3555', order: null, disabled: true });
+  // 還沒排過：依名字
+  assert.deepEqual(names(Refs.listItems(l)), ['IMC4500', 'IMC5500', 'IMC6000', 'MP3555']);
+  const id = name => Store.list('options').find(o => o.name === name).id;
+  assert.equal(Refs.move(l, id('IMC6000'), -1), true);
+  assert.equal(Refs.move(l, id('IMC6000'), -1), true);
+  assert.equal(Refs.move(l, id('IMC6000'), -1), false); // 已經第一個
+  assert.deepEqual(names(Refs.listItems(l)), ['IMC6000', 'IMC4500', 'IMC5500', 'MP3555']);
+  assert.equal(Refs.move(l, id('IMC5500'), -1), true);
+  assert.deepEqual(names(Refs.items(field('devices', 'model'))), ['IMC6000', 'IMC5500', 'IMC4500']);
+  assert.deepEqual(plain(Store.list('options').filter(o => o.list === '機型').map(o => [o.name, o.order])),
+    [['IMC4500', 3], ['IMC6000', 1], ['IMC5500', 2], ['MP3555', 4]]);
+  // 新加的沒有順序：排在最後
+  Refs.quickAdd(field('devices', 'model'), 'C3504');
+  assert.deepEqual(names(Refs.items(field('devices', 'model'))), ['IMC6000', 'IMC5500', 'IMC4500', 'C3504']);
 });

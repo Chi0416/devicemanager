@@ -38,7 +38,7 @@
 //   （資料表）formTitle: 表單標題用的名稱，沒有時用 title
 //   （資料表）describe:  一筆資料的簡短說明（儲存後的提示、提醒裡用）：describe(列)；沒有時用 card 的編號、名稱、標籤
 //   （資料表）unit:      筆數的單位（「3 台設備」），被清單引用時的說明用
-//   （資料表）card:      列表卡片：code 灰色小字、title 名稱（可以是函式：title(列)）、badge 標籤、primary 右上角、
+//   （資料表）card:      列表卡片：code 灰色小字、title 名稱（可以是函式：title(列)）、sub(列) 名稱下面一行小字、badge 標籤、primary 右上角、
 //                       grid 卡片下方的欄位（沒有時列出其餘全部）
 //   （資料表）status:    沒有 badge 時的標籤：status(列) 回傳 { label, cls } 或 null（目前的合約、已拆除）
 //   （資料表）note:      卡片最下面的一行：note(列) 回傳 { text, warn } 或 null
@@ -82,8 +82,10 @@ const DEFAULT_STATUSES = [
 ];
 
 // 只有名字的清單，都放在「選項」表，用「清單」欄分
-const OPTION_LISTS = ['類別', '位置', '品牌', '保養項目', '選配件'];
-// 預設項目（沒改過時不算這台裝置的資料）；id 的開頭：類別是 seed-1…，其他加上清單的代號
+const OPTION_LISTS = ['類別', '位置', '品牌', '機型', '保養項目', '選配件'];
+// 可以自己排順序的清單（設定 → 清單 →「排序」，↑ ↓ 移動）；其他的依名字排（位置、品牌）
+const SORTED_LISTS = ['類別', '機型', '保養項目', '選配件'];
+// 預設項目（沒改過時不算這台裝置的資料），照寫的順序排；id 的開頭：類別是 seed-1…，其他加上清單的代號
 const DEFAULT_OPTIONS = [
   { list: '類別', id: '', names: ['筆電', '桌機', '螢幕', '印表機', '網路設備', '手機', '平板'] },
   { list: '保養項目', id: 'mt', names: ['碳粉 K', '碳粉 C', '碳粉 M', '碳粉 Y', '感光鼓', '廢粉盒', '清潔保養'] },
@@ -180,31 +182,36 @@ const countField = (key, label, more = {}) => ({
 const recordMonth = key => ({ key, unit: 'month', label: '月份' });
 
 const SCHEMAS = {
+  //   編號（24-0001）是系統用來對紀錄的，畫面上不顯示；認機器看「機型＋名稱」（名稱填機身號碼 #1234）
   devices: {
     title: '設備',
     unit: '台設備',
-    sort: 'code',
+    order: (a, b) => Records.deviceOrder(a, b), // 照機型清單的順序，同一個機型依名稱
     filter: 'status',
-    groups: [['category', '類別'], ['location', '位置'], ['keeper', '保管人']],
-    search: ['code', 'name', 'brand', 'model', 'serial', 'board', 'location', 'keeper'],
-    searchHint: '搜尋位置、編號或名稱',
-    card: { code: 'code', title: 'name', badge: 'status', grid: ['category', 'location', 'keeper'] },
+    groups: [['category', '類別'], ['model', '機型'], ['location', '位置'], ['keeper', '保管人']],
+    search: ['serial', 'name', 'brand', 'model', 'board', 'location', 'keeper'],
+    searchHint: '搜尋序號、名稱或位置',
+    // 名稱下面一行寫機器序號（查機器、印紀錄時最常用）
+    card: { title: 'name', sub: r => (r.serial ? `序號 ${r.serial}` : ''), badge: 'status', grid: ['model', 'location', 'keeper'] },
     note: warrantyNote,
+    describe: r => Records.label(r),
     unique: [['code'], ['board']],
     uniqueMsg: (dup, keys) => (keys[0] === 'board'
-      ? `這個主機板號碼已經用在 ${dup.code} ${dup.name}`
-      : `編號 ${dup.code} 已經用過了（${dup.name}）`),
-    // 紀錄的「設備」欄從這裡選：顯示位置、存編號（沒填位置的顯示編號）；刪除設備時連同它的紀錄一起刪（見 form.js）
-    target: { name: 'code', label: r => r.location || r.code, sub: r => [r.code, r.name].filter(Boolean).join(' '), noAdd: true, cascade: true },
+      ? `這個主機板號碼已經用在 ${Records.label(dup)}`
+      : `編號 ${dup.code} 已經用過了（${Records.label(dup)}）`),
+    // 紀錄的「設備」欄從這裡選：顯示位置、存編號（沒填位置的顯示機型＋名稱）；刪除設備時連同它的紀錄一起刪（見 form.js）
+    target: { name: 'code', label: r => r.location || Records.label(r), sub: r => Records.fullLabel(r), noAdd: true, cascade: true },
     empty: '還沒有設備<br>點右上角「＋ 新增」開始記錄',
     fields: [
-      // 年份照購買日期（沒填用今年），給了就不會變
-      { key: 'code',     label: '編號',     type: 'text', auto: nextDeviceCode, section: '基本資料' },
-      { key: 'name',     label: '名稱',     type: 'text' },
+      // 年份照購買日期（沒填用今年），給了就不會變；表單上不顯示
+      { key: 'code',     label: '編號',     type: 'text', auto: nextDeviceCode, hidden: true, section: '基本資料' },
+      // 機身號碼（#1234）；同機型已經有一樣的名稱時提醒（還是可以存）
+      { key: 'name',     label: '名稱',     type: 'text', note: v => Records.nameNote(v) },
       { key: 'status',   label: '狀態',     type: 'ref', ref: 'statuses', default: () => firstStatus() },
       { key: 'category', label: '類別',     type: 'ref', ref: 'options', list: '類別', optional: true, keep: true },
       { key: 'brand',    label: '品牌',     type: 'ref', ref: 'options', list: '品牌', optional: true, keep: true },
-      { key: 'model',    label: '型號',     type: 'text', optional: true, keep: true },
+      // 機型從清單選，清單的順序就是總覽的順序（以前叫「型號」，是自己打的字）
+      { key: 'model',    label: '機型',     was: ['型號'], type: 'ref', ref: 'options', list: '機型', optional: true, keep: true },
       { key: 'serial',   label: '序號',     type: 'text', optional: true, caps: true, section: '機器識別' },
       { key: 'board',    label: '主機板號碼', type: 'text', optional: true, caps: true, tight: true, clean: cleanBoard, note: boardNote },
       // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示
@@ -367,18 +374,20 @@ const SCHEMAS = {
     ],
   },
 
-  // 只有名字的清單（類別、位置、品牌、保養項目、選配件）
+  // 只有名字的清單（類別、位置、品牌、機型、保養項目、選配件）
+  //   順序：可以排序的清單在清單頁用 ↑ ↓ 排（存 1、2、3…），表單上不顯示；沒有順序的排在後面、依名字排
   options: {
     title: '選項',
     noList: true,
-    target: { name: 'name', group: 'list', active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
+    target: { name: 'name', group: 'list', order: 'order', active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
     unique: [['list', 'name']],
     uniqueMsg: dup => `${dup.list}清單裡已經有「${dup.name}」了`,
-    seed: () => DEFAULT_OPTIONS.flatMap(o => o.names.map((name, i) => ({ id: `seed-${o.id}${i + 1}`, list: o.list, name, disabled: false }))),
+    seed: () => DEFAULT_OPTIONS.flatMap(o => o.names.map((name, i) => ({ id: `seed-${o.id}${i + 1}`, list: o.list, name, order: i + 1, disabled: false }))),
     fields: [
       { key: 'list',     label: '清單', type: 'text', full: true, suggest: OPTION_LISTS,
         toggle: OPTION_LISTS.map(v => ({ value: v, label: v, tone: '', match: new RegExp(`^${v}$`) })) },
       { key: 'name',     label: '名稱', type: 'text', full: true },
+      { key: 'order',    label: '順序', type: 'number', optional: true, hidden: true },
       { key: 'disabled', label: '停用', type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示' },
     ],
   },

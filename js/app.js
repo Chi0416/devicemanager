@@ -17,15 +17,6 @@
   }
 
   // ---------- 頁面 ----------
-  // 還沒做好的頁面：只有標題和一段說明
-  function createPlaceholder(text) {
-    const el = document.createElement('section');
-    el.className = 'panel';
-    el.hidden = true;
-    el.innerHTML = `<p class="empty">${text}</p>`;
-    return { el, refresh() {}, changed() {}, reset() {} };
-  }
-
   // 「紀錄」裡的每一頁：[資料表, 上方切換的名稱, 新增按鈕上寫的]
   const RECORD_PAGES = [['maintenance', '保養', '保養'], ['refurbs', '翻新', '翻新'], ['readings', '抄表', '抄表'], ['contracts', '合約', '合約'], ['moves', '異動', '異動']];
   const PAGES = {
@@ -34,13 +25,20 @@
     ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, SCHEMAS[k]])),
   };
   const lists = {
-    overview: createPlaceholder('這裡之後會列出各狀態的設備數量<br>和即將到期的保固、合約'),
+    // 總覽：各型號有幾台（見 overview.js）；點一個型號到設備頁，篩好狀態和型號
+    overview: createOverview({
+      onPick(status, model) {
+        showTab('devices');
+        lists.devices.show({ filter: status, keyword: model });
+        window.scrollTo(0, 0);
+      },
+    }),
     // 點設備卡片打開詳情（見 detail.js）
     devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id) }),
-    // 紀錄：卡片最上面寫那時候在哪裡、哪一台設備（異動的標題已經寫了位置）
+    // 紀錄：卡片最上面寫在哪裡、哪一台設備（依紀錄的種類，見 records.js 的 recordLine）
     ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, createList(k, SCHEMAS[k], {
       openForm: id => Form.open(k, id),
-      device: r => Records.deviceLine(r.device, k === 'moves' ? null : r[SCHEMAS[k].period.key]),
+      device: r => Records.recordLine(k, r),
     })])),
   };
   Object.values(lists).forEach(l => $('panels').appendChild(l.el));
