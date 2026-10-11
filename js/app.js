@@ -1,15 +1,15 @@
-// 進入點：分頁、列表、表單、Google 雲端硬碟同步、提醒、資料備份
+// 進入點：分頁、列表、表單、清單、Google 雲端硬碟同步、提醒、資料備份
 //   底部 3 格：總覽｜設備｜紀錄（見 GROUPS）
 (() => {
   const TAB_KEY = `${Store.PREFIX}tab`;
   const LOGOUT_KEY = `${Store.PREFIX}loggedOut`; // 登出後重新載入頁面時顯示「已登出」（sessionStorage，登出清資料時不會被清掉）
   const $ = id => document.getElementById(id);
 
-  // ---------- 提示訊息（有開啟的 sheet 時顯示在 sheet 上層） ----------
+  // ---------- 提示訊息（有開啟的 sheet 時顯示在最上面那一層） ----------
   const toastEl = $('toast');
   let toastTimer;
   function toast(msg, kind = '') {
-    (document.querySelector('dialog[open]') || document.body).appendChild(toastEl);
+    ([...document.querySelectorAll('dialog[open]')].at(-1) || document.body).appendChild(toastEl);
     toastEl.textContent = msg;
     toastEl.className = `show ${kind}`;
     clearTimeout(toastTimer);
@@ -29,7 +29,7 @@
   const PAGES = {
     overview: { title: '總覽' },
     records: { title: '紀錄' },
-    ...SCHEMAS,
+    devices: SCHEMAS.devices,
   };
   const lists = {
     overview: createPlaceholder('這裡之後會列出各狀態的設備數量<br>和即將到期的保固、保養'),
@@ -39,11 +39,14 @@
   Object.values(lists).forEach(l => $('panels').appendChild(l.el));
   let current = 'devices';
 
-  // 新增、修改、刪除之後：那一頁重畫，剛改的那筆閃一下
+  // 新增、修改、刪除之後：那一頁重畫，剛改的那筆閃一下；其他頁也重畫（清單改名時設備跟著改）
   function onChanged(key, rec) {
-    lists[key]?.changed(rec);
+    Object.entries(lists).forEach(([k, l]) => (k === key ? l.changed(rec) : l.refresh()));
+    Lists.refresh();
+    if (menu.open) renderListsMenu();
   }
   Form.init({ toast, onChanged });
+  Lists.init({ toast, onChanged });
 
   // ---------- 分頁 ----------
   // 底部的每一格（key）和裡面的頁（pages：[頁面, 上方切換的名稱]）；只有一頁的不顯示上方切換
@@ -96,8 +99,28 @@
 
   const refreshAll = () => Object.values(lists).forEach(l => l.refresh());
 
-  // ---------- 設定：資料備份 ----------
+  // ---------- 設定：清單（見 lists.js）、資料備份 ----------
   const menu = $('menu-sheet');
+  const listsMenu = $('lists-menu');
+
+  // 每一份清單一列：名稱、幾項；有不在清單裡的值時寫出來
+  function renderListsMenu() {
+    listsMenu.innerHTML = Refs.lists().map(l => {
+      const n = Refs.listItems(l).length;
+      const miss = new Set(Lists.missingOf(l).flatMap(x => x.values)).size;
+      return `
+        <li>
+          <button type="button" class="list-item" data-list="${U.esc(l.key)}">
+            <span class="member-info"><b>${U.esc(l.title)}</b>${miss ? `<small class="warn-text">${miss} 個不在清單裡</small>` : ''}</span>
+            <span class="uses">${n} 項</span><span class="go" aria-hidden="true">›</span>
+          </button>
+        </li>`;
+    }).join('');
+  }
+  listsMenu.addEventListener('click', e => {
+    const btn = e.target.closest('[data-list]');
+    if (btn) Lists.open(btn.dataset.list);
+  });
 
   function renderBackupInfo() {
     $('stats').innerHTML = Object.entries(SCHEMAS).map(([k, s]) =>
@@ -107,6 +130,7 @@
   }
 
   function openMenu() {
+    renderListsMenu();
     renderBackupInfo();
     if (!menu.open) menu.showModal();
   }
@@ -175,6 +199,7 @@
 
     Store.replaceAll(parsed);
     Object.values(lists).forEach(l => l.reset());
+    renderListsMenu();
     renderBackupInfo();
     toast('匯入完成');
   });
@@ -336,9 +361,32 @@
         else toast('還沒有連結 Google 試算表');
       } else if (a.type === 'sync') {
         Sync.syncNow();
+      } else if (a.type === 'list-import') {
+        // 不在清單裡的值：一次加進清單
+        const n = Refs.importMissing(a.scope);
+        onChanged(Refs.listOfScope(a.scope)?.table, null);
+        toast(n ? `已加入 ${n} 項到清單` : '都已經在清單裡了');
+      } else if (a.type === 'list-open') {
+        const l = Refs.listOfScope(a.scope);
+        if (l) Lists.open(l.key);
       }
     },
   });
+
+  // 設備裡填過、但不在清單裡的值（試算表手打的、清單做好之前填的）：每個範圍一則提醒，附「加入清單」
+  function checkLists() {
+    Inbox.reconcile('notinlist:', Refs.missing().map(m => ({
+      key: `notinlist:${m.key}`,
+      title: `有 ${m.values.length} 個${m.name}不在清單裡`,
+      body: `${m.values.slice(0, 10).join('、')}${m.values.length > 10 ? `…等 ${m.values.length} 個` : ''}\n加進清單後，選單裡就選得到。`,
+      buttons: [
+        { label: '加入清單', action: { type: 'list-import', scope: m.key } },
+        { label: '打開清單', action: { type: 'list-open', scope: m.key } },
+      ],
+    })));
+  }
+  checkLists();
+  Store.onChange(checkLists);
 
   // 試算表的資料讀回來之後，全部重畫
   Sync.init({
@@ -346,7 +394,12 @@
     notify: Inbox.add,
     onData() {
       refreshAll();
-      if (menu.open) renderBackupInfo();
+      Lists.refresh();
+      checkLists();
+      if (menu.open) {
+        renderListsMenu();
+        renderBackupInfo();
+      }
     },
     onStatus(st) {
       renderSyncBar(st);

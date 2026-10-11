@@ -1,5 +1,8 @@
 // 列表：卡片列表，點卡片開啟編輯表單
-//   有 schema.period 時依日期分組（新到舊），上方可以選年、月；沒有時依 schema.sort 排序、不分組
+//   有 schema.period 時依日期分組（新到舊），上方可以選年、月；沒有時依 schema.sort 排序
+//   schema.filter：上方一排篩選按鈕（依那個欄位的 toggle 或清單，例如設備的狀態），寫著每一種有幾筆
+//   schema.groups：上方的分組選單（不分組、依類別、依位置…），這台裝置記住上次選的
+//   schema.note：卡片最下面的一行（例如保固快到期）
 //   schema.total 存在時，列表上方顯示合計
 function createList(tableKey, schema, { openForm }) {
   const fields = schema.fields;
@@ -11,7 +14,12 @@ function createList(tableKey, schema, { openForm }) {
     : fields.filter(f => ![period?.key, code, title, badge, primary].includes(f.key) && !f.multiline);
   const searchKeys = schema.search || [code, title].filter(Boolean);
   const getRows = schema.rows || (() => Store.list(tableKey));
-  const state = { period: null, keyword: '', flashId: null };
+  const filterField = schema.filter ? byKey[schema.filter] : null;
+  const groups = schema.groups || [];
+  const GROUP_KEY = `${Store.PREFIX}group.${tableKey}`;
+  let savedGroup = '';
+  try { savedGroup = localStorage.getItem(GROUP_KEY) || ''; } catch (_) {}
+  const state = { period: null, keyword: '', flashId: null, filter: '', group: groups.some(([k]) => k === savedGroup) ? savedGroup : '' };
 
   const periodOf = r => {
     const d = String(r[period.key] ?? '');
@@ -26,14 +34,36 @@ function createList(tableKey, schema, { openForm }) {
   const periodLabel = p => (p.length === 4 ? `${p} 年` : U.fmtDate(p));
   const matchKeyword = r =>
     searchKeys.map(k => r[k] ?? '').join(' ').toLowerCase().includes(state.keyword.trim().toLowerCase());
+  // 篩選按鈕：toggle 的哪一個（試算表手打的字也認得）；從清單選的欄位：清單裡的哪一項（大小寫、全形半形不同也認得）
+  const filterOf = r => {
+    const v = String(r[filterField.key] ?? '').trim();
+    if (filterField.toggle) return filterField.toggle.find(o => o.match.test(v))?.value ?? '';
+    const hit = Refs.find(filterField, v);
+    return hit ? Refs.nameOf(filterField.ref, hit) : v;
+  };
+  // 篩選按鈕的選項：toggle 的選項；從清單選的欄位是清單裡沒停用的，加上停用了但還有設備在用的、不在清單裡的值
+  function filterOptions(rows) {
+    if (filterField.toggle) return filterField.toggle;
+    const used = new Set(rows.map(filterOf).filter(Boolean));
+    const listed = Refs.items(filterField, { all: true }).filter(r => Refs.active(filterField.ref, r) || used.has(Refs.nameOf(filterField.ref, r)));
+    const names = listed.map(r => Refs.nameOf(filterField.ref, r));
+    return [
+      ...listed.map(r => ({ value: Refs.nameOf(filterField.ref, r), label: Refs.nameOf(filterField.ref, r), tone: Refs.tone(filterField.ref, r) })),
+      ...[...used].filter(v => !names.includes(v)).map(v => ({ value: v, label: v, tone: '' })),
+    ];
+  }
+  const inFilter = r => !state.filter || filterOf(r) === state.filter;
   const show = (f, v) => U.esc(U.display(f, v)) || '—';
   const cardLabel = f => f.cardLabel || f.label;
-  // 標籤的顏色：照 toggle 的 tone（設備的狀態）
+  // 標籤的顏色：照 toggle 的 tone，或清單裡那一項的顏色（設備的狀態）
   const badgeField = badge && byKey[badge];
-  const tone = v => badgeField?.toggle?.find(o => o.match.test(v))?.tone || '';
+  const tone = v => (badgeField?.type === 'ref'
+    ? Refs.tone(badgeField.ref, Refs.find(badgeField, v))
+    : badgeField?.toggle?.find(o => o.match.test(v))?.tone || '');
   const statusOf = r => (schema.status ? schema.status(r) : null);
   const introHTML = schema.intro ? `<p class="list-intro">${U.esc(schema.intro)}</p>` : '';
   const placeholder = `搜尋${searchKeys.slice(0, 2).map(k => byKey[k]?.label).filter(Boolean).join('或')}`;
+  const byText = (a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true });
 
   // ---------- DOM ----------
   const el = document.createElement('section');
@@ -41,19 +71,42 @@ function createList(tableKey, schema, { openForm }) {
   el.hidden = true;
   el.innerHTML = `
     <div class="filterbar">
-      ${period ? `<select class="f-period" aria-label="${period.label}"></select>` : ''}
-      <input class="f-keyword" type="search" placeholder="${U.esc(placeholder)}" autocomplete="off" enterkeyhint="search">
-      <span class="count"></span>
+      <div class="filterbar-row">
+        ${period ? `<select class="f-period" aria-label="${period.label}"></select>` : ''}
+        ${groups.length ? `<select class="f-group" aria-label="分組">
+          <option value="">不分組</option>
+          ${groups.map(([k, label]) => `<option value="${k}">依${U.esc(label)}</option>`).join('')}
+        </select>` : ''}
+        <input class="f-keyword" type="search" placeholder="${U.esc(placeholder)}" autocomplete="off" enterkeyhint="search">
+        ${filterField ? '' : '<span class="count"></span>'}
+      </div>
+      ${filterField ? '<div class="filter-chips" role="group" aria-label="篩選"></div>' : ''}
     </div>
     <div class="list"></div>`;
 
   const periodSel = el.querySelector('.f-period');
+  const groupSel = el.querySelector('.f-group');
   const keywordInput = el.querySelector('.f-keyword');
   const countEl = el.querySelector('.count');
+  const chipsEl = el.querySelector('.filter-chips');
   const listEl = el.querySelector('.list');
 
   periodSel?.addEventListener('change', () => { state.period = periodSel.value; renderList(); });
+  if (groupSel) {
+    groupSel.value = state.group;
+    groupSel.addEventListener('change', () => {
+      state.group = groupSel.value;
+      try { localStorage.setItem(GROUP_KEY, state.group); } catch (_) {}
+      renderList();
+    });
+  }
   keywordInput.addEventListener('input', () => { state.keyword = keywordInput.value; renderList(); });
+  chipsEl?.addEventListener('click', e => {
+    const btn = e.target.closest('[data-filter]');
+    if (!btn) return;
+    state.filter = btn.dataset.filter;
+    renderList();
+  });
   listEl.addEventListener('click', e => {
     const card = e.target.closest('.card');
     if (card) openForm(card.dataset.id);
@@ -71,6 +124,16 @@ function createList(tableKey, schema, { openForm }) {
     periodSel.value = state.period;
   }
 
+  // 篩選按鈕的數字跟著搜尋走（搜尋「筆電」時，寫的是筆電裡各狀態有幾台）
+  function renderChips(rows) {
+    if (!chipsEl) return;
+    const count = v => rows.filter(r => !v || filterOf(r) === v).length;
+    const opts = [{ value: '', label: '全部', tone: '' }, ...filterOptions(rows)];
+    chipsEl.innerHTML = opts.map(o => `
+      <button type="button" class="chip filter ${U.esc(o.tone)}${state.filter === o.value ? ' on' : ''}" data-filter="${U.esc(o.value)}"
+        aria-pressed="${state.filter === o.value}">${U.esc(o.label)}<span>${count(o.value)}</span></button>`).join('');
+  }
+
   function cardHTML(r) {
     const pf = primary && byKey[primary];
     const cells = gridFields.map(f =>
@@ -78,6 +141,7 @@ function createList(tableKey, schema, { openForm }) {
     // 標籤：有 badge 欄位用欄位的值；沒有時用狀態標籤
     const st = statusOf(r);
     const tag = badge ? r[badge] && { label: r[badge], cls: tone(r[badge]) } : st;
+    const note = schema.note ? schema.note(r) : null;
     return `
       <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}" data-id="${U.esc(r.id)}">
         <span class="card-top">
@@ -86,6 +150,7 @@ function createList(tableKey, schema, { openForm }) {
           ${pf ? `<span class="card-primary"><small>${cardLabel(pf)}</small><b>${show(pf, r[primary])}</b></span>` : ''}
         </span>
         ${cells ? `<span class="card-grid">${cells}</span>` : ''}
+        ${note ? `<span class="card-note${note.warn ? ' warn' : ''}">${U.esc(note.text)}</span>` : ''}
       </button>`;
   }
 
@@ -107,35 +172,53 @@ function createList(tableKey, schema, { openForm }) {
     if (!k) return 0;
     const x = String(a[k] ?? ''), y = String(b[k] ?? '');
     // 日期新到舊；其他（編號）由小到大，數字照大小排（NB-2 在 NB-10 前面）
-    return period ? (x < y ? 1 : x > y ? -1 : 0) : x.localeCompare(y, 'zh-Hant', { numeric: true });
+    return period ? (x < y ? 1 : x > y ? -1 : 0) : byText(x, y);
   };
+
+  // 分組：依日期（有 period 時）或依選的欄位；欄位空白的放最後（「未填類別」）
+  function grouped(rows) {
+    if (state.group) {
+      const label = groups.find(([k]) => k === state.group)[1];
+      const map = new Map();
+      rows.forEach(r => {
+        const g = String(r[state.group] ?? '').trim();
+        if (!map.has(g)) map.set(g, []);
+        map.get(g).push(r);
+      });
+      return [...map].sort(([a], [b]) => (!a) - (!b) || byText(a, b))
+        .map(([g, list]) => ({ head: `${g || `未填${label}`}`, count: list.length, rows: list }));
+    }
+    if (period) {
+      const out = [];
+      rows.forEach(r => {
+        const g = String(r[period.key] ?? '');
+        if (out.at(-1)?.key !== g) out.push({ key: g, head: `${U.fmtDate(g)} ${U.weekday(g)}`, rows: [] });
+        out.at(-1).rows.push(r);
+      });
+      return out;
+    }
+    return [{ head: '', rows }];
+  }
 
   function renderList() {
     const all = getRows();
     const kw = state.keyword.trim();
+    const matched = all.filter(r => inPeriod(r) && (!kw || matchKeyword(r)));
+    renderChips(matched);
     // 同一天維持輸入順序（sort 為穩定排序）
-    const rows = all.filter(r => inPeriod(r) && (!kw || matchKeyword(r))).sort(compare);
+    const rows = matched.filter(inFilter).sort(compare);
 
-    countEl.textContent = rows.length === all.length ? `${all.length} 筆` : `${rows.length}／${all.length} 筆`;
+    // 有篩選按鈕時，筆數寫在按鈕上
+    if (countEl) countEl.textContent = rows.length === all.length ? `${all.length} 筆` : `${rows.length}／${all.length} 筆`;
 
     if (!rows.length) {
       listEl.innerHTML = all.length
         ? `${introHTML}<p class="empty">沒有符合條件的資料</p>`
         : `<p class="empty">${schema.empty || '還沒有資料<br>點右上角「＋ 新增」開始記錄'}</p>`;
     } else {
-      let html = introHTML + (schema.total ? summaryHTML(rows) : '');
-      let group = null;
-      rows.forEach(r => {
-        if (period) {
-          const g = String(r[period.key] ?? '');
-          if (g !== group) {
-            group = g;
-            html += `<h3 class="group-head">${U.esc(U.fmtDate(g))} ${U.weekday(g)}</h3>`;
-          }
-        }
-        html += cardHTML(r);
-      });
-      listEl.innerHTML = html;
+      listEl.innerHTML = introHTML + (schema.total ? summaryHTML(rows) : '') + grouped(rows).map(g =>
+        (g.head ? `<h3 class="group-head">${U.esc(g.head)}${g.count ? `<span>${g.count}</span>` : ''}</h3>` : '') +
+        g.rows.map(cardHTML).join('')).join('');
     }
     state.flashId = null;
   }
@@ -153,13 +236,14 @@ function createList(tableKey, schema, { openForm }) {
         state.keyword = '';
         keywordInput.value = '';
       }
+      if (!inFilter(rec)) state.filter = '';
       state.flashId = rec.id;
     }
     refresh();
   }
 
   function reset() {
-    Object.assign(state, { period: null, keyword: '', flashId: null });
+    Object.assign(state, { period: null, keyword: '', flashId: null, filter: '' });
     keywordInput.value = '';
     refresh();
   }

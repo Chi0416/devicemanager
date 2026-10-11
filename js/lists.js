@@ -1,0 +1,101 @@
+// 清單管理：設定 → 清單 → 類別、位置、品牌、人員、廠商（見 refs.js 的 lists）
+//   列出這份清單的每一項：名字、小字（職稱、部門；聯絡人、電話）、幾台設備在用、停用的標籤
+//   點一項打開編輯表單（改名時用到舊名字的設備一起改，見 form.js）；右上角新增
+//   設備裡填過、但不在清單裡的值（試算表手打的、清單做好之前填的）：最上面寫出來，一鍵全部加進清單
+const Lists = (() => {
+  const $ = id => document.getElementById(id);
+  const dlg = $('lists-sheet');
+  const titleEl = dlg.querySelector('.sheet-title');
+  const bodyEl = dlg.querySelector('.lists-body');
+  const searchEl = dlg.querySelector('.lists-search');
+  let current = null; // Refs.lists() 的一項
+  let hooks = { toast() {}, onChanged() {} };
+
+  // 這份清單的「不在清單裡」：選項是那一份清單，人員、廠商是全部用途
+  const missingOf = l => Refs.missing().filter(s => (l.list ? s.key === `options:${l.list}` : s.ref === l.table));
+
+  function itemHTML(r) {
+    const t = current.table;
+    const tg = Refs.targetOf(t);
+    const subs = [Refs.sub(t, r), tg.roles && Refs.multi(r[tg.roles]).join('、')].filter(Boolean).join(' · ');
+    const uses = Refs.usesText(t, r);
+    const off = !Refs.active(t, r);
+    const tone = Refs.tone(t, r);
+    return `
+      <li>
+        <button type="button" class="list-item${off ? ' off' : ''}" data-id="${U.esc(r.id)}">
+          ${tone ? `<i class="dot ${U.esc(tone)}" aria-hidden="true"></i>` : ''}
+          <span class="member-info"><b>${U.esc(Refs.nameOf(t, r))}</b>${subs ? `<small>${U.esc(subs)}</small>` : ''}</span>
+          ${off ? `<span class="badge gray">${U.esc(tg.off || '停用')}</span>` : ''}
+          <span class="uses">${uses ? U.esc(uses) : '沒有在用'}</span>
+        </button>
+      </li>`;
+  }
+
+  function render() {
+    if (!current) return;
+    titleEl.textContent = current.title;
+    const q = Refs.norm(searchEl.value);
+    const all = Refs.listItems(current);
+    const items = q ? all.filter(r => Refs.norm(`${Refs.nameOf(current.table, r)} ${Refs.sub(current.table, r)}`).includes(q)) : all;
+    searchEl.hidden = all.length < 8 && !q; // 項目少時不用搜尋
+    const miss = missingOf(current);
+    const values = [...new Set(miss.flatMap(s => s.values))];
+    bodyEl.innerHTML = (values.length ? `
+        <div class="lists-missing">
+          <p>設備裡填過、但不在清單裡的有 ${values.length} 個：${U.esc(values.slice(0, 8).join('、'))}${values.length > 8 ? '…' : ''}</p>
+          <button type="button" class="wide-btn" data-act="import">全部加進清單</button>
+        </div>` : '') +
+      (items.length ? `<ul class="member-list list-items">${items.map(itemHTML).join('')}</ul>`
+        : `<p class="empty">${q ? '沒有符合的項目' : `${U.esc(current.title)}還是空的<br>點右上角「新增」開始建立`}</p>`) +
+      `<p class="note muted">${U.esc(noteOf(current))}</p>`;
+  }
+
+  // 清單最下面的說明
+  function noteOf(l) {
+    if (l.table === 'people') return '保管人、保養的執行人、異動的經手人都從這裡選，「用途」有勾的才會出現在那個欄位。填了離職日，那天以後就不會出現在選單裡。';
+    if (l.table === 'vendors') return '購買廠商、維修廠商都從這裡選，「類型」有勾的才會出現在那個欄位。';
+    if (l.table === 'statuses') return '設備的狀態從這裡選，依「順序」排，新增設備時預設選第一個。勾了「不用提醒」的（報廢這類）不提醒保固、保養。改名時，用到舊名字的設備會一起改。';
+    return `設備的${l.list}從這裡選。改名時，用到舊名字的設備會一起改；不再使用的可以勾「停用」。`;
+  }
+
+  function open(key) {
+    current = Refs.lists().find(l => l.key === key) || null;
+    if (!current) return;
+    searchEl.value = '';
+    render();
+    if (!dlg.open) dlg.showModal();
+    dlg.querySelector('.sheet-body').scrollTop = 0;
+  }
+
+  function refresh() {
+    if (dlg.open) render();
+  }
+
+  function importAll() {
+    const n = missingOf(current).reduce((sum, s) => sum + Refs.importMissing(s.key), 0);
+    if (!n) return;
+    hooks.onChanged(current.table, null);
+    hooks.toast(`已加入 ${n} 項到${current.title}`);
+  }
+
+  function init(h) {
+    hooks = { ...hooks, ...h };
+    dlg.querySelector('[data-act="close"]').addEventListener('click', () => dlg.close());
+    dlg.querySelector('[data-act="add"]').addEventListener('click', () => {
+      Form.open(current.table, null, current.list ? { list: current.list } : {});
+    });
+    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); }); // 點背景關閉
+    searchEl.addEventListener('input', render);
+    bodyEl.addEventListener('click', e => {
+      if (e.target.closest('[data-act="import"]')) {
+        importAll();
+        return;
+      }
+      const item = e.target.closest('[data-id]');
+      if (item) Form.open(current.table, item.dataset.id);
+    });
+  }
+
+  return { init, open, refresh, missingOf };
+})();

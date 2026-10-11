@@ -146,7 +146,7 @@ class FakeGoogle {
 
 // ---------- 載入 App ----------
 const ROOT = new URL('../', import.meta.url);
-const FILES = ['util', 'schema', 'storage', 'config', 'google', 'sheet', 'sync'];
+const FILES = ['util', 'schema', 'storage', 'refs', 'config', 'google', 'sheet', 'sync'];
 const TOKEN_KEY = 'devmgr.google.token';
 
 // 每個測試一個全新的裝置：localStorage、權杖、Google 都是新的
@@ -204,7 +204,7 @@ function device(fake, { storage = {}, token = true, confirmAnswer = true, clock 
     vm.runInContext(readFileSync(new URL(`js/${f}.js`, ROOT), 'utf8'), ctx, { filename: `${f}.js` });
     if (f === 'config' && configured) vm.runInContext("CONFIG.googleClientId = 'test-client'", ctx);
   }
-  const app = vm.runInContext('({ Store, Sync, Sheet })', ctx);
+  const app = vm.runInContext('({ Store, Sync, Sheet, Refs })', ctx);
   app.Sync.init({
     toast: (msg, kind) => toasts.push(kind ? `${kind}:${msg}` : msg),
     notify: m => { notes.push(m.title); inbox.push(m); },
@@ -216,14 +216,14 @@ function device(fake, { storage = {}, token = true, confirmAnswer = true, clock 
 
 const plain = v => JSON.parse(JSON.stringify(v));
 const blankDevice = {
-  code: '', name: '', status: '使用中', category: '', brand: '', model: '', serial: '', location: '', keeper: '',
+  code: '', name: '', status: '使用中', category: '', brand: '', model: '', serial: '', board: '', location: '', keeper: '',
   buyDate: null, price: null, vendor: '', warranty: null, link: '', note: '',
 };
 const DEVICE = { ...blankDevice, code: 'NB-001', name: '會議室筆電', category: '筆電', location: '3F 會議室', buyDate: '2025-03-15', price: 32000 };
 const PRINTER = { ...blankDevice, code: 'PR-001', name: '印表機', category: '印表機' };
-const COL = { code: 0, name: 1, status: 2, location: 7, keeper: 8, buyDate: 9, price: 10, id: 15 };
+const COL = { code: 0, name: 1, status: 2, board: 7, location: 8, keeper: 9, buyDate: 10, price: 11, id: 16 };
 // 在試算表裡手打的一列（沒有 id）
-const typed = (code, name, status = '使用中') => [code, name, status, '', '', '', '', '2F', '', '2026/9/10', '1,200'];
+const typed = (code, name, status = '使用中') => [code, name, status, '', '', '', '', '', '2F', '', '2026/9/10', '1,200'];
 
 // 連結後的第一台裝置，已有一台設備
 async function linked(fake = new FakeGoogle(), opts = {}) {
@@ -705,4 +705,175 @@ test('試算表上看不懂的那一筆，在 App 裡改好之後，同一次同
   await d.Sync.syncNow();
   assert.deepEqual(plain(d.Sync.state().problems), []);
   assert.equal(fake.values(id, '設備')[1][COL.buyDate], d.Sheet.toSerial('2025-03-15'));
+});
+
+// ---------- 清單（選項、人員、廠商） ----------
+test('連結：只有預設的類別時不算這台裝置的資料，不詢問；預設的類別也存進試算表', async () => {
+  const fake = new FakeGoogle();
+  const d = device(fake, { confirmAnswer: false });
+  await d.Sync.startLink();
+  assert.deepEqual(d.asked.messages, []);
+  assert.equal(d.Sync.state().linked, true);
+  const id = d.Sync.state().url.split('/').pop();
+  assert.deepEqual(fake.values(id, '選項')[0], ['清單', '名稱', '停用', 'id']);
+  assert.equal(fake.values(id, '選項').length, 8);
+  assert.deepEqual(fake.values(id, '選項')[1].slice(0, 3), ['類別', '筆電', false]);
+});
+
+test('連結：試算表上只有預設的類別時，當作雲端還沒有資料，這台裝置的資料存過去', async () => {
+  const fake = new FakeGoogle();
+  const first = device(fake);
+  await first.Sync.startLink(); // 只有預設的類別
+  const id = first.Sync.state().url.split('/').pop();
+  const d = device(fake);
+  d.Store.add('devices', DEVICE);
+  await d.Sync.startLink();
+  assert.equal(d.asked.messages.length, 1);
+  assert.match(d.asked.messages[0], /這台裝置上有 1 筆資料，會存到/);
+  assert.equal(fake.values(id, '設備').length, 2);
+  assert.equal(d.Store.list('devices').length, 1);
+});
+
+test('兩邊都有資料時，詢問的訊息只列出真的有資料的表', async () => {
+  const { fake } = await linked();
+  const other = device(fake, { confirmAnswer: false });
+  other.Store.add('devices', PRINTER);
+  await other.Sync.startLink();
+  assert.match(other.asked.messages[0], /已經有一份「設備管理」（設備 1 筆）。/);
+});
+
+test('試算表少了選填的欄（舊版建立的、被刪掉的）：補在最後面，用這台裝置的資料填上，App 裡的資料不會被清掉', async () => {
+  const { fake, d, id } = await linked();
+  const dev = d.Store.list('devices')[0];
+  d.Store.update('devices', dev.id, { model: 'B5402', note: '附充電器' });
+  await d.Sync.syncNow();
+  // 刪掉「型號」那一欄（第 6 欄）
+  fake.sheet(id, '設備').grid.forEach(row => row.splice(5, 1));
+  await d.Sync.syncNow();
+  const st = d.Sync.state();
+  assert.equal(st.error, '');
+  assert.deepEqual(plain(st.problems), []);
+  assert.equal(st.pending, 0);
+  assert.equal(d.Store.list('devices')[0].model, 'B5402');
+  const rows = fake.values(id, '設備');
+  assert.equal(rows[0].at(-1), '型號');
+  assert.equal(rows[0].at(-2), 'id');
+  assert.equal(rows[1].at(-1), 'B5402');
+  // 再同步一次：已經補好，不會再補
+  await d.Sync.syncNow();
+  assert.equal(fake.values(id, '設備')[0].filter(h => h === '型號').length, 1);
+  // 在試算表裡改補上的那一欄，讀得回來
+  fake.setCell(id, '設備', 2, rows[0].length - 1, 'X13');
+  await d.Sync.syncNow();
+  assert.equal(d.Store.list('devices')[0].model, 'X13');
+});
+
+test('試算表少了選填的欄，同一次也有新增的設備：新的那一列也寫在補上的欄', async () => {
+  const { fake, d, id } = await linked();
+  fake.sheet(id, '設備').grid.forEach(row => row.splice(5, 1));
+  d.Store.add('devices', { ...PRINTER, model: 'L3210' });
+  await d.Sync.syncNow();
+  const rows = fake.values(id, '設備');
+  assert.equal(rows[0].at(-1), '型號');
+  assert.equal(rows[2][rows[0].length - 1], 'L3210');
+});
+
+test('在試算表裡改了清單的名字：用到舊名字的設備一起改，同一次寫回試算表', async () => {
+  const { fake, d, id } = await linked();
+  const opts = fake.values(id, '選項');
+  const row = opts.findIndex(r => r[1] === '筆電') + 1;
+  fake.setCell(id, '選項', row, 1, '筆記型電腦');
+  await d.Sync.syncNow();
+  assert.equal(d.Store.list('devices')[0].category, '筆記型電腦');
+  assert.equal(fake.values(id, '設備')[1][3], '筆記型電腦');
+  assert.equal(d.Sync.state().pending, 0);
+  // 再同步一次不會再改
+  const calls = fake.calls.length;
+  await d.Sync.syncNow();
+  assert.ok(!fake.calls.slice(calls).some(c => c.includes(':append')));
+});
+
+test('在這台裝置改了清單的名字（還沒同步），試算表也改了別的名字：以這台的為準', async () => {
+  const { fake, d, id } = await linked();
+  const opt = d.Store.list('options').find(o => o.name === '筆電');
+  const before = { ...opt };
+  d.Store.update('options', opt.id, { name: 'Notebook' });
+  d.Refs?.renameRefs?.('options', before, d.Store.get('options', opt.id));
+  const row = fake.values(id, '選項').findIndex(r => r[1] === '筆電') + 1;
+  fake.setCell(id, '選項', row, 1, '筆記型電腦');
+  await d.Sync.syncNow();
+  assert.equal(d.Store.get('options', opt.id).name, 'Notebook');
+  assert.equal(fake.values(id, '選項')[row - 1][1], 'Notebook');
+});
+
+test('在試算表裡勾「停用」、新增人員（沒有 id），同步後 App 也有', async () => {
+  const { fake, d, id } = await linked();
+  const row = fake.values(id, '選項').findIndex(r => r[1] === '平板') + 1;
+  fake.setCell(id, '選項', row, 2, true);
+  fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '2020/2/1', '', '保管人、執行人']);
+  await d.Sync.syncNow();
+  assert.equal(d.Store.list('options').find(o => o.name === '平板').disabled, true);
+  const p = d.Store.list('people')[0];
+  assert.equal(p.name, '王小明');
+  assert.equal(p.joinDate, '2020-02-01');
+  assert.equal(p.roles, '保管人、執行人');
+  assert.equal(fake.values(id, '人員')[1][10], p.id);
+  assert.deepEqual(plain(d.Sync.state().problems), []);
+});
+
+test('試算表刪掉選項：提醒寫出是哪一份清單的哪一項', async () => {
+  const { fake, d, id } = await linked();
+  const row = fake.values(id, '選項').findIndex(r => r[1] === '手機');
+  fake.sheet(id, '選項').grid.splice(row, 1);
+  await d.Sync.syncNow();
+  assert.match(d.inbox.at(-1).body, /選項：類別 手機/);
+});
+
+test('舊版建立的試算表沒有人員、廠商分頁：補建回來，不算看不懂的地方', async () => {
+  const { fake, d, id } = await linked();
+  fake.files[id].sheets = fake.files[id].sheets.filter(s => s.title !== '人員' && s.title !== '廠商');
+  d.Store.add('people', { ...d.Refs.blankRecord('people'), name: '王小明', roles: '保管人' });
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().error, '');
+  assert.deepEqual(plain(d.Sync.state().problems), []);
+  assert.equal(fake.values(id, '人員')[1][0], '王小明');
+  assert.deepEqual(fake.values(id, '廠商'), [['名稱', '類型', '聯絡人', '電話', '地址', '停用', '備註', 'id']]);
+});
+
+// ---------- 設備的編號（系統產生） ----------
+test('在試算表裡手打、沒填編號的設備：同步時補上編號，同一次寫回試算表，不算看不懂的地方', async () => {
+  const { fake, d, id } = await linked();
+  fake.appendRow(id, '設備', ['', '影印機', '出租中', '', '', '', '', '', '', '', '2025/3/1']);
+  await d.Sync.syncNow();
+  const dev = d.Store.list('devices').find(r => r.name === '影印機');
+  assert.equal(dev.code, '25-0001');
+  assert.equal(fake.values(id, '設備')[2][COL.code], '25-0001');
+  assert.deepEqual(plain(d.Sync.state().problems), []);
+  assert.equal(d.Sync.state().pending, 0);
+  assert.deepEqual(d.inbox.filter(m => /編號/.test(m.title)), []); // 補上的不用提醒
+});
+
+test('兩台裝置沒網路時各新增一台、拿到同一個編號：同步時後新增的那台換下一號，提醒裡寫出來', async () => {
+  const { fake, d } = await linked();
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  fake.offline = true;
+  const a = d.Store.add('devices', { ...PRINTER, name: '電腦上新增的', code: '26-0001' });
+  await new Promise(r => setTimeout(r, 2)); // 讓 id 的時間分得出先後
+  const b = phone.Store.add('devices', { ...PRINTER, name: '手機上新增的', code: '26-0001' });
+  await d.Sync.syncNow();
+  await phone.Sync.syncNow();
+  fake.offline = false;
+  await d.Sync.syncNow();
+  await phone.Sync.syncNow();
+  assert.equal(phone.Store.get('devices', a.id).code, '26-0001');
+  assert.equal(phone.Store.get('devices', b.id).code, '26-0002');
+  const m = phone.inbox.find(x => /編號重複/.test(x.title));
+  assert.equal(m.title, '1 台設備的編號重複，換了新的編號');
+  assert.match(m.body, /手機上新增的：26-0001 → 26-0002/);
+  // 另一台同步後也一樣，不會再換一次
+  await d.Sync.syncNow();
+  assert.equal(d.Store.get('devices', b.id).code, '26-0002');
+  assert.equal(d.Store.get('devices', a.id).code, '26-0001');
+  assert.equal(d.inbox.filter(x => /編號重複/.test(x.title)).length, 0);
 });

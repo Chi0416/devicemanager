@@ -9,9 +9,10 @@ const Store = (() => {
   const TABLES = Object.keys(SCHEMAS);
   let available = true;
 
+  // 全新的資料；有 seed 的表（類別的預設項目）先放好
   function blank() {
     const d = { version: 1, lastExportAt: null };
-    TABLES.forEach(t => { d[t] = []; });
+    TABLES.forEach(t => { d[t] = SCHEMAS[t].seed ? SCHEMAS[t].seed() : []; });
     return d;
   }
 
@@ -121,6 +122,16 @@ const Store = (() => {
       return data[table].find(r => r.id === id);
     },
 
+    // 預先放的資料（seed- 開頭的 id），而且還沒改過：不算這台裝置的資料（連結雲端時不會因此詢問要不要存過去）
+    isPristineSeed(table, r) {
+      return String(r.id).startsWith('seed-') && !sync.pending[table]?.[r.id];
+    },
+
+    // 這台裝置上自己的資料有幾筆（不算沒改過的預設項目）
+    ownCount() {
+      return TABLES.reduce((n, t) => n + data[t].filter(r => !this.isPristineSeed(t, r)).length, 0);
+    },
+
     // ---------- 匯出／匯入 ----------
     exportPayload() {
       const p = { app: 'devicemanager', version: 1, exportedAt: new Date().toISOString() };
@@ -203,10 +214,17 @@ const Store = (() => {
     },
 
     // 以試算表的資料為主，疊上還沒同步的修改；keep 裡的表（試算表那邊缺分頁或缺欄位）整張保留這裡的資料
-    mergeRemote(remote, keep = []) {
+    //   missing：{ 表: [欄位] } 試算表上沒有這一欄（新版加的欄位、被刪掉的欄），這幾個欄位用這裡的值
+    mergeRemote(remote, keep = [], missing = {}) {
       const out = normalize(remote);
       TABLES.forEach(t => {
         if (keep.includes(t)) { out[t] = data[t]; return; }
+        (missing[t] || []).forEach(key => {
+          out[t].forEach(r => {
+            const local = data[t].find(x => x.id === r.id);
+            if (local && !(key in r)) r[key] = local[key];
+          });
+        });
         Object.entries(sync.pending[t] || {}).forEach(([id, p]) => {
           const i = out[t].findIndex(r => r.id === id);
           if (p.del) {

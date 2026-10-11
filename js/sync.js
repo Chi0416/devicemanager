@@ -3,6 +3,9 @@
 //   同步：確認試算表還在（不見了就用這台裝置的資料重建）→ 讀回全部分頁 →
 //         以試算表的資料為主、疊上這台裝置還沒送出的修改 → 把修改寫回試算表
 //         寫回時用 id 找到那一列再改，不靠列號；在試算表裡手動輸入、沒有 id 的列會補上 id
+//         試算表缺了選填的欄（新版加的欄位）：補在最後面，用這台裝置的資料填上
+//         在試算表裡改了清單的名字（狀態、選項、人員、廠商）：用到舊名字的資料一起改，同一次寫回去
+//         設備沒有編號的補上、系統給的編號重複的換下一號（見 schema.js 的 fixDeviceCodes），同一次寫回去
 //   時機：打開 App、從背景切回來、修改資料後（等幾秒一起送），登入還有效就自動同步
 //         登入過期時，修改資料的那一下順便跳出 Google 視窗（沒有網路時不跳）；沒成功就顯示「同步」按鈕讓使用者按
 //   登出：先同步一次，確定試算表已經有這台裝置的全部資料，才清掉這台裝置上的資料（換帳號時不會混在一起）
@@ -19,7 +22,8 @@ const Sync = (() => {
   // 'title'!A1 的寫法（分頁名稱用單引號包起來，中文名稱也沒問題）；沒有 ref 時是整個分頁
   const a1 = (title, ref = '') => `'${title.replace(/'/g, "''")}'${ref ? `!${ref}` : ''}`;
   const titleOf = t => Sheet.TAB[t].title;
-  const countRecords = d => TABLES.reduce((n, t) => n + (d[t]?.length || 0), 0);
+  // 試算表上有幾筆資料（預先放的類別不算：只有那幾筆時，當作雲端還沒有資料）
+  const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
   // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt } ----------
   let cloud = null;
@@ -175,12 +179,15 @@ const Sync = (() => {
   }
 
   // ---------- 讀回、合併、寫回 ----------
-  // 一筆資料的簡短說明（提醒用），例如「設備：NB-001 會議室筆電」
+  // 一筆資料的簡短說明（提醒用），例如「設備：NB-001 會議室筆電 使用中」「選項：位置 3F 會議室」
   function describe(t, r) {
     const { code, title, badge } = SCHEMAS[t].card || {};
     const date = SCHEMAS[t].period && SCHEMAS[t].fields.find(f => f.key === SCHEMAS[t].period.key);
-    const text = [date && U.fmtDate(r[date.key]), code && r[code], title && r[title], badge && r[badge]].filter(Boolean).join(' ');
-    return `${SCHEMAS[t].title}：${text}`;
+    const tg = Refs.targetOf(t);
+    const parts = SCHEMAS[t].card
+      ? [date && U.fmtDate(r[date.key]), code && r[code], title && r[title], badge && r[badge]]
+      : [tg?.group && r[tg.group], tg ? Refs.nameOf(t, r) : r.id];
+    return `${SCHEMAS[t].title}：${parts.filter(Boolean).join(' ')}`;
   }
 
   // 試算表裡少了的資料（在試算表或其他裝置上刪掉了）：這台也跟著刪除，在提醒留一則，列出是哪幾筆
@@ -221,6 +228,49 @@ const Sync = (() => {
     gone.forEach(g => snap.items.push(items.get(`${g.table}:${g.id}`)));
   }
 
+  // 在試算表或其他裝置上改了名字的清單（選項、人員、廠商）：同一個 id，名字不一樣
+  //   這台裝置自己也改了的（還沒同步）以這台的為準，不算
+  function remoteRenames(parsed, skip, snap) {
+    const pending = new Set(snap.items.map(i => `${i.table}:${i.id}`));
+    return TABLES.filter(t => Refs.isTarget(t) && !skip.includes(t)).flatMap(t => parsed.data[t]
+      .map(after => ({ t, before: Store.get(t, after.id), after }))
+      .filter(({ t: table, before, after }) => before && !pending.has(`${table}:${after.id}`)
+        && Refs.nameOf(table, before) !== Refs.nameOf(table, after)));
+  }
+
+  // 用到舊名字的資料一起改；改到的加進這次的快照，和其他修改一起寫回去
+  function cascade(renames, snap) {
+    addToSnap(renames.flatMap(({ t, before, after }) => Refs.renameRefs(t, before, after)), snap);
+  }
+
+  // 合併之後才改的資料（[{ table, id }]）加進這次的快照：同一次寫回試算表
+  function addToSnap(changed, snap) {
+    if (!changed.length) return;
+    const items = new Map(Store.pendingSnapshot().items.map(i => [`${i.table}:${i.id}`, i]));
+    const inSnap = new Set(snap.items.map(i => `${i.table}:${i.id}`));
+    changed.forEach(c => {
+      const k = `${c.table}:${c.id}`;
+      if (inSnap.has(k)) snap.items = snap.items.map(i => (`${i.table}:${i.id}` === k ? items.get(k) : i));
+      else {
+        snap.items.push(items.get(k));
+        inSnap.add(k);
+      }
+    });
+  }
+
+  // 設備的編號：沒有的補上、重複的換下一號；換號的在提醒留一則（貼了標籤的話要改）
+  function fixCodes(snap) {
+    const fixed = fixDeviceCodes();
+    addToSnap(fixed.map(f => ({ table: 'devices', id: f.id })), snap);
+    const moved = fixed.filter(f => f.from);
+    if (moved.length) {
+      hooks.notify({
+        title: `${moved.length} 台設備的編號重複，換了新的編號`,
+        body: `${moved.map(f => `${f.name}：${f.from} → ${f.to}`).join('\n')}\n可能是兩台裝置沒有網路時各新增了一台。已經貼了標籤的話，請換成新的編號。`,
+      });
+    }
+  }
+
   // 回傳這次處理到的表；缺欄位的表不處理，修改留在待同步清單
   async function exchange(meta, snap) {
     const byTitle = await pull(meta);
@@ -246,7 +296,10 @@ const Sync = (() => {
     problems = problems.filter(p => !empty.some(t => titleOf(t) === p.tab));
     const skip = [...new Set([...parsed.broken, ...empty])];
     keepOrDelete(parsed, skip, snap);
-    Store.mergeRemote(parsed.data, skip);
+    const renames = remoteRenames(parsed, skip, snap);
+    Store.mergeRemote(parsed.data, skip, parsed.missing);
+    cascade(renames, snap);
+    if (!skip.includes('devices')) fixCodes(snap);
     hooks.onData();
 
     const local = Store.exportPayload();
@@ -292,6 +345,17 @@ const Sync = (() => {
       .filter(c => handled(c.table) && !overwritten.has(`${c.tab}:${c.row}`))
       .forEach(c => writes.push({ range: a1(c.tab, `${Sheet.colLetter(c.col)}${c.row}`), values: [[c.value]] }));
 
+    // 補上的欄：標題和每一列的值（這次整列寫回的不用另外寫），格式之後再設
+    const added = parsed.addColumns.filter(c => handled(c.table));
+    added.forEach(({ table: t, tab, key, col }) => {
+      const letter = Sheet.colLetter(col);
+      writes.push({ range: a1(tab, `${letter}1`), values: [[Sheet.TAB[t].fields.find(f => f.key === key).label]] });
+      Object.entries(parsed.rowOf[tab] || {}).forEach(([id, row]) => {
+        const rec = Store.get(t, id);
+        if (rec && !overwritten.has(`${tab}:${row}`)) writes.push({ range: a1(tab, `${letter}${row}`), values: [[Sheet.encodeCell(t, key, rec)]] });
+      });
+    });
+
     // 順序：先改既有的列（不影響列號）→ 由下往上刪（前面的列號才不會跑掉）→ 最後才新增
     if (writes.length) {
       await api(`${Google.SHEETS}/${meta.id}/values:batchUpdate`, {
@@ -308,6 +372,12 @@ const Sync = (() => {
             deleteDimension: { range: { sheetId: d.sheetId, dimension: 'ROWS', startIndex: d.row - 1, endIndex: d.row } },
           })),
         },
+      });
+    }
+    if (added.length) {
+      await api(`${Google.SHEETS}/${meta.id}:batchUpdate`, {
+        method: 'POST',
+        body: { requests: added.flatMap(c => Sheet.addColumnRequests(meta.sheetIds[c.tab], c.table, c.key, c.col)) },
       });
     }
     // 新增的列最後才加：可能插在中間（試算表裡有空白列時），之後就不能再依列號操作
@@ -407,7 +477,7 @@ const Sync = (() => {
       if (found) meta = await info(found);
 
       // 雲端還沒有資料時，這台裝置的資料會寫過去：先確認是這個帳號（例如之前留著別人的資料）
-      const localCount = countRecords(local);
+      const localCount = Store.ownCount();
       const upload = () => !localCount || confirm(`這台裝置上有 ${localCount} 筆資料，會存到 ${email} 的 Google 試算表。\n\n`
         + '按「確定」：存過去並連結。\n按「取消」：先不連結。');
       if (!meta) {
@@ -424,7 +494,8 @@ const Sync = (() => {
           Store.clearAllPending();
         } else {
           if (localCount) {
-            const lines = TABLES.map(t => `${SCHEMAS[t].title} ${parsed.data[t].length} 筆`).join('、');
+            const lines = TABLES.map(t => [t, countRecords({ [t]: parsed.data[t] })]).filter(([, n]) => n)
+              .map(([t, n]) => `${SCHEMAS[t].title} ${n} 筆`).join('、');
             const ok = confirm(`你的 Google 雲端硬碟裡已經有一份「${NAME}」（${lines}）。\n\n`
               + `按「確定」改用雲端的資料，這台裝置目前的 ${localCount} 筆資料會被取代（建議先匯出 data.json 備份）。\n`
               + '按「取消」先不連結。');

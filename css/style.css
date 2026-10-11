@@ -176,12 +176,10 @@ body:has(dialog[open]) { overflow: hidden; }
   position: sticky;
   top: 0;
   z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 12px 0 10px;
   background: var(--bg);
 }
+.filterbar-row { display: flex; align-items: center; gap: 8px; }
 .filterbar select,
 .filterbar input {
   height: 40px;
@@ -212,14 +210,26 @@ body:has(dialog[open]) { overflow: hidden; }
 .filterbar input:focus,
 .filterbar select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .filterbar .count { flex-shrink: 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* 狀態篩選：一排膠囊按鈕，後面是筆數；放不下時左右滑 */
+.filter-chips { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
+.filter-chips::-webkit-scrollbar { display: none; }
+.chip.filter { display: inline-flex; align-items: center; gap: 6px; }
+.chip.filter span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chip.filter.on span { color: inherit; }
+.chip.filter.purple.on { border-color: var(--purple); background: var(--purple-soft); color: var(--purple); }
+.chip.filter.orange.on { border-color: var(--warn); background: var(--warn-bg); color: var(--warn); }
+.chip.filter.green.on { border-color: var(--ok); background: var(--ok-bg); color: var(--ok); }
+.chip.filter.gray.on { border-color: var(--border-strong); background: var(--chip-bg); color: var(--text-2); }
+.chip.filter.red.on { border-color: var(--danger); background: var(--invalid-bg); color: var(--danger); }
 
 /* ---------- 卡片列表 ---------- */
 .group-head {
   margin: 18px 4px 8px;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
+  font-weight: 600;
+  color: var(--text-2);
 }
+.group-head span { margin-left: 8px; font-weight: 500; color: var(--muted); }
 .list-intro { margin: 2px 4px 12px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 
 .card {
@@ -259,11 +269,21 @@ body:has(dialog[open]) { overflow: hidden; }
   color: var(--text-2);
   background: var(--chip-bg);
 }
-/* 設備的狀態：使用中淡藍、閒置淡紫、維修中淡橘、報廢灰色 */
-.badge.use { color: var(--accent-text); background: var(--accent-soft); }
-.badge.idle { color: var(--purple); background: var(--purple-soft); }
-.badge.fix { color: var(--warn); background: var(--warn-bg); }
-.badge.gone { color: var(--muted); background: var(--chip-bg); }
+/* 狀態的顏色（在狀態清單裡選，見 schema.js 的 COLORS）：藍、紫、橘、綠、灰、紅都是淡色底 */
+.badge.blue { color: var(--accent-text); background: var(--accent-soft); }
+.badge.purple { color: var(--purple); background: var(--purple-soft); }
+.badge.orange { color: var(--warn); background: var(--warn-bg); }
+.badge.green { color: var(--ok); background: var(--ok-bg); }
+.badge.gray { color: var(--muted); background: var(--chip-bg); }
+.badge.red { color: var(--danger); background: var(--invalid-bg); }
+/* 下拉選單、清單裡名字前面的色點 */
+.dot { flex: none; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); align-self: center; }
+.dot.blue { background: var(--accent); }
+.dot.purple { background: var(--purple); }
+.dot.orange { background: var(--warn); }
+.dot.green { background: var(--ok); }
+.dot.gray { background: var(--muted); }
+.dot.red { background: var(--danger); }
 /* 還沒發生：虛線標籤，數字變淡 */
 .badge.pending { padding: 3px 7px; color: var(--muted); background: none; border: 1px dashed var(--border-strong); }
 .card.pending .card-primary b { color: var(--muted); }
@@ -279,6 +299,10 @@ body:has(dialog[open]) { overflow: hidden; }
 .cell { display: block; min-width: 0; }
 .cell small { display: block; font-size: 11px; color: var(--muted); }
 .cell > span { display: block; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* 卡片最下面的一行（保固快到期是橘色） */
+.card-note { display: block; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.card-note.warn { color: var(--warn); font-weight: 600; }
 
 /* 列表上方的合計 */
 .summary {
@@ -456,6 +480,12 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
   cursor: pointer;
 }
 .text-btn:active { background: var(--chip-bg); }
+/* 用鍵盤移動時的外框：用主色，不用瀏覽器預設的顏色 */
+.text-btn:focus-visible, .wide-btn:focus-visible, .chip:focus-visible, .icon-btn:focus-visible, .add-btn:focus-visible,
+.list-item:focus-visible, .combo-opt:focus-visible, .combo-add:focus-visible, .msg:focus-visible, .msg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 /* 儲存：藍色主要按鈕 */
 .text-btn.strong { min-height: 36px; padding: 6px 16px; background: var(--accent-strong); color: #fff; font-weight: 600; }
 .text-btn.strong:active { background: var(--accent-strong); opacity: .85; }
@@ -481,6 +511,17 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 /* ---------- 表單欄位 ---------- */
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; }
 .field { min-width: 0; }
+/* 表單裡一段的小標題（基本資料、機器識別…）：上面一條細線分開，第一段不用 */
+.form-section {
+  grid-column: 1 / -1;
+  margin: 10px 2px -6px;
+  padding-top: 16px;
+  border-top: .5px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-text);
+}
+.form-section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .field.full { grid-column: 1 / -1; }
 .field label { display: block; margin: 0 0 6px 2px; font-size: 13px; font-weight: 500; color: var(--text-2); }
 .field input,
@@ -504,6 +545,8 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 }
 .field textarea { height: auto; min-height: 88px; padding: 11px 12px; line-height: 1.5; resize: vertical; }
 .field input::-webkit-date-and-time-value { text-align: left; }
+/* 字距縮一點（主機板號碼 15 碼在半格裡放得下） */
+.field input.tight { padding: 0 10px; letter-spacing: -.02em; }
 .field select { padding-right: 34px; background: var(--icon-chevron) right 10px center / 18px no-repeat, var(--surface); cursor: pointer; }
 .field input:focus,
 .field select:focus,
@@ -515,6 +558,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 /* 依填的內容出現的提醒 */
 .field .note { margin: 5px 2px 0; font-size: 12px; line-height: 1.5; color: var(--accent-text); }
 .field .note:empty { display: none; }
+.field .note.warn { color: var(--warn); }
 .err { margin: 4px 2px 0; font-size: 12px; color: var(--danger); }
 .err:empty { display: none; }
 
@@ -540,15 +584,125 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 }
 .chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
 
-/* 表單上的左右切換（設備的狀態），和其他欄位一樣高；選中的那一個照狀態上色（和列表上的標籤一樣） */
+/* 表單上的左右切換，和其他欄位一樣高；有顏色的（狀態的顏色）選中時照那個顏色 */
 .seg.toggle { height: 46px; margin: 0; }
 .seg.toggle button { height: 40px; font-size: 15px; }
-.seg.toggle button.use[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent); }
-.seg.toggle button.idle[aria-pressed="true"] { background: var(--purple-soft); color: var(--purple); box-shadow: inset 0 0 0 1px var(--purple); }
-.seg.toggle button.fix[aria-pressed="true"] { background: var(--warn-bg); color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
-.seg.toggle button.gone[aria-pressed="true"] { background: var(--surface); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.seg.toggle button.blue[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent); }
+.seg.toggle button.purple[aria-pressed="true"] { background: var(--purple-soft); color: var(--purple); box-shadow: inset 0 0 0 1px var(--purple); }
+.seg.toggle button.orange[aria-pressed="true"] { background: var(--warn-bg); color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
+.seg.toggle button.green[aria-pressed="true"] { background: var(--ok-bg); color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
+.seg.toggle button.gray[aria-pressed="true"] { background: var(--surface); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.seg.toggle button.red[aria-pressed="true"] { background: var(--invalid-bg); color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
 .seg.toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .field.invalid .seg.toggle { background: var(--invalid-bg); box-shadow: inset 0 0 0 1px var(--danger); }
+/* 沒有指定顏色的切換（選項的清單）、可以複選的（人員的用途、廠商的類型）：選了的淡藍色 */
+.seg.toggle button.plain[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent); }
+.seg.toggle.multi button[aria-pressed="true"]::before { content: "✓ "; }
+
+/* 從清單選的欄位：輸入框下面的下拉選單，蓋在下面的欄位上 */
+.combo { position: relative; }
+.combo-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 6;
+  max-height: 264px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  border: .5px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+.combo-opt,
+.combo-add {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.combo-opt small { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
+.combo-opt.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.combo-opt:active, .combo-add:active { background: var(--chip-bg); }
+.combo-add { color: var(--accent-text); font-weight: 600; }
+.combo-opt + .combo-add { margin-top: 2px; border-top: .5px solid var(--border); border-radius: 0 0 8px 8px; }
+.combo-empty { margin: 0; padding: 10px; font-size: 13px; color: var(--muted); }
+.field .combo-info { color: var(--warn); }
+
+/* 系統產生的值（設備的編號）：不能改，看起來不像輸入框 */
+.auto-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--chip-bg);
+  color: var(--text);
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.auto-value b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.auto-value small { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
+.auto-value.pending b { color: var(--text-2); }
+
+/* 勾選（停用）：整列是開關 */
+.flag-field .switch-row { box-shadow: none; }
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 16px;
+  border: .5px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+.switch-text { flex: 1; min-width: 0; }
+.switch-text b { display: block; font-weight: 600; }
+.switch-text small { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.switch-row input {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 51px;
+  height: 31px;
+  margin: 0;
+  border-radius: 16px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background .2s;
+}
+.switch-row input::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  transition: transform .2s;
+}
+.switch-row input:checked { background: var(--accent-strong); }
+.switch-row input:checked::before { transform: translateX(20px); }
+.switch-row input:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-ring); }
 
 .wide-btn {
   display: block;
@@ -567,6 +721,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 }
 .wide-btn:active { opacity: .8; }
 .wide-btn.primary { border-color: transparent; background: var(--accent-strong); color: #fff; font-weight: 600; }
+.wide-btn.another { margin-top: 24px; color: var(--accent-text); }
 .wide-btn.danger { margin-top: 28px; border-color: transparent; background: var(--invalid-bg); color: var(--danger); box-shadow: none; }
 
 /* ---------- 設定 ---------- */
@@ -587,6 +742,48 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .member-info b { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .member-info small { display: block; font-size: 12px; color: var(--muted); }
 .text-btn.danger { color: var(--danger); }
+
+/* 設定的「清單」、一份清單裡的每一項（見 lists.js）：整列可以點 */
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 4px 4px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.list-item .uses { flex-shrink: 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.list-item .go { flex-shrink: 0; font-size: 20px; line-height: 1; color: var(--muted); }
+.list-item.off b { color: var(--muted); font-weight: 500; }
+.member-list li:has(.list-item) { padding-right: 12px; }
+.lists-search {
+  display: block;
+  width: 100%;
+  height: 40px;
+  margin: 0 0 12px;
+  padding: 0 8px 0 33px;
+  font: inherit;
+  font-size: 16px;
+  color: var(--text);
+  border: .5px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--icon-search) left 10px center / 17px no-repeat, var(--surface);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.lists-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.lists-missing { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn); font-size: 14px; }
+.lists-missing p { margin: 0; }
+.lists-missing .wide-btn { height: 40px; margin-top: 10px; }
+.lists-body .empty { padding: 40px 16px; }
+/* 一份清單：像一頁一樣高，項目少時也不會只剩一小塊 */
+#lists-sheet .sheet-body { min-height: min(560px, 75vh); }
 
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 12px; }
 .stats div { padding: 12px 6px; border: .5px solid var(--border); border-radius: 12px; background: var(--surface); text-align: center; }
@@ -747,6 +944,8 @@ dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
   .icon-btn:hover,
   .text-btn:not(.strong):hover,
   .chip:not(.on):hover { background: var(--chip-bg); }
+  .combo-opt:not(.on):hover, .combo-add:hover { background: var(--hover); }
+  .list-item:hover b { color: var(--accent-text); }
   .text-btn.strong:hover,
   .wide-btn.primary:hover { opacity: .88; }
   .wide-btn:not(.primary):not(.danger):hover { background: var(--chip-bg); }
