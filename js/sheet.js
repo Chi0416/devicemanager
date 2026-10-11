@@ -54,6 +54,8 @@ const Sheet = (() => {
       }
       case 'number':
         return typeof v === 'number' ? v : String(v);
+      case 'month':
+        return U.fmtMonth(v); // 存成文字 2026/09
       default:
         return String(v);
     }
@@ -75,7 +77,7 @@ const Sheet = (() => {
   function toValues(data) {
     const out = {};
     TABLES.forEach(t => {
-      out[TAB[t].title] = [TAB[t].headers, ...data[t].map(r => encodeRow(t, r))];
+      out[TAB[t].title] = [TAB[t].headers, ...(data[t] || []).map(r => encodeRow(t, r))];
     });
     return out;
   }
@@ -122,6 +124,11 @@ const Sheet = (() => {
       case 'number': {
         const n = typeof raw === 'number' ? raw : U.parseNum(raw);
         return n === null ? { value: null, error: `${f.label}不是數字（${raw}）` } : { value: n };
+      }
+      case 'month': {
+        // 被改成日期格式時讀回來是序號，取年月
+        const ym = typeof raw === 'number' ? fromSerial(raw).slice(0, 7) : U.parseMonth(raw);
+        return ym ? { value: ym } : { value: '', error: `${f.label}看不懂（${raw}），要寫成 2026/09` };
       }
       default:
         // 編號、序號被改成數字格式時，開頭的 0 會不見（001 → 1），無法自動補回
@@ -254,7 +261,7 @@ const Sheet = (() => {
     };
   }
 
-  // 勾選的欄位不設格式（核取方塊見 columnRequests）；文字、網址、從清單選的、可以複選的都存純文字
+  // 勾選的欄位不設格式（核取方塊見 columnRequests）；文字、網址、從清單選的、可以複選的、設備編號都存純文字
   function numberFormat(f) {
     if (f.type === 'date') return { type: 'DATE', pattern: 'yyyy/mm/dd' };
     if (f.type === 'number') return { type: 'NUMBER', pattern: f.digits ? '#,##0.00##' : '#,##0' };
@@ -273,15 +280,16 @@ const Sheet = (() => {
   });
   const protect = (range, description) => ({ addProtectedRange: { protectedRange: { range, description, warningOnly: true } } });
 
-  // 一欄的格式和檢查：日期、數字格式；勾選是核取方塊；有預設值的快選是下拉選單（只提醒、不擋）
+  // 一欄的格式和檢查：日期、數字格式；勾選是核取方塊；有預設值的快選、左右切換的選項是下拉選單（只提醒、不擋）
   function columnRequests(sheetId, c, f) {
     const range = column(sheetId, c);
     const reqs = [];
     const nf = numberFormat(f);
+    const list = f.suggest?.length ? f.suggest : f.toggle?.map(o => o.value);
     if (nf) reqs.push(format(range, nf));
     if (f.type === 'date') reqs.push(validate(range, { type: 'DATE_IS_VALID' }));
     if (f.type === 'flag') reqs.push(validate(range, { type: 'BOOLEAN' }, true));
-    if (f.suggest?.length) reqs.push(validate(range, { type: 'ONE_OF_LIST', values: f.suggest.map(v => ({ userEnteredValue: v })) }));
+    if (list?.length) reqs.push(validate(range, { type: 'ONE_OF_LIST', values: list.map(v => ({ userEnteredValue: v })) }));
     return reqs;
   }
 

@@ -1,5 +1,5 @@
-// 清單管理：設定 → 清單 → 類別、位置、品牌、人員、廠商（見 refs.js 的 lists）
-//   列出這份清單的每一項：名字、小字（職稱、部門；聯絡人、電話）、幾台設備在用、停用的標籤
+// 清單管理：設定 → 清單 → 狀態、類別、位置、品牌、保養項目、選配件、人員、廠商（見 refs.js 的 lists）
+//   列出這份清單的每一項：名字、小字（職稱、部門；聯絡人、電話）、幾台設備（幾筆紀錄）在用、停用的標籤
 //   點一項打開編輯表單（改名時用到舊名字的設備一起改，見 form.js）；右上角新增
 //   設備裡填過、但不在清單裡的值（試算表手打的、清單做好之前填的）：最上面寫出來，一鍵全部加進清單
 const Lists = (() => {
@@ -9,15 +9,16 @@ const Lists = (() => {
   const bodyEl = dlg.querySelector('.lists-body');
   const searchEl = dlg.querySelector('.lists-search');
   let current = null; // Refs.lists() 的一項
+  let opened = false;  // 這次打開後已經畫過了
   let hooks = { toast() {}, onChanged() {} };
 
-  // 這份清單的「不在清單裡」：選項是那一份清單，人員、廠商是全部用途
+  // 這份清單的「不在清單裡」：選項是那一份清單，其他是整張表
   const missingOf = l => Refs.missing().filter(s => (l.list ? s.key === `options:${l.list}` : s.ref === l.table));
 
   function itemHTML(r) {
     const t = current.table;
     const tg = Refs.targetOf(t);
-    const subs = [Refs.sub(t, r), tg.roles && Refs.multi(r[tg.roles]).join('、')].filter(Boolean).join(' · ');
+    const subs = Refs.sub(t, r);
     const uses = Refs.usesText(t, r);
     const off = !Refs.active(t, r);
     const tone = Refs.tone(t, r);
@@ -38,7 +39,8 @@ const Lists = (() => {
     const q = Refs.norm(searchEl.value);
     const all = Refs.listItems(current);
     const items = q ? all.filter(r => Refs.norm(`${Refs.nameOf(current.table, r)} ${Refs.sub(current.table, r)}`).includes(q)) : all;
-    searchEl.hidden = all.length < 8 && !q; // 項目少時不用搜尋
+    if (!opened) searchEl.hidden = all.length < 8; // 項目少時不用搜尋；打開後不再變，新增到第 8 項時畫面不會跳
+    opened = true;
     const miss = missingOf(current);
     const values = [...new Set(miss.flatMap(s => s.values))];
     bodyEl.innerHTML = (values.length ? `
@@ -52,17 +54,19 @@ const Lists = (() => {
   }
 
   // 清單最下面的說明
+  const USED_BY = { 保養項目: '保養的項目', 選配件: '選配件的名稱', 位置: '設備和異動的位置' };
   function noteOf(l) {
-    if (l.table === 'people') return '保管人、保養的執行人、異動的經手人都從這裡選，「用途」有勾的才會出現在那個欄位。填了離職日，那天以後就不會出現在選單裡。';
-    if (l.table === 'vendors') return '購買廠商、維修廠商都從這裡選，「類型」有勾的才會出現在那個欄位。';
+    if (l.table === 'people') return '設備的保管人、翻新的工程師從這裡選。填了離職日，那天以後就不會出現在選單裡。';
+    if (l.table === 'vendors') return '設備的購買廠商從這裡選。';
     if (l.table === 'statuses') return '設備的狀態從這裡選，依「順序」排，新增設備時預設選第一個。勾了「不用提醒」的（報廢這類）不提醒保固、保養。改名時，用到舊名字的設備會一起改。';
-    return `設備的${l.list}從這裡選。改名時，用到舊名字的設備會一起改；不再使用的可以勾「停用」。`;
+    return `${USED_BY[l.list] || `設備的${l.list}`}從這裡選。改名時，用到舊名字的資料會一起改；不再使用的可以勾「停用」。`;
   }
 
   function open(key) {
     current = Refs.lists().find(l => l.key === key) || null;
     if (!current) return;
     searchEl.value = '';
+    opened = false;
     render();
     if (!dlg.open) dlg.showModal();
     dlg.querySelector('.sheet-body').scrollTop = 0;

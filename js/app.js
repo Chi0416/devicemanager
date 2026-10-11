@@ -1,5 +1,5 @@
-// 進入點：分頁、列表、表單、清單、Google 雲端硬碟同步、提醒、資料備份
-//   底部 3 格：總覽｜設備｜紀錄（見 GROUPS）
+// 進入點：分頁、列表、表單、設備詳情、清單、Google 雲端硬碟同步、提醒、資料備份
+//   底部 3 格：總覽｜設備｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜抄表｜合約｜異動（所有設備的放在一起看）
 (() => {
   const TAB_KEY = `${Store.PREFIX}tab`;
   const LOGOUT_KEY = `${Store.PREFIX}loggedOut`; // 登出後重新載入頁面時顯示「已登出」（sessionStorage，登出清資料時不會被清掉）
@@ -26,38 +26,47 @@
     return { el, refresh() {}, changed() {}, reset() {} };
   }
 
+  // 「紀錄」裡的每一頁：[資料表, 上方切換的名稱, 新增按鈕上寫的]
+  const RECORD_PAGES = [['maintenance', '保養', '保養'], ['refurbs', '翻新', '翻新'], ['readings', '抄表', '抄表'], ['contracts', '合約', '合約'], ['moves', '異動', '異動']];
   const PAGES = {
     overview: { title: '總覽' },
-    records: { title: '紀錄' },
     devices: SCHEMAS.devices,
+    ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, SCHEMAS[k]])),
   };
   const lists = {
-    overview: createPlaceholder('這裡之後會列出各狀態的設備數量<br>和即將到期的保固、保養'),
-    devices: createList('devices', SCHEMAS.devices, { openForm: id => Form.open('devices', id) }),
-    records: createPlaceholder('這裡之後會列出所有設備的<br>維修、保養、異動、配件紀錄'),
+    overview: createPlaceholder('這裡之後會列出各狀態的設備數量<br>和即將到期的保固、合約'),
+    // 點設備卡片打開詳情（見 detail.js）
+    devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id) }),
+    // 紀錄：卡片最上面寫那時候在哪裡、哪一台設備（異動的標題已經寫了位置）
+    ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, createList(k, SCHEMAS[k], {
+      openForm: id => Form.open(k, id),
+      device: r => Records.deviceLine(r.device, k === 'moves' ? null : r[SCHEMAS[k].period.key]),
+    })])),
   };
   Object.values(lists).forEach(l => $('panels').appendChild(l.el));
   let current = 'devices';
 
-  // 新增、修改、刪除之後：那一頁重畫，剛改的那筆閃一下；其他頁也重畫（清單改名時設備跟著改）
+  // 新增、修改、刪除之後：那一頁重畫，剛改的那筆閃一下；其他頁也重畫（清單改名時設備跟著改、異動改了設備的位置跟著改）
   function onChanged(key, rec) {
     Object.entries(lists).forEach(([k, l]) => (k === key ? l.changed(rec) : l.refresh()));
+    Detail.changed(key, rec);
     Lists.refresh();
     if (menu.open) renderListsMenu();
   }
   Form.init({ toast, onChanged });
   Lists.init({ toast, onChanged });
+  Detail.init();
 
   // ---------- 分頁 ----------
   // 底部的每一格（key）和裡面的頁（pages：[頁面, 上方切換的名稱]）；只有一頁的不顯示上方切換
   const GROUPS = [
     { key: 'overview', label: '總覽', pages: [['overview', '總覽']] },
     { key: 'devices', label: '設備', pages: [['devices', '設備']] },
-    { key: 'records', label: '紀錄', pages: [['records', '紀錄']] },
+    { key: 'records', label: '紀錄', pages: RECORD_PAGES.map(([k, label]) => [k, label]) },
   ];
   const groupOf = key => GROUPS.find(g => g.key === key || g.pages.some(([k]) => k === key));
-  // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽、紀錄（還沒做好）沒有新增按鈕
-  const ADD = { devices: ['devices', '設備'] };
+  // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽（還沒做好）沒有新增按鈕
+  const ADD = { devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.map(([k, , what]) => [k, [k, what]])) };
   const tabBtns = [...document.querySelectorAll('.tabbar [data-tab]')];
   const subtabsEl = $('subtabs');
   const addBtn = $('btn-add');
@@ -97,7 +106,10 @@
   });
   addBtn.addEventListener('click', () => { if (ADD[current]) Form.open(ADD[current][0], null); });
 
-  const refreshAll = () => Object.values(lists).forEach(l => l.refresh());
+  const refreshAll = () => {
+    Object.values(lists).forEach(l => l.refresh());
+    Detail.refresh();
+  };
 
   // ---------- 設定：清單（見 lists.js）、資料備份 ----------
   const menu = $('menu-sheet');
@@ -374,7 +386,15 @@
   });
 
   // 設備裡填過、但不在清單裡的值（試算表手打的、清單做好之前填的）：每個範圍一則提醒，附「加入清單」
+  //   找不到設備的紀錄（在試算表裡打錯了設備編號）：一則提醒，列出是哪幾筆
   function checkLists() {
+    const lost = Records.orphans();
+    Inbox.reconcile('orphan:', lost.length ? [{
+      key: 'orphan:records',
+      title: `有 ${lost.length} 筆紀錄找不到設備`,
+      body: `${lost.slice(0, 10).map(o => `${SCHEMAS[o.table].title}：${Records.describe(o.table, o.rec) || '沒有填設備'}`).join('\n')}`
+        + `${lost.length > 10 ? `\n…等 ${lost.length} 筆` : ''}\n可能是設備編號打錯了，改成正確的編號就好。`,
+    }] : []);
     Inbox.reconcile('notinlist:', Refs.missing().map(m => ({
       key: `notinlist:${m.key}`,
       title: `有 ${m.values.length} 個${m.name}不在清單裡`,

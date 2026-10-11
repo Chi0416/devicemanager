@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const FILES = ['util', 'schema', 'storage', 'refs'];
+const FILES = ['util', 'schema', 'storage', 'refs', 'records'];
 
 function app(storage = {}, { today = null } = {}) {
   const ls = { ...storage };
@@ -36,11 +36,11 @@ function withData() {
   Store.add('options', { list: '位置', name: '2F 辦公室', disabled: false });
   Store.add('options', { list: '位置', name: '舊倉庫', disabled: true });
   Store.add('options', { list: '品牌', name: 'ASUS', disabled: false });
-  Store.add('people', { name: '王小明', jobTitle: '資訊組長', dept: '資訊組', roles: '保管人、執行人', leaveDate: null });
-  Store.add('people', { name: '陳大華', jobTitle: '工程師', roles: '執行人', leaveDate: null });
-  Store.add('people', { name: '林美玉', roles: '保管人', leaveDate: '2026-09-30' }); // 已經離職
-  Store.add('vendors', { name: '原價屋', types: '購買、維修', disabled: false });
-  Store.add('vendors', { name: '聯強', types: '維修', disabled: false });
+  Store.add('people', { name: '王小明', jobTitle: '資訊組長', dept: '資訊組', leaveDate: null });
+  Store.add('people', { name: '陳大華', jobTitle: '工程師', leaveDate: null });
+  Store.add('people', { name: '林美玉', leaveDate: '2026-09-30' }); // 已經離職
+  Store.add('vendors', { name: '原價屋', disabled: false });
+  Store.add('vendors', { name: '聯強', disabled: true }); // 停用
   return a;
 }
 
@@ -60,13 +60,14 @@ test('清單功能做好之前的資料（沒有選項表）：讀進來時補�
   assert.equal(Store.list('options').filter(o => o.list === '類別').length, 7);
 });
 
-test('下拉選單：選項依清單分、人員和廠商依用途和類型分；停用、已離職的不列；依名字排', () => {
+test('下拉選單：選項依清單分；人員（保管人、工程師）、廠商整張表都列；停用、已離職的不列；依名字排', () => {
   const { Refs, field } = withData();
   assert.deepEqual(names(Refs.items(field('devices', 'location'))), ['2F 辦公室', '3F 會議室']);
   assert.deepEqual(names(Refs.items(field('devices', 'location'), { all: true })), ['2F 辦公室', '3F 會議室', '舊倉庫']);
   assert.deepEqual(names(Refs.items(field('devices', 'brand'))), ['ASUS']);
-  assert.deepEqual(names(Refs.items(field('devices', 'keeper'))), ['王小明']); // 林美玉已經離職、陳大華只有執行人
-  assert.deepEqual(names(Refs.items(field('devices', 'vendor'))), ['原價屋']); // 聯強只有維修
+  assert.deepEqual(names(Refs.items(field('devices', 'keeper'))), ['王小明', '陳大華']); // 林美玉已經離職
+  assert.deepEqual(names(Refs.items(field('refurbs', 'engineer'))), ['王小明', '陳大華']);
+  assert.deepEqual(names(Refs.items(field('devices', 'vendor'))), ['原價屋']); // 聯強停用了
   assert.equal(Refs.sub('people', Refs.items(field('devices', 'keeper'))[0]), '資訊組長 · 資訊組');
 });
 
@@ -75,27 +76,28 @@ test('依名字找：全形半形、大小寫、前後空白都不影響；停�
   assert.equal(Refs.find(field('devices', 'brand'), ' ａｓｕｓ ').name, 'ASUS');
   assert.equal(Refs.find(field('devices', 'location'), '舊倉庫').name, '舊倉庫');
   assert.equal(Refs.find(field('devices', 'location'), 'ASUS'), null); // 品牌清單的，不是位置
-  assert.equal(Refs.find(field('devices', 'keeper'), '陳大華'), null); // 不是保管人
+  assert.equal(Refs.find(field('devices', 'keeper'), '林美玉').name, '林美玉'); // 已經離職的舊資料照常認得
+  assert.equal(Refs.find(field('devices', 'vendor'), '聯強').name, '聯強'); // 停用的也找得到
   assert.equal(Refs.find(field('devices', 'keeper'), ''), null);
 });
 
-test('「＋ 新增」：選項加進那一份清單；人員已經在名單裡只是沒勾這個用途時，補勾就好', () => {
+test('「＋ 新增」：選項加進那一份清單；人員、廠商只先記名字', () => {
   const { Store, Refs, field } = withData();
   const loc = Refs.quickAdd(field('devices', 'location'), ' 5F 機房 ');
   assert.equal(loc.list, '位置');
   assert.equal(loc.name, '5F 機房');
   assert.equal(loc.disabled, false);
 
-  const before = Store.list('people').length;
-  const p = Refs.quickAdd(field('devices', 'keeper'), '陳大華');
-  assert.equal(Store.list('people').length, before);
-  assert.equal(p.roles, '執行人、保管人');
-  assert.equal(p.jobTitle, '工程師');
+  const v = Refs.quickAdd(field('devices', 'vendor'), '燦坤');
+  assert.equal(v.name, '燦坤');
+  assert.equal(v.disabled, false);
+  assert.ok(!('types' in v));
 
   const n = Refs.quickAdd(field('devices', 'keeper'), '張三');
-  assert.equal(n.roles, '保管人');
+  assert.equal(n.name, '張三');
   assert.equal(n.jobTitle, '');
   assert.equal(n.leaveDate, null);
+  assert.ok(!('roles' in n));
 });
 
 test('幾台在用：同一台設備在兩個欄位用到只算一次；不能刪除時說明原因', () => {
@@ -127,30 +129,30 @@ test('改名：用到舊名字的設備一起改（只改那個範圍的欄位�
   assert.deepEqual(plain(Refs.renameRefs('options', Store.get('options', room.id), Store.get('options', room.id))), []);
 });
 
-test('不在清單裡的值：每個範圍一組；一鍵加進清單（人員已經在名單裡的補勾用途）', () => {
+test('不在清單裡的值：每個範圍一組（保管人、工程師都是人員）；一鍵加進清單', () => {
   const { Store, Refs } = withData();
-  Store.add('devices', { code: 'NB-001', name: '筆電', location: '4F', keeper: '陳大華', brand: 'ASUS', vendor: '燦坤' });
-  Store.add('devices', { code: 'NB-002', name: '筆電', location: '4F', keeper: '王小明', category: '伺服器' });
+  Store.add('devices', { code: 'NB-001', name: '筆電', location: '4F', keeper: '張三', brand: 'ASUS', vendor: '燦坤' });
+  Store.add('devices', { code: 'NB-002', name: '筆電', location: '4F', keeper: '王小明', category: '伺服器', vendor: '聯強' });
+  Store.add('refurbs', { device: 'NB-001', date: '2026-10-01', engineer: '李四', content: '換外殼' });
   const m = plain(Refs.missing()).map(x => [x.key, x.name, x.values]);
   assert.deepEqual(m, [
     ['options:類別', '類別', ['伺服器']],
     ['options:位置', '位置', ['4F']],
-    ['people:保管人', '保管人', ['陳大華']],
-    ['vendors:購買', '購買廠商', ['燦坤']],
+    ['people:', '人員', ['李四', '張三']],
+    ['vendors:', '廠商', ['燦坤']],
   ]);
-  assert.equal(Refs.importMissing('people:保管人'), 1);
-  assert.equal(Store.list('people').find(p => p.name === '陳大華').roles, '執行人、保管人');
+  assert.equal(Refs.importMissing('people:'), 2);
+  assert.equal(Store.list('people').find(p => p.name === '李四').name, '李四');
   assert.equal(Refs.importMissing('options:位置'), 1);
-  assert.equal(Refs.importMissing('vendors:購買'), 1);
-  assert.equal(Store.list('vendors').find(v => v.name === '燦坤').types, '購買');
+  assert.equal(Refs.importMissing('vendors:'), 1);
   assert.deepEqual(plain(Refs.missing()).map(x => x.key), ['options:類別']);
-  assert.equal(Refs.listOfScope('people:保管人').key, 'people');
+  assert.equal(Refs.listOfScope('people:').key, 'people');
   assert.equal(Refs.listOfScope('options:位置').key, 'options:位置');
 });
 
-test('設定裡的清單：狀態、類別、位置、品牌、人員、廠商；停用的排在後面', () => {
+test('設定裡的清單：狀態、類別、位置、品牌、保養項目、選配件、人員、廠商；停用的排在後面', () => {
   const { Refs } = withData();
-  assert.deepEqual(plain(Refs.lists().map(l => l.title)), ['狀態', '類別', '位置', '品牌', '人員', '廠商']);
+  assert.deepEqual(plain(Refs.lists().map(l => l.title)), ['狀態', '類別', '位置', '品牌', '保養項目', '選配件', '人員', '廠商']);
   const loc = Refs.lists().find(l => l.key === 'options:位置');
   assert.deepEqual(names(Refs.listItems(loc)), ['2F 辦公室', '3F 會議室', '舊倉庫']);
   const people = Refs.lists().find(l => l.key === 'people');
@@ -231,7 +233,7 @@ test('主機板號碼：RNP＋12 碼；只打 12 碼時補上 RNP、轉大寫、
   assert.equal(boardNote({ board: 'rnp123456789012' }), '會存成 RNP123456789012');
   assert.equal(boardNote({ board: '123456789012' }), '會存成 RNP123456789012');
   assert.equal(boardNote({ board: '' }), '');
-  assert.deepEqual(plain(boardNote({ board: 'RNP12345' })), { text: '格式應該是 RNP＋12 碼，例如 RNP123456789012', warn: true });
+  assert.deepEqual(plain(boardNote({ board: 'RNP12345' })), { text: '應該是 RNP＋12 碼', warn: true });
 });
 
 test('設備：主機板號碼有填的話不能重複，搜尋找得到', () => {

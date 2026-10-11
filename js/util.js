@@ -24,6 +24,18 @@ const U = {
     return iso ? String(iso).replace(/-/g, '/') : '';
   },
 
+  // 月份：接受 2026-09、2026/9、2026.9、202609，回傳 2026-09；格式不對回傳 null
+  parseMonth(s) {
+    const t = U.toHalf(s).trim();
+    const m = t.match(/^(\d{4})[\/\-.](\d{1,2})$/) || t.match(/^(\d{4})(\d{2})$/);
+    if (!m || +m[2] < 1 || +m[2] > 12) return null;
+    return `${m[1]}-${U.pad2(+m[2])}`;
+  },
+
+  fmtMonth(ym) {
+    return ym ? String(ym).replace('-', '/') : '';
+  },
+
   // 今天（裝置的當地日期），格式 2026-10-03
   today() {
     const d = new Date();
@@ -61,6 +73,7 @@ const U = {
   display(f, v) {
     if (f.format) return f.format(v);
     if (f.type === 'date') return U.fmtDate(v);
+    if (f.type === 'month') return U.fmtMonth(v);
     if (f.type === 'number') return U.fmtNum(v, f.digits || 0);
     return v ?? '';
   },

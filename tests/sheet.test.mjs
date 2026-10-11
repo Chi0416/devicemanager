@@ -22,9 +22,11 @@ const device = (id, over = {}) => ({
 });
 
 const person = (id, over = {}) => ({
-  id, name: '', code: '', jobTitle: '', dept: '', phone: '', email: '', joinDate: null, leaveDate: null, roles: '', note: '', ...over,
+  id, name: '', code: '', jobTitle: '', dept: '', phone: '', email: '', joinDate: null, leaveDate: null, note: '', ...over,
 });
-const vendor = (id, over = {}) => ({ id, name: '', types: '', contact: '', phone: '', address: '', disabled: false, note: '', ...over });
+// 紀錄：設備欄寫設備編號
+const work = (id, over = {}) => ({ id, device: '', date: null, bw: null, color: null, note: '', ...over });
+const vendor = (id, over = {}) => ({ id, name: '', contact: '', phone: '', address: '', disabled: false, note: '', ...over });
 
 const sample = () => ({
   statuses: [
@@ -37,10 +39,10 @@ const sample = () => ({
     { id: 'o3', list: '位置', name: '舊倉庫', disabled: true },
   ],
   people: [
-    person('p1', { name: '王小明', code: 'E001', jobTitle: '資訊組長', dept: '資訊組', joinDate: '2020-02-01', roles: '保管人、執行人' }),
-    person('p2', { name: '陳大華', leaveDate: '2026-06-30', roles: '保管人' }),
+    person('p1', { name: '王小明', code: 'E001', jobTitle: '資訊組長', dept: '資訊組', joinDate: '2020-02-01' }),
+    person('p2', { name: '陳大華', leaveDate: '2026-06-30' }),
   ],
-  vendors: [vendor('v1', { name: '原價屋', types: '購買、維修', phone: '02-1234-5678' })],
+  vendors: [vendor('v1', { name: '原價屋', phone: '02-1234-5678' })],
   devices: [
     device('d1', {
       code: 'NB-001', name: '會議室筆電', category: '筆電', brand: 'ASUS', model: 'B5402', serial: '0123ABC',
@@ -49,6 +51,18 @@ const sample = () => ({
     }),
     device('d2', { code: '007', name: '印表機', status: '維修中' }),
   ],
+  moves: [{ id: 'm1', device: 'NB-001', date: '2026-01-05', type: '安裝', from: '', to: '3F 會議室', note: '' }],
+  contracts: [{ id: 'c1', device: 'NB-001', signDate: '2026-01-01', endDate: '2027-12-31', content: '月租 3,000\n含 2,000 張', billing: '超過每張 0.3 元', readDay: '每月 25 日' }],
+  readings: [{ id: 'r1', device: 'NB-001', date: '2026-03-03', month: '2026-02', bw: 12000, color: 100, note: '' }],
+  maintenance: [
+    work('k1', { device: 'NB-001', date: '2026-02-01', item: '碳粉 K', bw: 11800, color: 90 }),
+    work('k2', { device: 'NB-001', date: '2026-02-01', item: '感光鼓' }),
+  ],
+  refurbs: [{
+    id: 'f1', device: '007', date: '2026-03-01', stockDate: '2026-03-05', engineer: '王小明', serial: '3101R800999', country: '日',
+    source: '日本拍賣', painted: true, content: '換外殼\n清潔內部', note: '',
+  }],
+  parts: [{ id: 'a1', device: 'NB-001', name: '送紙匣', serial: 'PB1', installDate: '2026-01-05', removeDate: null, note: '' }],
 });
 
 // 試算表讀回來時尾端空白格會被省略，模擬這個行為
@@ -176,13 +190,11 @@ test('勾選的欄位：寫成 true／false（核取方塊）；手打的「是�
   assert.deepEqual(r.problems.map(Sheet.problemText), ['選項第 9 列：停用看不懂（不一定），要勾選或空白']);
 });
 
-test('人員、廠商：可以複選的用途、類型存成「保管人、執行人」', () => {
+test('人員沒有用途欄、廠商沒有類型欄（舊的欄 App 不讀）', () => {
   const v = plain(Sheet.toValues(sample()));
-  assert.deepEqual(v['人員'][0], ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '入職日', '離職日', '用途', '備註', 'id']);
-  assert.equal(v['人員'][1][8], '保管人、執行人');
+  assert.deepEqual(v['人員'][0], ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '入職日', '離職日', '備註', 'id']);
   assert.equal(v['人員'][1][1], 'E001');
-  assert.deepEqual(v['廠商'][0], ['名稱', '類型', '聯絡人', '電話', '地址', '停用', '備註', 'id']);
-  assert.equal(v['廠商'][1][1], '購買、維修');
+  assert.deepEqual(v['廠商'][0], ['名稱', '聯絡人', '電話', '地址', '停用', '備註', 'id']);
 });
 
 test('寫回一筆時依目前的標題列排列，不認得的欄位不動（null）', () => {
@@ -259,7 +271,7 @@ test('補建單一分頁時，只產生那個分頁的格式設定', () => {
 test('建立試算表：分頁、格式、下拉選單、保護', () => {
   const body = plain(Sheet.createBody('設備管理'));
   assert.equal(body.properties.title, '設備管理');
-  assert.deepEqual(body.sheets.map(s => s.properties.title), ['設備', '狀態', '選項', '人員', '廠商', '_meta']);
+  assert.deepEqual(body.sheets.map(s => s.properties.title), ['設備', '異動', '合約', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', '_meta']);
   assert.equal(body.properties.locale, 'zh_TW');
   assert.equal(body.sheets.at(-1).properties.hidden, true);
 
@@ -292,7 +304,9 @@ test('建立試算表：分頁、格式、下拉選單、保護', () => {
   const opt = Sheet.TAB.options.sheetId;
   const box = reqs.find(r => r.setDataValidation?.range.sheetId === opt && r.setDataValidation.range.startColumnIndex === 2);
   assert.equal(box.setDataValidation.rule.condition.type, 'BOOLEAN');
-  assert.equal(reqs.filter(r => r.addProtectedRange).length, 10); // 5 個分頁 × 標題列與 id 欄
+  assert.equal(reqs.filter(r => r.addProtectedRange).length, 22); // 11 個分頁 × 標題列與 id 欄
+  // 左右切換的欄位（異動的類型）有下拉選單
+  assert.equal(listOf(listsOf(Sheet.TAB.moves.sheetId), 2), '安裝,撤機,移機,其他');
   assert.ok(reqs.filter(r => r.addProtectedRange).every(r => r.addProtectedRange.protectedRange.warningOnly));
 });
 
@@ -311,4 +325,35 @@ test('改名前的標題（was）讀得到，同步時改成新的標題', () =>
   } finally {
     delete schema.was;
   }
+});
+
+test('紀錄：設備欄寫設備編號（純文字）；保養一筆一個項目，翻新項目是自由輸入的文字', () => {
+  const v = plain(Sheet.toValues(sample()));
+  assert.deepEqual(v['異動'][0], ['設備', '日期', '類型', '原位置', '新位置', '備註', 'id']);
+  assert.deepEqual(v['合約'][0], ['設備', '簽約日', '到期日', '合約內容', '計費方式', '抄表日期', 'id']);
+  assert.deepEqual(v['抄表'][0], ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', 'id']);
+  assert.equal(v['抄表'][1][2], '2026/02'); // 結算月份存成文字
+  assert.deepEqual(v['保養'][0], ['設備', '日期', '項目', '黑白張數', '彩色張數', '備註', 'id']);
+  assert.deepEqual(v['翻新'][0], ['設備', '翻新日期', '入庫日', '工程師', '序號', '國別', '原廠商', '噴漆', '翻新項目', '備註', 'id']);
+  assert.equal(v['翻新'][1][7], true); // 噴漆是核取方塊
+  assert.deepEqual(v['選配件'][0], ['設備', '名稱', '序號', '安裝日期', '拆除日期', '備註', 'id']);
+  assert.equal(v['保養'][1][0], 'NB-001');
+  assert.equal(v['保養'][1][2], '碳粉 K');
+  assert.equal(v['翻新'][1][8], '換外殼\n清潔內部');
+  const reqs = plain(Sheet.setupRequests());
+  const fmt = reqs.find(r => r.repeatCell?.range.sheetId === Sheet.TAB.readings.sheetId && r.repeatCell.range.startColumnIndex === 0
+    && r.repeatCell.fields === 'userEnteredFormat.numberFormat').repeatCell.cell.userEnteredFormat.numberFormat;
+  assert.deepEqual(fmt, { type: 'TEXT' });
+});
+
+test('抄表的結算月份：文字 2026/9、被改成日期格式的序號都讀得懂；看不懂的列成問題', () => {
+  const head = Sheet.TAB.readings.headers;
+  const r = plain(Sheet.fromValues(withTab('抄表', [
+    head,
+    ['NB-001', '2026/10/3', '2026/9', 100],
+    ['NB-001', '2026/11/2', Sheet.toSerial('2026-10-01'), 200],
+    ['NB-001', '2026/12/1', '十一月', 300],
+  ])));
+  assert.deepEqual(r.data.readings.map(x => x.month), ['2026-09', '2026-10', '']);
+  assert.deepEqual(r.problems.filter(p => p.tab === '抄表').map(Sheet.problemText), ['抄表第 4 列：結算月份看不懂（十一月），要寫成 2026/09']);
 });

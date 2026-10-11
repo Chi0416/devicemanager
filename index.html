@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.11.2">
+  <link rel="manifest" href="manifest.json?v=2026.10.11.3">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.11.2">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.11.3">
 </head>
 <body>
   <div class="app">
@@ -59,7 +59,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
         <span>設備</span>
       </button>
-      <!-- 紀錄：維修、保養、異動、配件 -->
+      <!-- 紀錄：所有設備的保養、翻新、抄表、合約、異動 -->
       <button type="button" role="tab" data-tab="records">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4.5" width="14" height="16" rx="2.5"/><path d="M9 3.5h6v2.5H9zM8.5 10.5h7M8.5 14h7M8.5 17.5h4"/></svg>
         <span>紀錄</span>
@@ -80,7 +80,33 @@
       <!-- 新增時才有：存好不關表單，接著填下一筆（保留類別、位置這些，編號跳下一號） -->
       <button type="button" class="wide-btn another" data-act="another" hidden>儲存，再新增一筆</button>
       <button type="button" class="wide-btn danger" data-act="delete" hidden>刪除這筆</button>
+      <!-- 按了刪除之後：寫會刪掉什麼（再按一次才刪），或不能刪的原因 -->
+      <p class="delete-note" hidden></p>
     </div>
+  </dialog>
+
+  <!-- 設備詳情（見 detail.js）：點設備卡片打開；新增、編輯紀錄的表單開在這一頁上面 -->
+  <dialog id="detail-sheet" class="sheet detail">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title"></h2>
+      <button type="button" class="text-btn strong" data-act="edit">編輯</button>
+    </div>
+    <div class="sheet-body">
+      <div class="detail-info"></div>
+      <!-- 一張表一列：位置、合約、抄表、保養、翻新、配件 -->
+      <ul class="member-list detail-rows"></ul>
+    </div>
+  </dialog>
+
+  <!-- 設備詳情裡的一張表（見 detail.js）：這台設備的紀錄 -->
+  <dialog id="sub-sheet" class="sheet">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title"></h2>
+      <button type="button" class="text-btn strong" data-act="add">新增</button>
+    </div>
+    <div class="sheet-body"></div>
   </dialog>
 
   <!-- 設定：清單、雲端同步、資料備份 -->
@@ -108,7 +134,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.11.2</p>
+      <p class="note muted">版本 2026.10.11.3</p>
     </div>
   </dialog>
 
@@ -143,19 +169,21 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.11.2"></script>
-  <script src="js/schema.js?v=2026.10.11.2"></script>
-  <script src="js/storage.js?v=2026.10.11.2"></script>
-  <script src="js/refs.js?v=2026.10.11.2"></script>
-  <script src="js/list.js?v=2026.10.11.2"></script>
-  <script src="js/form.js?v=2026.10.11.2"></script>
-  <script src="js/lists.js?v=2026.10.11.2"></script>
-  <script src="js/config.js?v=2026.10.11.2"></script>
-  <script src="js/google.js?v=2026.10.11.2"></script>
-  <script src="js/sheet.js?v=2026.10.11.2"></script>
-  <script src="js/sync.js?v=2026.10.11.2"></script>
-  <script src="js/inbox.js?v=2026.10.11.2"></script>
-  <script src="js/app.js?v=2026.10.11.2"></script>
+  <script src="js/util.js?v=2026.10.11.3"></script>
+  <script src="js/schema.js?v=2026.10.11.3"></script>
+  <script src="js/storage.js?v=2026.10.11.3"></script>
+  <script src="js/refs.js?v=2026.10.11.3"></script>
+  <script src="js/records.js?v=2026.10.11.3"></script>
+  <script src="js/list.js?v=2026.10.11.3"></script>
+  <script src="js/form.js?v=2026.10.11.3"></script>
+  <script src="js/lists.js?v=2026.10.11.3"></script>
+  <script src="js/detail.js?v=2026.10.11.3"></script>
+  <script src="js/config.js?v=2026.10.11.3"></script>
+  <script src="js/google.js?v=2026.10.11.3"></script>
+  <script src="js/sheet.js?v=2026.10.11.3"></script>
+  <script src="js/sync.js?v=2026.10.11.3"></script>
+  <script src="js/inbox.js?v=2026.10.11.3"></script>
+  <script src="js/app.js?v=2026.10.11.3"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

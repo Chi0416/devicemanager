@@ -1,8 +1,10 @@
 // 資料表的欄位定義（除了 optional 的欄位，全部必填）
-//   type:        date | text | number | url | email | tel（網址、Email、電話都存成文字，表單上換成對應的鍵盤）
-//                ref（從清單選，存的是名字）：ref 是哪張表（statuses、options、people、vendors）；
-//                     options 另外寫 list（類別、位置、品牌），people、vendors 另外寫 role（用途、類型有勾這一項的才列出來）
-//                multi（可以複選）：choices 是選項，存成「保管人、執行人」
+//   type:        date | month | text | number | url | email | tel（網址、Email、電話都存成文字，表單上換成對應的鍵盤）
+//                month（月份）：存 2026-09，試算表上是文字 2026/09，表單上是年月的選單
+//                ref（從清單選，存的是名字）：ref 是哪張表（statuses、options、people、vendors、devices）；
+//                     options 另外寫 list（類別、位置、品牌…）
+//                     紀錄的「設備」欄也是 ref：存設備編號（devices 的 target 見下面）
+//                multi（可以複選）：choices 是選項，存成「甲、乙」
 //                flag（勾選）：存 true／false，試算表上是核取方塊
 //   optional:    可以空白
 //   format:      列表卡片上的顯示方式
@@ -10,6 +12,9 @@
 //   full:        表單中佔滿整列（預設半列）
 //   tight:       表單上字距縮一點（主機板號碼 15 碼在半格裡放得下）
 //   section:     表單裡從這個欄位開始的一段的小標題（基本資料、機器識別…）
+//   formLabel:   表單上的名稱和試算表的標題不一樣時（紀錄的設備欄：試算表寫「設備」，表單上寫「位置」）
+//   placeholder: 從清單選的欄位裡的灰字，沒有時寫「選擇或搜尋」
+//   hidden:      表單上不顯示，由 calc 填好（異動的原位置）
 //   multiline:   表單上是可以換行的大格子（備註）
 //   upper:       存檔時英文字母轉大寫（員工編號）
 //   auto:        系統自己產生、不能改（設備的編號）：auto(這一筆) 回傳新的值；新增時存檔才給，給了就不會變
@@ -17,9 +22,13 @@
 //   default:     新增時預先填入的值；可以是函式（第一個狀態）
 //   hint:        顯示在表單欄位下方的說明
 //   note:        依表單目前填的內容，顯示在欄位下方的提醒：note(values) 回傳文字或 { text, warn }，不用提醒時回傳空字串
+//                values 是各欄位目前填的內容，另外 values.id 是正在編輯的那一筆的 id（新增時是 null）
+//                位置先留好，沒有提醒時也空著（提醒出現時表單不會跳）；文字要放得進 noteLines 行，多的會被截掉
+//   noteLines:   提醒留幾行（預設 1；張數的「上次…／本期…」是 2 行，用 \n 換行）
 //   clean:       存檔前整理打的字：clean(打的字) 回傳要存的值（主機板號碼補上 RNP、轉大寫）
-//   calc:        依表單目前填的內容先算好填上：calc(values) 回傳數字，算不出來時回傳 null
-//                欄位空白、或還是上次算的數字時才填，自己改過的不蓋掉（見 form.js）
+//   calc:        依表單目前填的內容先填好：calc(values) 回傳要填的值，沒有時回傳空字串
+//                只在依的欄位改了、算出來的值跟著變時才填；欄位空白、或還是上次填的值時才換，自己改過的不蓋掉（見 form.js）
+//   lock:        舊資料不能在表單上改的原因：lock(這一筆) 回傳說明（有異動的設備，位置要新增異動），可以改時回傳空字串
 //   caps:        手機鍵盤預設大寫（編號、序號常有英文字母）
 //   suggest:     表單下方的快選按鈕（預設值 + 最近輸入過的值），只是提示，不限制；有預設值時試算表也有下拉選單
 //   toggle:      表單上改成左右切換的按鈕（有 toggle 時不顯示 suggest 的快選按鈕）：[{ value, label, tone, match }]
@@ -27,22 +36,33 @@
 //   was:         這個欄位以前在試算表上的標題（改名前），讀得到舊標題的試算表，同步時改成新標題
 //   （資料表）title:     頁面標題，也是試算表的分頁名稱
 //   （資料表）formTitle: 表單標題用的名稱，沒有時用 title
+//   （資料表）describe:  一筆資料的簡短說明（儲存後的提示、提醒裡用）：describe(列)；沒有時用 card 的編號、名稱、標籤
 //   （資料表）unit:      筆數的單位（「3 台設備」），被清單引用時的說明用
-//   （資料表）card:      列表卡片：code 灰色小字、title 名稱、badge 標籤、primary 右上角、grid 卡片下方的欄位（沒有時列出其餘全部）
+//   （資料表）card:      列表卡片：code 灰色小字、title 名稱（可以是函式：title(列)）、badge 標籤、primary 右上角、
+//                       grid 卡片下方的欄位（沒有時列出其餘全部）
+//   （資料表）status:    沒有 badge 時的標籤：status(列) 回傳 { label, cls } 或 null（目前的合約、已拆除）
 //   （資料表）note:      卡片最下面的一行：note(列) 回傳 { text, warn } 或 null
-//   （資料表）period:    依日期篩選與分組：{ key, unit: 'month' | 'day', label }；沒有時依 sort 排序
-//   （資料表）sort:      沒有 period 時的排序欄位（由小到大）
+//   （資料表）period:    依日期篩選與分組：{ key, unit: 'month' | 'day', label }，新到舊；沒有時依 order 或 sort 排序
+//   （資料表）order:     沒有 period 時的排序：order(a, b)，和陣列的 sort 一樣
+//   （資料表）sort:      沒有 period、order 時的排序欄位（由小到大）
 //   （資料表）filter:    列表上方的篩選按鈕（依這個欄位：toggle 的選項，或從清單選的欄位的清單，例如狀態）
 //   （資料表）groups:    可以選的分組方式：[[欄位, 名稱]]
 //   （資料表）search:    搜尋框找哪些欄位；沒有時找 card 的 code 和 title
+//   （資料表）searchText: 另外讓搜尋找得到的字：searchText(列)（紀錄的設備名稱、位置）
+//   （資料表）searchHint: 搜尋框裡的灰字；沒有時寫 search 前兩個欄位
 //   （資料表）unique:    不能和其他筆重複的欄位組合：[[欄位, …], …]；全部空白的不算
 //   （資料表）uniqueMsg: 重複時的提醒：uniqueMsg(已經有的那一筆, 欄位組合) 回傳文字
 //   （資料表）noList:    不是底部分頁的列表（選項、人員、廠商在設定的「清單」裡管理，見 lists.js）
 //   （資料表）target:    被其他表的 ref 欄位引用（見 refs.js）：
-//                       name 名字的欄位；group 分清單的欄位（options 的 list）；roles 用途的欄位（可複選）
+//                       name 名字的欄位；group 分清單的欄位（options 的 list）
 //                       active(列) 會不會出現在下拉選單；sub(列) 下拉選單裡名字後面的小字；off 停用時的標籤
 //                       order 排序的欄位（數字小的在前，沒有時依名字排）；tone(列) 標籤的顏色（狀態）
+//                       label(列) 下拉選單和欄位上顯示的字，和存的名字不一樣時（設備：顯示位置、存編號）
 //                       removeHint 有人在用、不能刪除時的建議
+//                       noAdd 下拉選單裡不能「＋ 新增」、不列在「不在清單裡」（設備：紀錄的設備欄只能選已經有的設備）
+//                       cascade 刪除時連同用到它的紀錄一起刪（先問），不是擋下來（設備）
+//   （資料表）afterSave、afterRemove: 新增、修改、刪除之後要跟著改的（異動改了，設備的位置跟著算）：
+//                       afterSave(改之前（新增時是 null）, 改之後)、afterRemove(刪掉的那一筆)
 //   （資料表）seed:      全新的裝置上預先放的資料（id 用 seed- 開頭，沒改過時不算這台裝置的資料，見 storage.js）
 //   （資料表）intro、empty: 列表最上面的說明、還沒有資料時列表顯示的文字
 
@@ -62,10 +82,18 @@ const DEFAULT_STATUSES = [
 ];
 
 // 只有名字的清單，都放在「選項」表，用「清單」欄分
-const OPTION_LISTS = ['類別', '位置', '品牌'];
-const DEFAULT_CATEGORIES = ['筆電', '桌機', '螢幕', '印表機', '網路設備', '手機', '平板'];
-const PERSON_ROLES = ['保管人', '執行人', '經手人'];
-const VENDOR_TYPES = ['購買', '維修'];
+const OPTION_LISTS = ['類別', '位置', '品牌', '保養項目', '選配件'];
+// 預設項目（沒改過時不算這台裝置的資料）；id 的開頭：類別是 seed-1…，其他加上清單的代號
+const DEFAULT_OPTIONS = [
+  { list: '類別', id: '', names: ['筆電', '桌機', '螢幕', '印表機', '網路設備', '手機', '平板'] },
+  { list: '保養項目', id: 'mt', names: ['碳粉 K', '碳粉 C', '碳粉 M', '碳粉 Y', '感光鼓', '廢粉盒', '清潔保養'] },
+  { list: '選配件', id: 'part', names: ['送紙匣', '裝訂器', '傳真卡', '底座'] },
+];
+
+// 左右切換的選項：[{ value, tone }] → toggle 的寫法
+const toggleOf = list => list.map(o => ({ value: o.value, label: o.value, tone: o.tone, match: new RegExp(`^${o.value}$`) }));
+const MOVE_TYPES = [{ value: '安裝', tone: 'blue' }, { value: '撤機', tone: 'gray' }, { value: '移機', tone: 'purple' }, { value: '其他', tone: '' }];
+const COUNTRIES = [{ value: '美', tone: '' }, { value: '日', tone: '' }]; // 翻新的國別
 
 // 設備的編號：年份兩位數＋流水號四位數（26-0001），年份照購買日期，沒填購買日期用今年
 //   同一年的取最大的號碼往下編；舊的、自己打的編號（NB-001）不影響
@@ -113,7 +141,7 @@ function boardNote(values) {
   const raw = String(values.board ?? '').trim();
   const v = cleanBoard(raw);
   if (!v) return '';
-  if (!BOARD_RE.test(v)) return { text: '格式應該是 RNP＋12 碼，例如 RNP123456789012', warn: true };
+  if (!BOARD_RE.test(v)) return { text: '應該是 RNP＋12 碼', warn: true };
   return v === raw ? '' : `會存成 ${v}`;
 }
 
@@ -137,6 +165,20 @@ function warrantyNote(r) {
 const notDisabled = r => !r.disabled;
 const stillHere = r => !r.leaveDate || r.leaveDate > U.today();
 
+// 紀錄（異動、合約、抄表、保養、翻新、選配件）共用的欄位；計算見 records.js
+//   設備：存設備編號（24-0001）；表單上寫「位置」，打位置找設備（一個位置放一台），下面寫編號和名稱
+const deviceField = () => ({
+  key: 'device', label: '設備', formLabel: '位置', placeholder: '打位置找設備', type: 'ref', ref: 'devices', full: true,
+  note: v => Records.deviceNote(v.device),
+});
+const dateField = (key, label, more = {}) => ({ key, label, type: 'date', default: () => U.today(), ...more });
+const noteField = () => ({ key: 'note', label: '備註', type: 'text', optional: true, full: true, multiline: true });
+// 張數：下面寫上一次的張數和本期用量，比上一次少時提醒
+const countField = (key, label, more = {}) => ({
+  key, label, type: 'number', optional: true, note: v => Records.countNote(v, key), noteLines: 2, ...more,
+});
+const recordMonth = key => ({ key, unit: 'month', label: '月份' });
+
 const SCHEMAS = {
   devices: {
     title: '設備',
@@ -145,12 +187,15 @@ const SCHEMAS = {
     filter: 'status',
     groups: [['category', '類別'], ['location', '位置'], ['keeper', '保管人']],
     search: ['code', 'name', 'brand', 'model', 'serial', 'board', 'location', 'keeper'],
+    searchHint: '搜尋位置、編號或名稱',
     card: { code: 'code', title: 'name', badge: 'status', grid: ['category', 'location', 'keeper'] },
     note: warrantyNote,
     unique: [['code'], ['board']],
     uniqueMsg: (dup, keys) => (keys[0] === 'board'
       ? `這個主機板號碼已經用在 ${dup.code} ${dup.name}`
       : `編號 ${dup.code} 已經用過了（${dup.name}）`),
+    // 紀錄的「設備」欄從這裡選：顯示位置、存編號（沒填位置的顯示編號）；刪除設備時連同它的紀錄一起刪（見 form.js）
+    target: { name: 'code', label: r => r.location || r.code, sub: r => [r.code, r.name].filter(Boolean).join(' '), noAdd: true, cascade: true },
     empty: '還沒有設備<br>點右上角「＋ 新增」開始記錄',
     fields: [
       // 年份照購買日期（沒填用今年），給了就不會變
@@ -162,14 +207,144 @@ const SCHEMAS = {
       { key: 'model',    label: '型號',     type: 'text', optional: true, keep: true },
       { key: 'serial',   label: '序號',     type: 'text', optional: true, caps: true, section: '機器識別' },
       { key: 'board',    label: '主機板號碼', type: 'text', optional: true, caps: true, tight: true, clean: cleanBoard, note: boardNote },
-      { key: 'location', label: '位置',     type: 'ref', ref: 'options', list: '位置', optional: true, keep: true, section: '放置與保管' },
-      { key: 'keeper',   label: '保管人',   type: 'ref', ref: 'people', role: '保管人', optional: true },
+      // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示
+      { key: 'location', label: '位置',     type: 'ref', ref: 'options', list: '位置', optional: true, keep: true, section: '放置與保管',
+        lock: r => (Records.hasMoves(r.code) ? '要換位置請新增異動' : '') },
+      { key: 'keeper',   label: '保管人',   type: 'ref', ref: 'people', optional: true },
       { key: 'buyDate',  label: '購買日期', type: 'date', optional: true, keep: true, section: '購買與保固' },
       { key: 'price',    label: '購買金額', type: 'number', optional: true, keep: true },
-      { key: 'vendor',   label: '購買廠商', type: 'ref', ref: 'vendors', role: '購買', optional: true, keep: true },
+      { key: 'vendor',   label: '購買廠商', type: 'ref', ref: 'vendors', optional: true, keep: true },
       { key: 'warranty', label: '保固到期', type: 'date', optional: true, keep: true },
       { key: 'link',     label: '連結',     type: 'url', optional: true, full: true, hint: '照片、說明書或雲端硬碟資料夾的網址', section: '其他' },
       { key: 'note',     label: '備註',     type: 'text', optional: true, full: true, multiline: true },
+    ],
+  },
+
+  // ---------- 紀錄：每一筆的「設備」欄寫設備編號（計算見 records.js） ----------
+  // 異動：位置歷程，設備目前的位置＝最新一筆的新位置；原位置是選的那台設備當時的位置（表單上不顯示）
+  moves: {
+    title: '異動',
+    period: recordMonth('date'),
+    card: { title: r => Records.moveTitle(r), badge: 'type', grid: [] },
+    note: r => Records.noteLine(r.note),
+    describe: r => Records.describe('moves', r),
+    search: ['device', 'from', 'to', 'note'],
+    searchText: r => Records.deviceText(r.device, r.date),
+    searchHint: '搜尋位置',
+    afterSave: (before, after) => Records.syncLocations(before ? [before] : []),
+    afterRemove: r => Records.syncLocations([r]),
+    fields: [
+      deviceField(),
+      dateField('date', '日期', { keep: true }),
+      { key: 'type', label: '類型', type: 'text', keep: true, toggle: toggleOf(MOVE_TYPES) },
+      { key: 'from', label: '原位置', type: 'ref', ref: 'options', list: '位置', optional: true, hidden: true, calc: v => Records.device(v.device)?.location || '' },
+      { key: 'to',   label: '新位置', type: 'ref', ref: 'options', list: '位置' },
+      noteField(),
+    ],
+  },
+
+  // 合約：一份一筆，最新一筆（依簽約日）是目前的合約；兩個日期之外都是自由輸入的文字
+  contracts: {
+    title: '合約',
+    period: recordMonth('signDate'),
+    card: { title: r => Records.firstLine(r.content) || '合約', grid: [] },
+    status: r => (Records.isCurrentContract(r) ? { label: '目前', cls: 'blue' } : null),
+    note: r => Records.contractNote(r),
+    describe: r => Records.describe('contracts', r),
+    search: ['device', 'content', 'billing'],
+    searchText: r => Records.deviceText(r.device, r.signDate),
+    searchHint: '搜尋位置或合約內容',
+    fields: [
+      deviceField(),
+      dateField('signDate', '簽約日'),
+      { key: 'endDate', label: '到期日', type: 'date', optional: true },
+      { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true },
+      { key: 'billing', label: '計費方式', type: 'text', optional: true, full: true, multiline: true },
+      { key: 'readDay', label: '抄表日期', type: 'text', optional: true, full: true },
+    ],
+  },
+
+  // 抄表：本期用量＝這次減上一次（保養、翻新填的張數一起排，依抄表日期）
+  //   結算月份：是幾月的帳款，自己選（請假、放假、臨時去抄都有，不預設）；列表依結算月份分組
+  readings: {
+    title: '抄表',
+    period: { key: 'month', unit: 'month', label: '結算月份', then: 'date' },
+    card: { title: r => Records.countsText(r) || '抄表', grid: [] },
+    note: r => Records.readingNote(r),
+    describe: r => Records.describe('readings', r),
+    search: ['device', 'note'],
+    searchText: r => Records.deviceText(r.device, r.date),
+    searchHint: '搜尋位置',
+    fields: [
+      deviceField(),
+      dateField('date', '抄表日期', { keep: true }),
+      { key: 'month', label: '結算月份', type: 'month', note: v => Records.monthNote(v) },
+      countField('bw', '黑白張數', { optional: false }),
+      countField('color', '彩色張數'),
+      noteField(),
+    ],
+  },
+
+  // 保養：在哪裡換了哪個；一筆記一個項目（從保養項目清單選），同一趟換了好幾樣，用「儲存，再新增一筆」接著填（日期留著）
+  maintenance: {
+    title: '保養',
+    period: recordMonth('date'),
+    card: { title: r => r.item || '保養', grid: [] },
+    note: r => Records.workNote(r),
+    describe: r => Records.describe('maintenance', r),
+    search: ['device', 'item', 'note'],
+    searchText: r => Records.deviceText(r.device, r.date),
+    searchHint: '搜尋位置或項目',
+    fields: [
+      deviceField(),
+      dateField('date', '日期', { keep: true }),
+      { key: 'item', label: '項目', type: 'ref', ref: 'options', list: '保養項目' },
+      countField('bw', '黑白張數'),
+      countField('color', '彩色張數'),
+      noteField(),
+    ],
+  },
+
+  // 翻新：翻新項目自由輸入；工程師從人員選；序號先帶入設備現在的序號，不一樣時提醒（不會去改設備）
+  refurbs: {
+    title: '翻新',
+    period: recordMonth('date'),
+    card: { title: r => Records.firstLine(r.content) || '翻新', grid: [] },
+    note: r => Records.refurbNote(r),
+    describe: r => Records.describe('refurbs', r),
+    search: ['device', 'content', 'engineer', 'serial', 'source', 'note'],
+    searchText: r => Records.deviceText(r.device, r.date),
+    searchHint: '搜尋位置或翻新項目',
+    fields: [
+      deviceField(),
+      dateField('date', '翻新日期', { keep: true }),
+      { key: 'stockDate', label: '入庫日', type: 'date', optional: true },
+      { key: 'engineer',  label: '工程師', type: 'ref', ref: 'people', optional: true, keep: true },
+      { key: 'serial',    label: '序號', type: 'text', optional: true, caps: true,
+        calc: v => Records.device(v.device)?.serial || '', note: v => Records.serialNote(v) },
+      { key: 'country',   label: '國別', type: 'text', optional: true, toggle: toggleOf(COUNTRIES) },
+      { key: 'source',    label: '原廠商', type: 'text', optional: true },
+      { key: 'painted',   label: '噴漆', type: 'flag', optional: true },
+      { key: 'content',   label: '翻新項目', type: 'text', full: true, multiline: true },
+      noteField(),
+    ],
+  },
+
+  // 選配件：送紙匣、裝訂器…；拆除日期空白的是目前裝著的（碳粉這類耗材記在保養）
+  parts: {
+    title: '選配件',
+    order: (a, b) => Records.partOrder(a, b),
+    card: { title: 'name', grid: [] },
+    status: r => (r.removeDate ? { label: '已拆除', cls: 'gray' } : null),
+    note: r => Records.partNote(r),
+    describe: r => Records.describe('parts', r),
+    fields: [
+      deviceField(),
+      { key: 'name',        label: '名稱',     type: 'ref', ref: 'options', list: '選配件' },
+      { key: 'serial',      label: '序號',     type: 'text', optional: true, caps: true },
+      dateField('installDate', '安裝日期', { optional: true }),
+      { key: 'removeDate',  label: '拆除日期', type: 'date', optional: true },
+      noteField(),
     ],
   },
 
@@ -192,14 +367,14 @@ const SCHEMAS = {
     ],
   },
 
-  // 只有名字的清單（類別、位置、品牌）
+  // 只有名字的清單（類別、位置、品牌、保養項目、選配件）
   options: {
     title: '選項',
     noList: true,
     target: { name: 'name', group: 'list', active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
     unique: [['list', 'name']],
     uniqueMsg: dup => `${dup.list}清單裡已經有「${dup.name}」了`,
-    seed: () => DEFAULT_CATEGORIES.map((name, i) => ({ id: `seed-${i + 1}`, list: '類別', name, disabled: false })),
+    seed: () => DEFAULT_OPTIONS.flatMap(o => o.names.map((name, i) => ({ id: `seed-${o.id}${i + 1}`, list: o.list, name, disabled: false }))),
     fields: [
       { key: 'list',     label: '清單', type: 'text', full: true, suggest: OPTION_LISTS,
         toggle: OPTION_LISTS.map(v => ({ value: v, label: v, tone: '', match: new RegExp(`^${v}$`) })) },
@@ -208,12 +383,12 @@ const SCHEMAS = {
     ],
   },
 
-  // 人員：保管人、保養的執行人、異動的經手人都從這裡選（用途有勾的才列出來）
-  //   不放身分證、薪資等敏感資料
+  // 人員：設備的保管人、翻新的工程師從這裡選（抄表、保養、異動都是保管人做，不另外記）
+  //   不放身分證、薪資等敏感資料；試算表上舊的「用途」欄 App 不讀，留著不動
   people: {
     title: '人員',
     noList: true,
-    target: { name: 'name', roles: 'roles', active: stillHere, sub: r => [r.jobTitle, r.dept].filter(Boolean).join(' · '),
+    target: { name: 'name', active: stillHere, sub: r => [r.jobTitle, r.dept].filter(Boolean).join(' · '),
       off: '已離職', removeHint: '不再使用的話，可以填「離職日」' },
     unique: [['code'], ['name']],
     uniqueMsg: (dup, keys) => (keys[0] === 'code'
@@ -228,22 +403,20 @@ const SCHEMAS = {
       { key: 'email',     label: 'Email',    type: 'email', optional: true },
       { key: 'joinDate',  label: '入職日',   type: 'date', optional: true },
       { key: 'leaveDate', label: '離職日',   type: 'date', optional: true, hint: '這天以後不會出現在選單裡' },
-      { key: 'roles',     label: '用途',     type: 'multi', choices: PERSON_ROLES, full: true, hint: '勾了才會出現在那個欄位的選單裡' },
       { key: 'note',      label: '備註',     type: 'text', optional: true, full: true, multiline: true },
     ],
   },
 
-  // 廠商：購買廠商、維修廠商都從這裡選（類型有勾的才列出來）
+  // 廠商：設備的購買廠商從這裡選；試算表上舊的「類型」欄 App 不讀，留著不動
   vendors: {
     title: '廠商',
     noList: true,
-    target: { name: 'name', roles: 'types', active: notDisabled, sub: r => [r.contact, r.phone].filter(Boolean).join(' · '),
+    target: { name: 'name', active: notDisabled, sub: r => [r.contact, r.phone].filter(Boolean).join(' · '),
       off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
     unique: [['name']],
     uniqueMsg: dup => `已經有「${dup.name}」了`,
     fields: [
       { key: 'name',     label: '名稱',   type: 'text' },
-      { key: 'types',    label: '類型',   type: 'multi', choices: VENDOR_TYPES, hint: '勾了才會出現在那個欄位的選單裡' },
       { key: 'contact',  label: '聯絡人', type: 'text', optional: true },
       { key: 'phone',    label: '電話',   type: 'tel', optional: true },
       { key: 'address',  label: '地址',   type: 'text', optional: true, full: true },

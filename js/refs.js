@@ -1,6 +1,6 @@
 // 清單：ref 欄位（設備的類別、位置、保管人…）從哪裡選、找得到找不到、新增、改名時一起改
-//   被引用的表（選項、人員、廠商）在 schema 裡有 target（見 schema.js）；ref 欄位存的是名字，不是 id
-//   一個 ref 欄位的範圍（scope）：選項依「清單」分（類別、位置、品牌），人員、廠商依「用途」「類型」分（保管人、購買…）；狀態整張表都是
+//   被引用的表（狀態、選項、人員、廠商、設備）在 schema 裡有 target（見 schema.js）；ref 欄位存的是名字，不是 id
+//   一個 ref 欄位的範圍（scope）：選項依「清單」分（類別、位置、品牌…）；狀態、人員、廠商、設備整張表都是
 const Refs = (() => {
   const TABLES = Object.keys(SCHEMAS);
   const targetOf = t => SCHEMAS[t]?.target || null;
@@ -15,16 +15,14 @@ const Refs = (() => {
   // 所有 ref 欄位：[{ table, field }]
   const refFields = () => TABLES.flatMap(table => SCHEMAS[table].fields.filter(f => f.type === 'ref').map(field => ({ table, field })));
 
-  // 範圍的 key 和名稱：options:位置、people:保管人；名稱用在「＋ 新增保管人」、提醒的標題
-  const scopeKey = f => `${f.ref}:${f.list || f.role || ''}`;
-  const scopeName = f => (f.list || f.label);
+  // 範圍的 key 和名稱：options:位置、people:；名稱用在「＋ 新增位置」「＋ 新增人員」、提醒的標題
+  const scopeKey = f => `${f.ref}:${f.list || ''}`;
+  const scopeName = f => (f.list || SCHEMAS[f.ref].title);
 
-  // 這一筆屬於這個欄位的範圍嗎（位置清單裡的、用途有勾保管人的）
+  // 這一筆屬於這個欄位的範圍嗎（位置清單裡的）
   function inScope(f, r) {
     const tg = targetOf(f.ref);
-    if (tg.group) return r[tg.group] === f.list;
-    if (tg.roles) return multi(r[tg.roles]).includes(f.role);
-    return true;
+    return tg.group ? r[tg.group] === f.list : true;
   }
 
   const nameOf = (t, r) => String(r?.[targetOf(t).name] ?? '');
@@ -62,20 +60,11 @@ const Refs = (() => {
         : f.type === 'number' || f.type === 'date' ? null : f.type === 'flag' ? false : '']));
   }
 
-  // 表單裡點「＋ 新增」：馬上加進清單；人員、廠商已經在名單裡、只是沒勾這個用途時，補勾就好
+  // 表單裡點「＋ 新增」：馬上加進清單（選項加進那一份清單）
   function quickAdd(f, name) {
     const tg = targetOf(f.ref);
-    const clean = String(name).trim();
-    if (tg.roles) {
-      const same = Store.list(f.ref).find(r => norm(nameOf(f.ref, r)) === norm(clean));
-      if (same) {
-        Store.update(f.ref, same.id, { [tg.roles]: [...multi(same[tg.roles]), f.role].join('、') });
-        return Store.get(f.ref, same.id);
-      }
-    }
-    const rec = { ...blankRecord(f.ref), [tg.name]: clean };
+    const rec = { ...blankRecord(f.ref), [tg.name]: String(name).trim() };
     if (tg.group) rec[tg.group] = f.list;
-    if (tg.roles) rec[tg.roles] = f.role;
     return Store.add(f.ref, rec);
   }
 
@@ -121,10 +110,11 @@ const Refs = (() => {
   }
 
   // 用過、但不在清單裡的值（在試算表裡手打的、清單功能做好之前填的）：[{ key, ref, name, field, values }]
-  //   每個範圍一組；同一個範圍有好幾個欄位時（保管人、異動的原保管人）合在一起
+  //   每個範圍一組；同一個範圍有好幾個欄位時（設備的位置、異動的原位置、新位置）合在一起
+  //   紀錄的設備欄不算（不能加進清單；找不到設備的紀錄另外提醒，見 records.js 的 orphans）
   function missing() {
     const scopes = new Map();
-    refFields().forEach(({ table, field }) => {
+    refFields().filter(({ field }) => !targetOf(field.ref).noAdd).forEach(({ table, field }) => {
       const key = scopeKey(field);
       if (!scopes.has(key)) scopes.set(key, { key, ref: field.ref, name: scopeName(field), field, values: new Set() });
       Store.list(table).forEach(r => {
@@ -161,7 +151,7 @@ const Refs = (() => {
       .sort((a, b) => (active(l.table, b) - active(l.table, a)) || cmp(a, b));
   }
 
-  // 範圍的 key（options:位置、people:保管人）對到設定裡的哪一份清單
+  // 範圍的 key（options:位置、people:）對到設定裡的哪一份清單
   const listOfScope = key => lists().find(l => l.key === key || l.key === key.split(':')[0]) || null;
 
   return {

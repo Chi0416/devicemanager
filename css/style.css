@@ -303,6 +303,11 @@ body:has(dialog[open]) { overflow: hidden; }
 /* 卡片最下面的一行（保固快到期是橘色） */
 .card-note { display: block; margin-top: 10px; font-size: 12px; color: var(--muted); }
 .card-note.warn { color: var(--warn); font-weight: 600; }
+/* 紀錄的卡片最上面：哪一台設備（找不到時橘色） */
+.card-device { display: block; margin: -2px 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
+.card-device.warn { color: var(--warn); font-weight: 600; }
+/* 只有標題、標籤和最下面一行的卡片（紀錄）：上下緊一點 */
+.card-top + .card-note { margin-top: 6px; }
 
 /* 列表上方的合計 */
 .summary {
@@ -555,9 +560,18 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .field.invalid select,
 .field.invalid textarea { border-color: var(--danger); background-color: var(--invalid-bg); }
 .field .hint { margin: 5px 2px 0; font-size: 12px; color: var(--muted); }
-/* 依填的內容出現的提醒 */
+/* 依填的內容出現的提醒：位置先留好（1 行或 2 行），出現時下面的欄位不會被推動；放不下的截掉 */
 .field .note { margin: 5px 2px 0; font-size: 12px; line-height: 1.5; color: var(--accent-text); }
 .field .note:empty { display: none; }
+.field .note.lines-1 { display: block; min-height: 1.5em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.field .note.lines-2 {
+  display: -webkit-box;
+  min-height: 3em;
+  overflow: hidden;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .field .note.warn { color: var(--warn); }
 .err { margin: 4px 2px 0; font-size: 12px; color: var(--danger); }
 .err:empty { display: none; }
@@ -586,7 +600,8 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 
 /* 表單上的左右切換，和其他欄位一樣高；有顏色的（狀態的顏色）選中時照那個顏色 */
 .seg.toggle { height: 46px; margin: 0; }
-.seg.toggle button { height: 40px; font-size: 15px; }
+/* 半格裡放四個選項（異動的類型）也不換行 */
+.seg.toggle button { min-width: 0; height: 40px; padding: 0 2px; font-size: 15px; white-space: nowrap; }
 .seg.toggle button.blue[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent); }
 .seg.toggle button.purple[aria-pressed="true"] { background: var(--purple-soft); color: var(--purple); box-shadow: inset 0 0 0 1px var(--purple); }
 .seg.toggle button.orange[aria-pressed="true"] { background: var(--warn-bg); color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
@@ -659,8 +674,8 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .auto-value small { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
 .auto-value.pending b { color: var(--text-2); }
 
-/* 勾選（停用）：整列是開關 */
-.flag-field .switch-row { box-shadow: none; }
+/* 勾選（停用）：整列是開關，開關在說明的右邊（蓋過 .field label 的寫法） */
+.flag-field .switch-row { display: flex; margin: 0; font-size: 15px; font-weight: 400; color: var(--text); box-shadow: none; }
 .switch-row {
   display: flex;
   align-items: center;
@@ -723,6 +738,8 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .wide-btn.primary { border-color: transparent; background: var(--accent-strong); color: #fff; font-weight: 600; }
 .wide-btn.another { margin-top: 24px; color: var(--accent-text); }
 .wide-btn.danger { margin-top: 28px; border-color: transparent; background: var(--invalid-bg); color: var(--danger); box-shadow: none; }
+/* 按了刪除之後，按鈕下面寫會刪掉什麼（再按一次才刪），或不能刪的原因 */
+.delete-note { margin: 10px 2px 0; font-size: 13px; line-height: 1.6; color: var(--danger); }
 
 /* ---------- 設定 ---------- */
 .section-head { margin: 28px 2px 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
@@ -784,6 +801,45 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .lists-body .empty { padding: 40px 16px; }
 /* 一份清單：像一頁一樣高，項目少時也不會只剩一小塊 */
 #lists-sheet .sheet-body { min-height: min(560px, 75vh); }
+
+/* ---------- 設備詳情（見 detail.js） ---------- */
+#detail-sheet .sheet-body { padding-top: 14px; }
+.detail-card {
+  padding: 14px 16px;
+  border: .5px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.detail-card .card-title { font-size: 18px; }
+.detail-card .card-grid { grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.detail-rows { margin-top: 12px; }
+.detail-rows li { gap: 8px; padding: 6px 8px 6px 14px; }
+.detail-rows .list-item { flex: 1; min-width: 0; min-height: 52px; gap: 12px; }
+.detail-rows .row-label { flex: none; width: 2.2em; font-weight: 600; color: var(--text-2); }
+.detail-rows .member-info b { font-weight: 600; }
+.detail-rows .member-info b.warn { color: var(--warn); }
+.detail-rows .member-info small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* 右邊的「＋」：直接新增這張表的一筆 */
+.row-add {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.row-add:active { opacity: .7; }
+.row-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 一張表的頁面：像一頁一樣高 */
+#sub-sheet .sheet-body { min-height: min(560px, 75vh); padding-top: 4px; }
+#sub-sheet .filterbar { position: static; padding: 10px 0 0; }
+#sub-sheet .empty { padding: 48px 16px; }
 
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 12px; }
 .stats div { padding: 12px 6px; border: .5px solid var(--border); border-radius: 12px; background: var(--surface); text-align: center; }

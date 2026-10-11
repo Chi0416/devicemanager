@@ -1,19 +1,24 @@
-// 列表：卡片列表，點卡片開啟編輯表單
-//   有 schema.period 時依日期分組（新到舊），上方可以選年、月；沒有時依 schema.sort 排序
+// 列表：卡片列表，點卡片開啟編輯表單（設備是打開詳情，見 app.js）
+//   有 schema.period 時依日期分組（新到舊，同一天新增的在前；period.then 是同一組裡再依哪個欄位排），上方可以選年、月
+//     依月份分組的（抄表的結算月份）標題寫 2026/09；沒有 period 時依 schema.order 或 schema.sort 排序
 //   schema.filter：上方一排篩選按鈕（依那個欄位的 toggle 或清單，例如設備的狀態），寫著每一種有幾筆
 //   schema.groups：上方的分組選單（不分組、依類別、依位置…），這台裝置記住上次選的
 //   schema.note：卡片最下面的一行（例如保固快到期）
 //   schema.total 存在時，列表上方顯示合計
-function createList(tableKey, schema, { openForm }) {
+//   rows：要列的資料（設備詳情裡只列這台設備的紀錄）；沒有時列整張表
+//   detail：放在設備詳情裡，不要搜尋框和月份、分組選單（篩選按鈕照常）
+//   device(列)：卡片最上面寫哪一台設備（底部「紀錄」分頁），回傳 { text, warn }
+function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null }) {
   const fields = schema.fields;
   const byKey = Object.fromEntries(fields.map(f => [f.key, f]));
   const period = schema.period || null;
   const { code, title, badge, primary, grid } = schema.card;
+  const titleOf = r => (typeof title === 'function' ? title(r) : r[title]);
   const gridFields = grid
     ? grid.map(k => byKey[k])
     : fields.filter(f => ![period?.key, code, title, badge, primary].includes(f.key) && !f.multiline);
-  const searchKeys = schema.search || [code, title].filter(Boolean);
-  const getRows = schema.rows || (() => Store.list(tableKey));
+  const searchKeys = schema.search || [code, title].filter(k => typeof k === 'string');
+  const getRows = rows || schema.rows || (() => Store.list(tableKey));
   const filterField = schema.filter ? byKey[schema.filter] : null;
   const groups = schema.groups || [];
   const GROUP_KEY = `${Store.PREFIX}group.${tableKey}`;
@@ -32,8 +37,8 @@ function createList(tableKey, schema, { openForm }) {
     return p === state.period || p.startsWith(`${state.period}-`);
   };
   const periodLabel = p => (p.length === 4 ? `${p} 年` : U.fmtDate(p));
-  const matchKeyword = r =>
-    searchKeys.map(k => r[k] ?? '').join(' ').toLowerCase().includes(state.keyword.trim().toLowerCase());
+  const matchKeyword = r => [...searchKeys.map(k => r[k] ?? ''), schema.searchText?.(r) ?? '']
+    .join(' ').toLowerCase().includes(state.keyword.trim().toLowerCase());
   // 篩選按鈕：toggle 的哪一個（試算表手打的字也認得）；從清單選的欄位：清單裡的哪一項（大小寫、全形半形不同也認得）
   const filterOf = r => {
     const v = String(r[filterField.key] ?? '').trim();
@@ -62,15 +67,14 @@ function createList(tableKey, schema, { openForm }) {
     : badgeField?.toggle?.find(o => o.match.test(v))?.tone || '');
   const statusOf = r => (schema.status ? schema.status(r) : null);
   const introHTML = schema.intro ? `<p class="list-intro">${U.esc(schema.intro)}</p>` : '';
-  const placeholder = `搜尋${searchKeys.slice(0, 2).map(k => byKey[k]?.label).filter(Boolean).join('或')}`;
+  const placeholder = schema.searchHint || `搜尋${searchKeys.slice(0, 2).map(k => byKey[k]?.label).filter(Boolean).join('或')}`;
   const byText = (a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true });
 
   // ---------- DOM ----------
   const el = document.createElement('section');
   el.className = 'panel';
   el.hidden = true;
-  el.innerHTML = `
-    <div class="filterbar">
+  const searchRow = `
       <div class="filterbar-row">
         ${period ? `<select class="f-period" aria-label="${period.label}"></select>` : ''}
         ${groups.length ? `<select class="f-group" aria-label="分組">
@@ -79,9 +83,12 @@ function createList(tableKey, schema, { openForm }) {
         </select>` : ''}
         <input class="f-keyword" type="search" placeholder="${U.esc(placeholder)}" autocomplete="off" enterkeyhint="search">
         ${filterField ? '' : '<span class="count"></span>'}
-      </div>
+      </div>`;
+  el.innerHTML = `
+    ${detail && !filterField ? '' : `<div class="filterbar">
+      ${detail ? '' : searchRow}
       ${filterField ? '<div class="filter-chips" role="group" aria-label="篩選"></div>' : ''}
-    </div>
+    </div>`}
     <div class="list"></div>`;
 
   const periodSel = el.querySelector('.f-period');
@@ -100,7 +107,7 @@ function createList(tableKey, schema, { openForm }) {
       renderList();
     });
   }
-  keywordInput.addEventListener('input', () => { state.keyword = keywordInput.value; renderList(); });
+  keywordInput?.addEventListener('input', () => { state.keyword = keywordInput.value; renderList(); });
   chipsEl?.addEventListener('click', e => {
     const btn = e.target.closest('[data-filter]');
     if (!btn) return;
@@ -114,7 +121,7 @@ function createList(tableKey, schema, { openForm }) {
 
   // ---------- 畫面 ----------
   function renderPeriods() {
-    if (!period) return;
+    if (!period || !periodSel) return;
     const periods = [...new Set(getRows().map(periodOf).filter(Boolean))].sort().reverse();
     const years = period.unit === 'month' ? [...new Set(periods.map(p => p.slice(0, 4)))] : [];
     if (state.period === null || (state.period && ![...years, ...periods].includes(state.period))) state.period = '';
@@ -142,10 +149,12 @@ function createList(tableKey, schema, { openForm }) {
     const st = statusOf(r);
     const tag = badge ? r[badge] && { label: r[badge], cls: tone(r[badge]) } : st;
     const note = schema.note ? schema.note(r) : null;
+    const dev = device ? device(r) : null;
     return `
       <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}" data-id="${U.esc(r.id)}">
+        ${dev ? `<span class="card-device${dev.warn ? ' warn' : ''}">${U.esc(dev.text)}</span>` : ''}
         <span class="card-top">
-          <span class="card-title">${code && r[code] ? `<span class="card-code">${U.esc(r[code])}</span>` : ''}${U.esc(r[title])}</span>
+          <span class="card-title">${code && r[code] ? `<span class="card-code">${U.esc(r[code])}</span>` : ''}${U.esc(titleOf(r))}</span>
           ${tag ? `<span class="badge ${tag.cls}">${U.esc(tag.label)}</span>` : ''}
           ${pf ? `<span class="card-primary"><small>${cardLabel(pf)}</small><b>${show(pf, r[primary])}</b></span>` : ''}
         </span>
@@ -167,13 +176,15 @@ function createList(tableKey, schema, { openForm }) {
       </div>`;
   }
 
-  const compare = (a, b) => {
+  const desc = (x, y) => (x < y ? 1 : x > y ? -1 : 0);
+  const compare = schema.order || ((a, b) => {
     const k = period ? period.key : schema.sort;
     if (!k) return 0;
     const x = String(a[k] ?? ''), y = String(b[k] ?? '');
-    // 日期新到舊；其他（編號）由小到大，數字照大小排（NB-2 在 NB-10 前面）
-    return period ? (x < y ? 1 : x > y ? -1 : 0) : byText(x, y);
-  };
+    // 日期新到舊，同一天新增的在前（id 前段是新增的時間）；其他（編號）由小到大，數字照大小排（NB-2 在 NB-10 前面）
+    const then = period?.then ? desc(String(a[period.then] ?? ''), String(b[period.then] ?? '')) : 0;
+    return period ? desc(x, y) || then || desc(String(a.id), String(b.id)) : byText(x, y);
+  });
 
   // 分組：依日期（有 period 時）或依選的欄位；欄位空白的放最後（「未填類別」）
   function grouped(rows) {
@@ -192,7 +203,8 @@ function createList(tableKey, schema, { openForm }) {
       const out = [];
       rows.forEach(r => {
         const g = String(r[period.key] ?? '');
-        if (out.at(-1)?.key !== g) out.push({ key: g, head: `${U.fmtDate(g)} ${U.weekday(g)}`, rows: [] });
+        const head = !g ? '沒有日期' : byKey[period.key].type === 'month' ? U.fmtMonth(g) : `${U.fmtDate(g)} ${U.weekday(g)}`;
+        if (out.at(-1)?.key !== g) out.push({ key: g, head, rows: [] });
         out.at(-1).rows.push(r);
       });
       return out;
@@ -214,7 +226,7 @@ function createList(tableKey, schema, { openForm }) {
     if (!rows.length) {
       listEl.innerHTML = all.length
         ? `${introHTML}<p class="empty">沒有符合條件的資料</p>`
-        : `<p class="empty">${schema.empty || '還沒有資料<br>點右上角「＋ 新增」開始記錄'}</p>`;
+        : `<p class="empty">${detail ? `還沒有${U.esc(schema.title)}` : schema.empty || '還沒有資料<br>點右上角「＋ 新增」開始記錄'}</p>`;
     } else {
       listEl.innerHTML = introHTML + (schema.total ? summaryHTML(rows) : '') + grouped(rows).map(g =>
         (g.head ? `<h3 class="group-head">${U.esc(g.head)}${g.count ? `<span>${g.count}</span>` : ''}</h3>` : '') +
@@ -244,7 +256,7 @@ function createList(tableKey, schema, { openForm }) {
 
   function reset() {
     Object.assign(state, { period: null, keyword: '', flashId: null, filter: '' });
-    keywordInput.value = '';
+    if (keywordInput) keywordInput.value = '';
     refresh();
   }
 

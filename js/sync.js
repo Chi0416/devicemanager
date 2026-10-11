@@ -5,7 +5,8 @@
 //         寫回時用 id 找到那一列再改，不靠列號；在試算表裡手動輸入、沒有 id 的列會補上 id
 //         試算表缺了選填的欄（新版加的欄位）：補在最後面，用這台裝置的資料填上
 //         在試算表裡改了清單的名字（狀態、選項、人員、廠商）：用到舊名字的資料一起改，同一次寫回去
-//         設備沒有編號的補上、系統給的編號重複的換下一號（見 schema.js 的 fixDeviceCodes），同一次寫回去
+//         設備沒有編號的補上、系統給的編號重複的換下一號（見 schema.js 的 fixDeviceCodes），紀錄跟著換，同一次寫回去
+//         在試算表裡改了設備編號：紀錄的設備欄一起改；在試算表裡加了異動：設備的位置跟著算（見 records.js），同一次寫回去
 //   時機：打開 App、從背景切回來、修改資料後（等幾秒一起送），登入還有效就自動同步
 //         登入過期時，修改資料的那一下順便跳出 Google 視窗（沒有網路時不跳）；沒成功就顯示「同步」按鈕讓使用者按
 //   登出：先同步一次，確定試算表已經有這台裝置的全部資料，才清掉這台裝置上的資料（換帳號時不會混在一起）
@@ -179,8 +180,9 @@ const Sync = (() => {
   }
 
   // ---------- 讀回、合併、寫回 ----------
-  // 一筆資料的簡短說明（提醒用），例如「設備：NB-001 會議室筆電 使用中」「選項：位置 3F 會議室」
+  // 一筆資料的簡短說明（提醒用），例如「設備：NB-001 會議室筆電 使用中」「選項：位置 3F 會議室」「異動：24-0001 2026/10/11 移機」
   function describe(t, r) {
+    if (SCHEMAS[t].describe) return `${SCHEMAS[t].title}：${SCHEMAS[t].describe(r)}`;
     const { code, title, badge } = SCHEMAS[t].card || {};
     const date = SCHEMAS[t].period && SCHEMAS[t].fields.find(f => f.key === SCHEMAS[t].period.key);
     const tg = Refs.targetOf(t);
@@ -228,7 +230,7 @@ const Sync = (() => {
     gone.forEach(g => snap.items.push(items.get(`${g.table}:${g.id}`)));
   }
 
-  // 在試算表或其他裝置上改了名字的清單（選項、人員、廠商）：同一個 id，名字不一樣
+  // 在試算表或其他裝置上改了名字的清單（選項、人員、廠商）、設備編號：同一個 id，名字不一樣
   //   這台裝置自己也改了的（還沒同步）以這台的為準，不算
   function remoteRenames(parsed, skip, snap) {
     const pending = new Set(snap.items.map(i => `${i.table}:${i.id}`));
@@ -258,15 +260,19 @@ const Sync = (() => {
     });
   }
 
-  // 設備的編號：沒有的補上、重複的換下一號；換號的在提醒留一則（貼了標籤的話要改）
+  // 設備的編號：沒有的補上、重複的換下一號，這台裝置上新增的紀錄跟著換（見 records.js 的 followCodes）
+  //   換號的在提醒留一則（貼了標籤的話要改）
   function fixCodes(snap) {
+    const local = new Set(snap.items.map(i => `${i.table}:${i.id}`));
     const fixed = fixDeviceCodes();
-    addToSnap(fixed.map(f => ({ table: 'devices', id: f.id })), snap);
+    const followed = Records.followCodes(fixed, (t, id) => local.has(`${t}:${id}`));
+    addToSnap([...fixed.map(f => ({ table: 'devices', id: f.id })), ...followed], snap);
     const moved = fixed.filter(f => f.from);
     if (moved.length) {
       hooks.notify({
         title: `${moved.length} 台設備的編號重複，換了新的編號`,
-        body: `${moved.map(f => `${f.name}：${f.from} → ${f.to}`).join('\n')}\n可能是兩台裝置沒有網路時各新增了一台。已經貼了標籤的話，請換成新的編號。`,
+        body: `${moved.map(f => `${f.name}：${f.from} → ${f.to}`).join('\n')}\n可能是兩台裝置沒有網路時各新增了一台。`
+          + `${followed.length ? `這台的 ${followed.length} 筆紀錄也跟著換了。` : ''}已經貼了標籤的話，請換成新的編號。`,
       });
     }
   }
@@ -300,6 +306,8 @@ const Sync = (() => {
     Store.mergeRemote(parsed.data, skip, parsed.missing);
     cascade(renames, snap);
     if (!skip.includes('devices')) fixCodes(snap);
+    // 設備的位置＝最新一筆異動的新位置（在試算表或其他裝置上改了異動）
+    if (!skip.includes('devices') && !skip.includes('moves')) addToSnap(Records.syncLocations(), snap);
     hooks.onData();
 
     const local = Store.exportPayload();
