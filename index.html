@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.11.4">
+  <link rel="manifest" href="manifest.json?v=2026.10.11.5">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.11.4">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.11.5">
 </head>
 <body>
   <div class="app">
@@ -79,9 +79,35 @@
       <div class="fields"></div>
       <!-- 新增時才有：存好不關表單，接著填下一筆（保留類別、位置這些，編號跳下一號） -->
       <button type="button" class="wide-btn another" data-act="another" hidden>儲存，再新增一筆</button>
+      <!-- 編輯時才有：以這筆為底新增一筆（合約的「重新簽約」），下面寫什麼時候用 -->
+      <button type="button" class="wide-btn copy" data-act="copy" hidden></button>
+      <p class="copy-note" hidden></p>
+      <!-- 編輯時才有：修改紀錄（合約） -->
+      <div class="form-history" hidden></div>
       <button type="button" class="wide-btn danger" data-act="delete" hidden>刪除這筆</button>
       <!-- 按了刪除之後：寫會刪掉什麼（再按一次才刪），或不能刪的原因 -->
       <p class="delete-note" hidden></p>
+    </div>
+  </dialog>
+
+  <!-- 選好幾個的小視窗（見 picker.js）：合約的位置；照股票記錄簿「新增觀察的股票」的樣子 -->
+  <dialog id="pick-sheet" class="sheet">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">取消</button>
+      <h2 class="sheet-title"></h2>
+      <button type="button" class="text-btn strong" data-act="done">完成</button>
+    </div>
+    <div class="sheet-body">
+      <div class="field full">
+        <label class="pick-label" for="pick-search"></label>
+        <div class="combo">
+          <input id="pick-search" class="pick-search" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false"
+            aria-controls="pick-list" autocomplete="off" spellcheck="false" enterkeyhint="done">
+          <div id="pick-list" class="combo-list" role="listbox" hidden></div>
+        </div>
+      </div>
+      <h3 class="section-head pick-head"></h3>
+      <ul class="member-list pick-rows"></ul>
     </div>
   </dialog>
 
@@ -101,6 +127,30 @@
 
   <!-- 設備詳情裡的一張表（見 detail.js）：這台設備的紀錄 -->
   <dialog id="sub-sheet" class="sheet">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title"></h2>
+      <button type="button" class="text-btn strong" data-act="add">新增</button>
+    </div>
+    <div class="sheet-body"></div>
+  </dialog>
+
+  <!-- 位置詳情（見 detail.js 的 Place）：設定 → 清單 → 位置，點一項打開；設備詳情上點位置也會打開 -->
+  <dialog id="place-sheet" class="sheet detail">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title"></h2>
+      <button type="button" class="text-btn strong" data-act="edit">編輯</button>
+    </div>
+    <div class="sheet-body">
+      <div class="detail-info"></div>
+      <!-- 一張表一列：機器、合約、抄表、保養、翻新 -->
+      <ul class="member-list detail-rows"></ul>
+    </div>
+  </dialog>
+
+  <!-- 位置詳情裡的一張表：機器放在這個位置的期間的紀錄 -->
+  <dialog id="place-sub-sheet" class="sheet">
     <div class="sheet-head">
       <button type="button" class="text-btn" data-act="close">返回</button>
       <h2 class="sheet-title"></h2>
@@ -134,7 +184,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.11.4</p>
+      <p class="note muted">版本 2026.10.11.5</p>
     </div>
   </dialog>
 
@@ -169,22 +219,23 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.11.4"></script>
-  <script src="js/schema.js?v=2026.10.11.4"></script>
-  <script src="js/storage.js?v=2026.10.11.4"></script>
-  <script src="js/refs.js?v=2026.10.11.4"></script>
-  <script src="js/records.js?v=2026.10.11.4"></script>
-  <script src="js/list.js?v=2026.10.11.4"></script>
-  <script src="js/form.js?v=2026.10.11.4"></script>
-  <script src="js/lists.js?v=2026.10.11.4"></script>
-  <script src="js/detail.js?v=2026.10.11.4"></script>
-  <script src="js/overview.js?v=2026.10.11.4"></script>
-  <script src="js/config.js?v=2026.10.11.4"></script>
-  <script src="js/google.js?v=2026.10.11.4"></script>
-  <script src="js/sheet.js?v=2026.10.11.4"></script>
-  <script src="js/sync.js?v=2026.10.11.4"></script>
-  <script src="js/inbox.js?v=2026.10.11.4"></script>
-  <script src="js/app.js?v=2026.10.11.4"></script>
+  <script src="js/util.js?v=2026.10.11.5"></script>
+  <script src="js/schema.js?v=2026.10.11.5"></script>
+  <script src="js/storage.js?v=2026.10.11.5"></script>
+  <script src="js/refs.js?v=2026.10.11.5"></script>
+  <script src="js/records.js?v=2026.10.11.5"></script>
+  <script src="js/list.js?v=2026.10.11.5"></script>
+  <script src="js/form.js?v=2026.10.11.5"></script>
+  <script src="js/picker.js?v=2026.10.11.5"></script>
+  <script src="js/lists.js?v=2026.10.11.5"></script>
+  <script src="js/detail.js?v=2026.10.11.5"></script>
+  <script src="js/overview.js?v=2026.10.11.5"></script>
+  <script src="js/config.js?v=2026.10.11.5"></script>
+  <script src="js/google.js?v=2026.10.11.5"></script>
+  <script src="js/sheet.js?v=2026.10.11.5"></script>
+  <script src="js/sync.js?v=2026.10.11.5"></script>
+  <script src="js/inbox.js?v=2026.10.11.5"></script>
+  <script src="js/app.js?v=2026.10.11.5"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

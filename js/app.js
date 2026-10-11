@@ -1,6 +1,8 @@
-// 進入點：分頁、列表、表單、設備詳情、清單、Google 雲端硬碟同步、提醒、資料備份
+// 進入點：分頁、列表、表單、設備詳情、位置詳情、清單、Google 雲端硬碟同步、提醒、資料備份
 //   底部 3 格：總覽｜設備｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜抄表｜合約｜異動（所有設備的放在一起看）
 (() => {
+  // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
+  Records.upgrade();
   const TAB_KEY = `${Store.PREFIX}tab`;
   const LOGOUT_KEY = `${Store.PREFIX}loggedOut`; // 登出後重新載入頁面時顯示「已登出」（sessionStorage，登出清資料時不會被清掉）
   const $ = id => document.getElementById(id);
@@ -35,10 +37,10 @@
     }),
     // 點設備卡片打開詳情（見 detail.js）
     devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id) }),
-    // 紀錄：卡片最上面寫在哪裡、哪一台設備（依紀錄的種類，見 records.js 的 recordLine）
+    // 紀錄：卡片最上面那一排寫位置、機型、名稱，和設備卡片一樣小標題在上，下面才是內容（依紀錄的種類，見 records.js 的 recordCells）
     ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, createList(k, SCHEMAS[k], {
       openForm: id => Form.open(k, id),
-      device: r => Records.recordLine(k, r),
+      device: r => Records.recordCells(k, r),
     })])),
   };
   Object.values(lists).forEach(l => $('panels').appendChild(l.el));
@@ -48,12 +50,16 @@
   function onChanged(key, rec) {
     Object.entries(lists).forEach(([k, l]) => (k === key ? l.changed(rec) : l.refresh()));
     Detail.changed(key, rec);
+    Place.changed(key, rec);
     Lists.refresh();
     if (menu.open) renderListsMenu();
   }
   Form.init({ toast, onChanged });
-  Lists.init({ toast, onChanged });
+  Picker.init({ toast, onChanged });
+  // 清單裡點一個位置：打開位置詳情（其他打開表單）
+  Lists.init({ toast, onChanged, openItem: (t, id) => (t === 'locations' ? Place.open(id) : Form.open(t, id)) });
   Detail.init();
+  Place.init();
 
   // ---------- 分頁 ----------
   // 底部的每一格（key）和裡面的頁（pages：[頁面, 上方切換的名稱]）；只有一頁的不顯示上方切換
@@ -107,6 +113,7 @@
   const refreshAll = () => {
     Object.values(lists).forEach(l => l.refresh());
     Detail.refresh();
+    Place.refresh();
   };
 
   // ---------- 設定：清單（見 lists.js）、資料備份 ----------
@@ -208,6 +215,7 @@
     if (!confirm(`匯入「${file.name}」會取代目前所有資料。${cloudNote}\n\n${lines.join('\n')}\n\n確定匯入？`)) return;
 
     Store.replaceAll(parsed);
+    Records.upgrade();
     Object.values(lists).forEach(l => l.reset());
     renderListsMenu();
     renderBackupInfo();
@@ -384,8 +392,15 @@
   });
 
   // 設備裡填過、但不在清單裡的值（試算表手打的、清單做好之前填的）：每個範圍一則提醒，附「加入清單」
-  //   找不到設備的紀錄（在試算表裡打錯了設備編號）：一則提醒，列出是哪幾筆
+  //   找不到設備的紀錄（在試算表裡打錯了設備編號）、找不到的位置編號：各一則提醒，列出是哪幾筆
   function checkLists() {
+    const lostPlaces = Records.lostPlaces();
+    Inbox.reconcile('lostplace:', lostPlaces.length ? [{
+      key: 'lostplace:all',
+      title: `有 ${lostPlaces.length} 筆資料找不到位置`,
+      body: `${lostPlaces.slice(0, 10).map(o => `${SCHEMAS[o.table].title}：${SCHEMAS[o.table].describe?.(o.rec) || ''}（${o.value}）`).join('\n')}`
+        + `${lostPlaces.length > 10 ? `\n…等 ${lostPlaces.length} 筆` : ''}\n可能是試算表裡的位置編號打錯了，改成正確的編號或位置的名稱就好。`,
+    }] : []);
     const lost = Records.orphans();
     Inbox.reconcile('orphan:', lost.length ? [{
       key: 'orphan:records',

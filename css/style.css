@@ -306,9 +306,17 @@ body:has(dialog[open]) { overflow: hidden; }
 /* 卡片最下面的一行（保固快到期是橘色） */
 .card-note { display: block; margin-top: 10px; font-size: 12px; color: var(--muted); }
 .card-note.warn { color: var(--warn); font-weight: 600; }
-/* 紀錄的卡片最上面：哪一台設備（找不到時橘色） */
-.card-device { display: block; margin: -2px 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
-.card-device.warn { color: var(--warn); font-weight: 600; }
+/* 紀錄的卡片最上面那一排：位置（寬一點）｜機型｜名稱，下面一條細線才是內容；異動兩格、合約一格；找不到設備時橘色 */
+.card-grid.rec {
+  grid-template-columns: minmax(0, 1.7fr) repeat(2, minmax(0, 1fr));
+  margin: 0 0 12px;
+  padding: 0 0 12px;
+  border-top: 0;
+  border-bottom: .5px solid var(--border);
+}
+.card-grid.rec.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card-grid.rec.cols-1 { grid-template-columns: 1fr; }
+.cell > span.warn { color: var(--warn); font-weight: 600; }
 /* 只有標題、標籤和最下面一行的卡片（紀錄）：上下緊一點 */
 .card-top + .card-note { margin-top: 6px; }
 
@@ -490,7 +498,8 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .text-btn:active { background: var(--chip-bg); }
 /* 用鍵盤移動時的外框：用主色，不用瀏覽器預設的顏色 */
 .text-btn:focus-visible, .wide-btn:focus-visible, .chip:focus-visible, .icon-btn:focus-visible, .add-btn:focus-visible,
-.list-item:focus-visible, .model-cell:focus-visible, .combo-opt:focus-visible, .combo-add:focus-visible, .msg:focus-visible, .msg-btn:focus-visible {
+.list-item:focus-visible, .model-cell:focus-visible, .combo-opt:focus-visible, .combo-add:focus-visible, .msg:focus-visible, .msg-btn:focus-visible,
+.detail-link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -660,6 +669,36 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .combo-opt + .combo-add { margin-top: 2px; border-top: .5px solid var(--border); border-radius: 0 0 8px 8px; }
 .combo-empty { margin: 0; padding: 10px; font-size: 13px; color: var(--muted); }
 .field .combo-info { color: var(--warn); }
+/* 可以選好幾個的（合約的位置）：表單上列出全部，點了打開小視窗改（見 picker.js） */
+.many-box {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: .5px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.many-box:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.field.invalid .many-box { border-color: var(--danger); }
+.many-rows { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.many-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.many-row b { font-size: 16px; font-weight: 500; overflow-wrap: anywhere; }
+.many-row small { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
+.many-more { font-size: 13px; color: var(--muted); }
+.many-empty { flex: 1; color: var(--muted); font-size: 16px; }
+.many-edit { flex: none; font-size: 14px; font-weight: 600; color: var(--accent-text); }
+/* 選好幾個的小視窗：移除按第一次變成紅底「確定移除」 */
+#pick-sheet .section-head { margin-top: 24px; }
+.text-btn.danger.sure { background: var(--danger); color: #fff; }
+.pick-rows .pick-empty { padding: 14px 16px; font-size: 13px; color: var(--muted); }
 
 /* 系統產生的值（設備的編號）：不能改，看起來不像輸入框 */
 .auto-value {
@@ -745,6 +784,17 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .wide-btn.danger { margin-top: 28px; border-color: transparent; background: var(--invalid-bg); color: var(--danger); box-shadow: none; }
 /* 按了刪除之後，按鈕下面寫會刪掉什麼（再按一次才刪），或不能刪的原因 */
 .delete-note { margin: 10px 2px 0; font-size: 13px; line-height: 1.6; color: var(--danger); }
+/* 以這筆為底新增（合約的「重新簽約」）和它的說明：改了位置、日期、計費方式時說明變橘色 */
+.wide-btn.copy { margin-top: 24px; color: var(--accent-text); }
+.copy-note { margin: 8px 2px 0; font-size: 12px; line-height: 1.6; color: var(--muted); }
+.copy-note.warn { color: var(--warn); font-weight: 600; }
+/* 修改紀錄（合約）：日期在前，改了什麼在後 */
+.form-history { margin-top: 24px; }
+.form-history .form-section { margin: 0 2px 8px; }
+.form-history ul { margin: 0; padding: 0; list-style: none; }
+.form-history li { display: flex; gap: 10px; padding: 8px 2px; border-top: .5px solid var(--border); font-size: 13px; line-height: 1.6; }
+.form-history li small { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.form-history li span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
 
 /* ---------- 設定 ---------- */
 .section-head { margin: 28px 2px 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
@@ -866,6 +916,26 @@ button.model-cell:active { background: var(--chip-bg); }
 }
 .detail-card .card-title { font-size: 18px; }
 .detail-card .card-grid { grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+/* 資訊卡上的連結：設備的位置（打開位置詳情）、位置現在放著的機器（打開設備詳情） */
+.detail-link {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 0 0;
+  border: 0;
+  border-top: .5px solid var(--border);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.detail-link + .detail-link { margin-top: 0; }
+.detail-link small { flex: none; font-size: 12px; color: var(--muted); }
+.detail-link span:not(.go) { flex: 1; min-width: 0; font-weight: 600; color: var(--accent-text); overflow-wrap: anywhere; }
+.detail-link .go { flex: none; font-size: 18px; line-height: 1; color: var(--muted); }
 .detail-rows { margin-top: 12px; }
 .detail-rows li { gap: 8px; padding: 6px 8px 6px 14px; }
 .detail-rows .list-item { flex: 1; min-width: 0; min-height: 52px; gap: 12px; }

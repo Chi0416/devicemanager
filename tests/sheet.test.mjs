@@ -35,8 +35,13 @@ const sample = () => ({
   ],
   options: [
     { id: 'o1', list: '類別', name: '筆電', order: 1, disabled: false },
-    { id: 'o2', list: '位置', name: '3F 會議室', order: null, disabled: false },
-    { id: 'o3', list: '位置', name: '舊倉庫', order: null, disabled: true },
+    { id: 'o2', list: '品牌', name: 'ASUS', order: null, disabled: false },
+    { id: 'o3', list: '品牌', name: '舊品牌', order: null, disabled: true },
+  ],
+  // 位置：編號系統給的，設備、異動、合約存編號；以前的名字可以好幾行
+  locations: [
+    { id: 'l1', code: 'L0001', name: '3F 會議室', oldNames: '3F 小會議室（到 2026/01/01）', stock: false, disabled: false, note: '' },
+    { id: 'l2', code: 'L0002', name: '舊倉庫', oldNames: '', stock: true, disabled: true, note: '' },
   ],
   people: [
     person('p1', { name: '王小明', code: 'E001', jobTitle: '資訊組長', dept: '資訊組', joinDate: '2020-02-01' }),
@@ -46,13 +51,18 @@ const sample = () => ({
   devices: [
     device('d1', {
       code: 'NB-001', name: '會議室筆電', category: '筆電', brand: 'ASUS', model: 'B5402', serial: '0123ABC',
-      board: 'RNP002673A1B2C3', location: '3F 會議室', keeper: '王小明', buyDate: '2025-03-15', price: 32000, vendor: '原價屋',
+      board: 'RNP002673A1B2C3', location: 'L0001', keeper: '王小明', buyDate: '2025-03-15', price: 32000, vendor: '原價屋',
       warranty: '2027-03-14', link: 'https://drive.google.com/x', note: '附充電器\n外接螢幕線另放',
     }),
     device('d2', { code: '007', name: '印表機', status: '維修中' }),
   ],
-  moves: [{ id: 'm1', device: 'NB-001', date: '2026-01-05', type: '安裝', from: '', to: '3F 會議室', note: '' }],
-  contracts: [{ id: 'c1', device: 'NB-001', signDate: '2026-01-01', endDate: '2027-12-31', content: '月租 3,000\n含 2,000 張', billing: '超過每張 0.3 元', readDay: '每月 25 日' }],
+  moves: [{ id: 'm1', device: 'NB-001', date: '2026-01-05', type: '安裝', from: '', to: 'L0001', note: '' }],
+  // 合約綁位置：一份合約可以寫好幾個位置
+  contracts: [{
+    id: 'c1', locations: 'L0001、L0002', signDate: '2026-01-01', endDate: '2027-12-31', earlyEnd: null,
+    content: '月租 3,000\n含 2,000 張', billing: '超過每張 0.3 元', readDay: '每月 25 日',
+  }],
+  contractLog: [{ id: 'g1', contract: 'c1', date: '2026-06-01', field: '抄表日期', before: '每月 15 日', after: '每月 25 日' }],
   readings: [{ id: 'r1', device: 'NB-001', date: '2026-03-03', month: '2026-02', bw: 12000, color: 100, note: '' }],
   maintenance: [
     work('k1', { device: 'NB-001', date: '2026-02-01', item: '碳粉 K', bw: 11800, color: 90 }),
@@ -274,7 +284,8 @@ test('補建單一分頁時，只產生那個分頁的格式設定', () => {
 test('建立試算表：分頁、格式、下拉選單、保護', () => {
   const body = plain(Sheet.createBody('設備管理'));
   assert.equal(body.properties.title, '設備管理');
-  assert.deepEqual(body.sheets.map(s => s.properties.title), ['設備', '異動', '合約', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', '_meta']);
+  assert.deepEqual(body.sheets.map(s => s.properties.title),
+    ['設備', '位置', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', '_meta']);
   assert.equal(body.properties.locale, 'zh_TW');
   assert.equal(body.sheets.at(-1).properties.hidden, true);
 
@@ -307,7 +318,7 @@ test('建立試算表：分頁、格式、下拉選單、保護', () => {
   const opt = Sheet.TAB.options.sheetId;
   const box = reqs.find(r => r.setDataValidation?.range.sheetId === opt && r.setDataValidation.range.startColumnIndex === 3);
   assert.equal(box.setDataValidation.rule.condition.type, 'BOOLEAN');
-  assert.equal(reqs.filter(r => r.addProtectedRange).length, 22); // 11 個分頁 × 標題列與 id 欄
+  assert.equal(reqs.filter(r => r.addProtectedRange).length, 26); // 13 個分頁 × 標題列與 id 欄
   // 左右切換的欄位（異動的類型）有下拉選單
   assert.equal(listOf(listsOf(Sheet.TAB.moves.sheetId), 2), '安裝,撤機,移機,其他');
   assert.ok(reqs.filter(r => r.addProtectedRange).every(r => r.addProtectedRange.protectedRange.warningOnly));
@@ -333,11 +344,15 @@ test('改名前的標題（was）讀得到，同步時改成新的標題', () =>
 test('紀錄：設備欄寫設備編號（純文字）；保養一筆一個項目，翻新項目是自由輸入的文字', () => {
   const v = plain(Sheet.toValues(sample()));
   assert.deepEqual(v['異動'][0], ['設備', '日期', '類型', '原位置', '新位置', '備註', 'id']);
-  assert.deepEqual(v['合約'][0], ['設備', '簽約日', '到期日', '合約內容', '計費方式', '抄表日期', 'id']);
+  assert.deepEqual(v['合約'][0], ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期', 'id']);
+  assert.equal(v['合約'][1][0], 'L0001、L0002'); // 位置存編號，好幾個用「、」分開
+  assert.deepEqual(v['合約修改紀錄'][0], ['合約', '日期', '欄位', '改之前', '改之後', 'id']);
+  assert.deepEqual(v['位置'][0], ['編號', '名稱', '以前的名字', '倉庫', '停用', '備註', 'id']);
+  assert.deepEqual(v['位置'][2].slice(0, 5), ['L0002', '舊倉庫', '', true, true]);
   assert.deepEqual(v['抄表'][0], ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', 'id']);
   assert.equal(v['抄表'][1][2], '2026/02'); // 結算月份存成文字
   assert.deepEqual(v['保養'][0], ['設備', '日期', '項目', '黑白張數', '彩色張數', '備註', 'id']);
-  assert.deepEqual(v['翻新'][0], ['設備', '翻新日期', '入庫日', '工程師', '序號', '國別', '原廠商', '噴漆', '翻新項目', '備註', 'id']);
+  assert.deepEqual(v['翻新'][0], ['設備', '翻新日期', '入庫日', '工程師', '序號', '國別', '廠商或來源', '噴漆', '翻新項目', '備註', 'id']);
   assert.equal(v['翻新'][1][7], true); // 噴漆是核取方塊
   assert.deepEqual(v['選配件'][0], ['設備', '名稱', '序號', '安裝日期', '拆除日期', '備註', 'id']);
   assert.equal(v['保養'][1][0], 'NB-001');
@@ -368,4 +383,11 @@ test('機型以前叫「型號」：舊標題讀得到，同步時改成「機�
   ])));
   assert.equal(r.data.devices[0].model, 'IM C6000');
   assert.deepEqual(r.rewrites, [{ table: 'devices', tab: '設備', row: 1, col: 5, value: '機型' }]);
+});
+
+test('翻新的「原廠商」改名「廠商或來源」：舊標題讀得到，同步時改成新的', () => {
+  const head = Sheet.TAB.refurbs.headers.map(h => (h === '廠商或來源' ? '原廠商' : h));
+  const r = plain(Sheet.fromValues(withTab('翻新', [head, ['007', '2026/3/1', '', '', '', '日', '日本拍賣', true, '換外殼', '', 'f9']])));
+  assert.equal(r.data.refurbs[0].source, '日本拍賣');
+  assert.deepEqual(r.rewrites, [{ table: 'refurbs', tab: '翻新', row: 1, col: 6, value: '廠商或來源' }]);
 });

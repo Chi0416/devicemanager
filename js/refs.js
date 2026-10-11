@@ -1,6 +1,8 @@
 // 清單：ref 欄位（設備的類別、位置、保管人…）從哪裡選、找得到找不到、新增、改名時一起改
-//   被引用的表（狀態、選項、人員、廠商、設備）在 schema 裡有 target（見 schema.js）；ref 欄位存的是名字，不是 id
-//   一個 ref 欄位的範圍（scope）：選項依「清單」分（類別、位置、品牌…）；狀態、人員、廠商、設備整張表都是
+//   被引用的表（狀態、選項、人員、廠商、設備、位置）在 schema 裡有 target（見 schema.js）；ref 欄位存的是名字，不是 id
+//     設備、位置存的是系統給的編號（target 的 name 是 code），畫面上顯示 target 的 label（位置、名稱）
+//   一個 ref 欄位的範圍（scope）：選項依「清單」分（類別、品牌…）；狀態、人員、廠商、設備、位置整張表都是
+//   可以選好幾個的欄位（many，合約的位置）：存成「L0001、L0002」，每一個各自對到清單
 const Refs = (() => {
   const TABLES = Object.keys(SCHEMAS);
   const targetOf = t => SCHEMAS[t]?.target || null;
@@ -26,13 +28,17 @@ const Refs = (() => {
   }
 
   const nameOf = (t, r) => String(r?.[targetOf(t).name] ?? '');
+  // 畫面上寫的字：有 label 的（設備、位置）用 label，其他就是名字
+  const labelOf = (t, r) => (targetOf(t).label ? String(targetOf(t).label(r) ?? '') : nameOf(t, r));
   const active = (t, r) => (targetOf(t).active ? targetOf(t).active(r) : true);
+  // 欄位裡存的值：可以選好幾個的拆開（「L0001、L0002」→ ['L0001', 'L0002']），其他是一個
+  const valuesOf = (f, v) => (f.many ? multi(v) : String(v ?? '').trim() ? [String(v).trim()] : []);
 
-  // 排序：有 order 的（狀態）依順序，數字小的在前、沒填的在後；其他依名字
+  // 排序：有 order 的（狀態）依順序，數字小的在前、沒填的在後；其他依畫面上寫的字（位置依名稱）
   function compare(t) {
     const key = targetOf(t).order;
     const num = r => (typeof r[key] === 'number' ? r[key] : Infinity);
-    return (a, b) => (key && num(a) !== num(b) ? num(a) - num(b) : byName(nameOf(t, a), nameOf(t, b)));
+    return (a, b) => (key && num(a) !== num(b) ? num(a) - num(b) : byName(labelOf(t, a), labelOf(t, b)));
   }
 
   // 下拉選單要列的：範圍內、沒停用的（all 為 true 時連停用的也列）
@@ -61,21 +67,26 @@ const Refs = (() => {
   }
 
   // 表單裡點「＋ 新增」：馬上加進清單（選項加進那一份清單）
+  //   位置：打的字是名稱（target 的 addAs），編號由系統給（schema 的 auto）
   function quickAdd(f, name) {
     const tg = targetOf(f.ref);
-    const rec = { ...blankRecord(f.ref), [tg.name]: String(name).trim() };
+    const rec = { ...blankRecord(f.ref), [tg.addAs || tg.name]: String(name).trim() };
     if (tg.group) rec[tg.group] = f.list;
+    SCHEMAS[f.ref].fields.forEach(x => { if (x.auto && !rec[x.key]) rec[x.key] = x.auto(rec); });
     return Store.add(f.ref, rec);
   }
+
+  // 指到這張表的 ref 欄位：[{ table, field }]
+  const refsTo = t => refFields().filter(({ field }) => field.ref === t);
 
   // 用到這一筆的資料（名字一樣、而且在那個欄位的範圍內）：[{ table, id, key }]
   function usesOf(t, rec) {
     const n = norm(nameOf(t, rec));
     if (!n) return [];
-    return refFields()
-      .filter(({ field }) => field.ref === t && inScope(field, rec))
+    return refsTo(t)
+      .filter(({ field }) => inScope(field, rec))
       .flatMap(({ table, field }) => Store.list(table)
-        .filter(r => norm(r[field.key]) === n)
+        .filter(r => valuesOf(field, r[field.key]).some(v => norm(v) === n))
         .map(r => ({ table, id: r.id, key: field.key })));
   }
 
@@ -91,7 +102,7 @@ const Refs = (() => {
   // 刪除前檢查：有人在用就不能刪，回傳原因；可以刪時回傳空字串
   function removeBlock(t, rec) {
     const text = usesText(t, rec);
-    return text ? `還有 ${text}用到「${nameOf(t, rec)}」，不能刪除。${targetOf(t).removeHint || ''}` : '';
+    return text ? `還有 ${text}用到「${labelOf(t, rec)}」，不能刪除。${targetOf(t).removeHint || ''}` : '';
   }
 
   // 改名：用到舊名字的資料一起改成新名字；回傳改到的 [{ table, id }]
@@ -100,26 +111,28 @@ const Refs = (() => {
   function renameRefs(t, before, after) {
     if (!before || !after || nameOf(t, before) === nameOf(t, after) || !nameOf(t, after)) return [];
     const next = nameOf(t, after);
+    const old = norm(nameOf(t, before));
     const changed = new Map();
     usesOf(t, before).forEach(({ table, id, key }) => {
       const k = `${table}:${id}`;
-      changed.set(k, { table, id, patch: { ...(changed.get(k)?.patch || {}), [key]: next } });
+      const field = SCHEMAS[table].fields.find(f => f.key === key);
+      const value = field.many ? valuesOf(field, Store.get(table, id)[key]).map(v => (norm(v) === old ? next : v)).join('、') : next;
+      changed.set(k, { table, id, patch: { ...(changed.get(k)?.patch || {}), [key]: value } });
     });
     changed.forEach(({ table, id, patch }) => Store.update(table, id, patch));
     return [...changed.values()].map(({ table, id }) => ({ table, id }));
   }
 
   // 用過、但不在清單裡的值（在試算表裡手打的、清單功能做好之前填的）：[{ key, ref, name, field, values }]
-  //   每個範圍一組；同一個範圍有好幾個欄位時（設備的位置、異動的原位置、新位置）合在一起
-  //   紀錄的設備欄不算（不能加進清單；找不到設備的紀錄另外提醒，見 records.js 的 orphans）
+  //   每個範圍一組；同一個範圍有好幾個欄位時合在一起
+  //   存編號的（紀錄的設備欄、位置）不算：打的字不能當編號加進清單；找不到的另外提醒（見 records.js 的 orphans、lostPlaces）
   function missing() {
     const scopes = new Map();
-    refFields().filter(({ field }) => !targetOf(field.ref).noAdd).forEach(({ table, field }) => {
+    refFields().filter(({ field }) => !targetOf(field.ref).noAdd && !targetOf(field.ref).label).forEach(({ table, field }) => {
       const key = scopeKey(field);
       if (!scopes.has(key)) scopes.set(key, { key, ref: field.ref, name: scopeName(field), field, values: new Set() });
       Store.list(table).forEach(r => {
-        const v = String(r[field.key] ?? '').trim();
-        if (v && !find(field, v)) scopes.get(key).values.add(v);
+        valuesOf(field, r[field.key]).forEach(v => { if (!find(field, v)) scopes.get(key).values.add(v); });
       });
     });
     return [...scopes.values()].filter(s => s.values.size).map(s => ({ ...s, values: [...s.values].sort(byName) }));
@@ -136,9 +149,13 @@ const Refs = (() => {
   // 設定裡的「清單」：每一份清單一列（狀態一列，選項依清單分，人員、廠商各一列）
   //   sortable：可以在清單頁用 ↑ ↓ 排順序（狀態、SORTED_LISTS 裡的選項）
   function lists() {
+    const options = OPTION_LISTS.map(list => ({ key: `options:${list}`, table: 'options', list, title: list, sortable: SORTED_LISTS.includes(list) }));
     return [
       { key: 'statuses', table: 'statuses', title: SCHEMAS.statuses.title, sortable: true },
-      ...OPTION_LISTS.map(list => ({ key: `options:${list}`, table: 'options', list, title: list, sortable: SORTED_LISTS.includes(list) })),
+      // 位置排在類別後面（以前在選項裡也是這個順序）
+      ...options.slice(0, 1),
+      { key: 'locations', table: 'locations', title: SCHEMAS.locations.title },
+      ...options.slice(1),
       { key: 'people', table: 'people', title: SCHEMAS.people.title },
       { key: 'vendors', table: 'vendors', title: SCHEMAS.vendors.title },
     ];
@@ -172,7 +189,7 @@ const Refs = (() => {
   const listOfScope = key => lists().find(l => l.key === key || l.key === key.split(':')[0]) || null;
 
   return {
-    isTarget, targetOf, norm, multi, inScope, items, find, nameOf, active, sub, tone, blankRecord, quickAdd,
-    usesOf, usesText, removeBlock, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, move, listOfScope,
+    isTarget, targetOf, norm, multi, inScope, items, find, nameOf, labelOf, valuesOf, active, sub, tone, blankRecord, quickAdd,
+    refsTo, usesOf, usesText, removeBlock, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, move, listOfScope,
   };
 })();

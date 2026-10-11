@@ -1,5 +1,6 @@
 // 紀錄的測試：node --test tests/*.test.mjs
-//   異動（位置歷程）、合約、抄表用量、保養、翻新、選配件（records.js），紀錄的設備欄和保養項目（refs.js）
+//   位置（編號、改名、一格一台、位置詳情）、異動（位置歷程）、合約（綁位置、修改紀錄）、抄表用量、保養、翻新、選配件（records.js）
+//   紀錄的設備欄和保養項目（refs.js）、舊資料轉換
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -29,12 +30,24 @@ function app({ today = '2026-10-11' } = {}) {
 }
 
 const plain = v => JSON.parse(JSON.stringify(v));
+// 紀錄卡片下面那一排（小標題＋內容）接成一行，方便比對；有一格要提醒就算提醒
+const line = (Records, table, r) => {
+  const cells = Records.recordCells(table, r);
+  return { text: cells.map(c => c.value).filter(Boolean).join(' · '), warn: cells.some(c => c.warn) };
+};
+
+// 位置（存編號，畫面上寫名稱）：L0001 公司倉庫（倉庫）、L0002 大華貿易 3F、L0003 安心診所 櫃台
+const WH = 'L0001';
+const DH = 'L0002';
+const AX = 'L0003';
 
 // 兩台設備（名稱是機身號碼，編號只在系統裡用）：24-0001 一開始放在公司倉庫，25-0001 還沒填位置
 function withDevices() {
   const a = app();
-  ['公司倉庫', '大華貿易 3F', '安心診所 櫃台'].forEach(name => a.add('options', { list: '位置', name }));
-  const d1 = a.add('devices', { code: '24-0001', name: '#1001', serial: '3101R800451', status: '出租中', location: '公司倉庫' });
+  a.add('locations', { code: WH, name: '公司倉庫', stock: true });
+  a.add('locations', { code: DH, name: '大華貿易 3F' });
+  a.add('locations', { code: AX, name: '安心診所 櫃台' });
+  const d1 = a.add('devices', { code: '24-0001', name: '#1001', serial: '3101R800451', status: '出租中', location: WH });
   const d2 = a.add('devices', { code: '25-0001', name: '#1002', status: '庫存' });
   return { ...a, d1, d2 };
 }
@@ -42,35 +55,35 @@ function withDevices() {
 // ---------- 位置歷程 ----------
 test('位置：設備目前的位置＝最新一筆異動的新位置（依日期，同一天依新增的先後）', () => {
   const { Store, Records, add, d1 } = withDevices();
-  add('moves', { id: 'm1', device: '24-0001', date: '2026-03-01', type: '安裝', from: '公司倉庫', to: '大華貿易 3F' });
-  add('moves', { id: 'm3', device: '24-0001', date: '2026-05-01', type: '移機', from: '大華貿易 3F', to: '安心診所 櫃台' });
-  add('moves', { id: 'm2', device: '24-0001', date: '2026-01-01', type: '其他', from: '', to: '公司倉庫' }); // 後來補登的舊紀錄
+  add('moves', { id: 'm1', device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: DH });
+  add('moves', { id: 'm3', device: '24-0001', date: '2026-05-01', type: '移機', from: DH, to: AX });
+  add('moves', { id: 'm2', device: '24-0001', date: '2026-01-01', type: '其他', from: '', to: WH }); // 後來補登的舊紀錄
   assert.deepEqual(plain(Records.syncLocations()), [{ table: 'devices', id: d1.id }]);
-  assert.equal(Store.get('devices', d1.id).location, '安心診所 櫃台');
+  assert.equal(Store.get('devices', d1.id).location, AX);
   // 同一天兩筆：後新增的為準
-  add('moves', { id: 'm4', device: '24-0001', date: '2026-05-01', type: '撤機', from: '安心診所 櫃台', to: '公司倉庫' });
+  add('moves', { id: 'm4', device: '24-0001', date: '2026-05-01', type: '撤機', from: AX, to: WH });
   Records.syncLocations();
-  assert.equal(Store.get('devices', d1.id).location, '公司倉庫');
+  assert.equal(Store.get('devices', d1.id).location, WH);
   // 沒有變：不用改
   assert.deepEqual(plain(Records.syncLocations()), []);
 });
 
 test('位置：點錯了就改或刪那一筆，位置自動回到對的；最後一筆刪掉時回到那一筆的原位置', () => {
   const { Store, Records, SCHEMAS, add, d1, d2 } = withDevices();
-  const m1 = add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: '公司倉庫', to: '大華貿易 3F' });
-  const m2 = add('moves', { device: '24-0001', date: '2026-05-01', type: '移機', from: '大華貿易 3F', to: '安心診所 櫃台' });
+  const m1 = add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: DH });
+  const m2 = add('moves', { device: '24-0001', date: '2026-05-01', type: '移機', from: DH, to: AX });
   SCHEMAS.moves.afterSave(null, m2);
-  assert.equal(Store.get('devices', d1.id).location, '安心診所 櫃台');
+  assert.equal(Store.get('devices', d1.id).location, AX);
   // 刪掉最新一筆：回到前一筆的新位置
   Store.remove('moves', m2.id);
   SCHEMAS.moves.afterRemove(m2);
-  assert.equal(Store.get('devices', d1.id).location, '大華貿易 3F');
+  assert.equal(Store.get('devices', d1.id).location, DH);
   // 這一筆其實是另一台設備的：兩台都重新算，原來那台沒有異動了，回到原位置
   const before = { ...m1 };
   Store.update('moves', m1.id, { device: '25-0001' });
   SCHEMAS.moves.afterSave(before, Store.get('moves', m1.id));
-  assert.equal(Store.get('devices', d1.id).location, '公司倉庫');
-  assert.equal(Store.get('devices', d2.id).location, '大華貿易 3F');
+  assert.equal(Store.get('devices', d1.id).location, WH);
+  assert.equal(Store.get('devices', d2.id).location, DH);
   assert.equal(Records.hasMoves('24-0001'), false);
   assert.equal(Records.hasMoves('25-0001'), true);
 });
@@ -79,46 +92,157 @@ test('位置：還沒有異動的設備，表單上的位置照常可以填；�
   const { Records, add, d1, field } = withDevices();
   const lock = field('devices', 'location').lock;
   assert.equal(lock(d1), '');
-  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: '公司倉庫', to: '大華貿易 3F' });
+  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: DH });
   assert.equal(lock(d1), '要換位置請新增異動');
   // 新增異動時，原位置先帶入設備目前的位置
-  assert.equal(field('moves', 'from').calc({ device: '24-0001' }), '公司倉庫');
+  assert.equal(field('moves', 'from').calc({ device: '24-0001' }), WH);
   assert.equal(field('moves', 'from').calc({ device: '' }), '');
   assert.equal(field('moves', 'from').hidden, true); // 表單上不顯示，選了位置（設備）就填好
   assert.equal(Records.deviceNote('24-0001'), '#1001 · 3101R800451');
 });
 
-test('位置清單改名：設備、異動的原位置和新位置一起改', () => {
-  const { Store, Refs, add, d1 } = withDevices();
-  const m = add('moves', { device: '24-0001', date: '2026-03-01', type: '移機', from: '公司倉庫', to: '公司倉庫' });
-  const opt = Store.list('options').find(o => o.name === '公司倉庫');
-  const before = { ...opt };
-  Store.update('options', opt.id, { name: '總公司倉庫' });
-  const changed = plain(Refs.renameRefs('options', before, Store.get('options', opt.id)));
-  assert.deepEqual(changed, [{ table: 'devices', id: d1.id }, { table: 'moves', id: m.id }]);
-  assert.equal(Store.get('moves', m.id).from, '總公司倉庫');
-  assert.equal(Store.get('moves', m.id).to, '總公司倉庫');
-  assert.equal(Store.get('devices', d1.id).location, '總公司倉庫');
-  assert.equal(Refs.usesText('options', Store.get('options', opt.id)), '1 台設備、1 筆異動');
+// ---------- 位置 ----------
+test('位置：存編號、畫面上寫名稱；改名只改位置那一列，舊名字記在「以前的名字」；搜尋時以前的名字也找得到', () => {
+  const { Store, Refs, Records, SCHEMAS, field, add, d1 } = withDevices();
+  const m = add('moves', { device: '24-0001', date: '2026-03-01', type: '移機', from: WH, to: DH });
+  assert.equal(Records.placeName(DH), '大華貿易 3F');
+  assert.equal(Records.placeName('L0099'), 'L0099'); // 找不到時照原本的字
+  assert.equal(Records.moveTitle(m), '公司倉庫 → 大華貿易 3F');
+  assert.equal(field('devices', 'location').format(WH), '公司倉庫'); // 設備卡片、分組上寫名稱
+  const p = Store.list('locations').find(x => x.code === DH);
+  const before = { ...p };
+  Store.update('locations', p.id, { name: '大華國際 3F' });
+  assert.deepEqual(plain(SCHEMAS.locations.afterSave(before, Store.get('locations', p.id))), [{ table: 'locations', id: p.id }]);
+  assert.equal(Store.get('locations', p.id).oldNames, '大華貿易 3F（到 2026/10/11）');
+  assert.equal(Store.get('moves', m.id).to, DH); // 異動不用改
+  assert.equal(Records.moveTitle(Store.get('moves', m.id)), '公司倉庫 → 大華國際 3F');
+  // 再改一次：多一行
+  const again = { ...Store.get('locations', p.id) };
+  Store.update('locations', p.id, { name: '大華 3F' });
+  Records.keepOldName(again, Store.get('locations', p.id));
+  assert.equal(Store.get('locations', p.id).oldNames, '大華貿易 3F（到 2026/10/11）\n大華國際 3F（到 2026/10/11）');
+  // 名字沒變（改了別的欄位）：不記
+  assert.deepEqual(plain(Records.keepOldName(Store.get('locations', p.id), Store.get('locations', p.id))), []);
+  // 以前的名字：搜尋、下拉選單打字、依名字找都找得到
+  assert.match(Records.placeText(DH), /大華貿易 3F/);
+  assert.match(Refs.targetOf('locations').also(Store.get('locations', p.id)), /大華貿易 3F/);
+  assert.equal(Records.placeByName('大華貿易 3F').code, DH);
+  assert.equal(Records.placeByName('大華 3F').code, DH);
+  assert.equal(Records.placeByName('沒有這個'), null);
+  assert.equal(Refs.usesText('locations', Store.get('locations', p.id)), '1 筆異動');
+  assert.equal(Store.get('devices', d1.id).location, WH);
+});
+
+test('一格一台：選了一個已經放著別台機器的位置時提醒；倉庫不提醒；下拉選單寫現在放著哪台', () => {
+  const { Store, Refs, Records, field, add, d1, d2 } = withDevices();
+  Store.update('devices', d1.id, { location: DH });
+  const to = field('moves', 'to').note;
+  assert.deepEqual(plain(to({ to: DH, device: '25-0001' })), { text: '這裡現在是 #1001', warn: true });
+  assert.equal(to({ to: DH, device: '24-0001' }), ''); // 自己
+  assert.equal(to({ to: AX, device: '25-0001' }), ''); // 空的
+  assert.equal(field('devices', 'location').note({ location: DH, code: '25-0001' }).text, '這裡現在是 #1001');
+  Store.update('devices', d1.id, { location: WH });
+  Store.update('devices', d2.id, { location: WH });
+  assert.equal(to({ to: WH, device: '26-0001' }), ''); // 倉庫可以放好幾台
+  const wh = Store.list('locations').find(x => x.code === WH);
+  assert.equal(Refs.sub('locations', wh), '2 台');
+  assert.equal(Refs.sub('locations', Store.list('locations').find(x => x.code === AX)), '');
+  Store.update('devices', d2.id, { location: AX });
+  assert.equal(Refs.sub('locations', Store.list('locations').find(x => x.code === AX)), '#1002');
+  assert.deepEqual(plain(Records.machinesAt(AX).map(d => d.code)), ['25-0001']);
+  add('devices', { code: '26-0001', name: '#2000', location: AX });
+});
+
+test('位置詳情：進出這一格的異動；機器放在這一格期間做的保養、抄表（換機前後分得開）', () => {
+  const { Records, add } = withDevices();
+  // #1001 1/5 裝到大華，7/1 搬去安心；#1002 7/1 換進大華
+  add('moves', { device: '24-0001', date: '2026-01-05', type: '安裝', from: WH, to: DH });
+  add('moves', { device: '24-0001', date: '2026-07-01', type: '移機', from: DH, to: AX });
+  add('moves', { device: '25-0001', date: '2026-07-01', type: '安裝', from: WH, to: DH });
+  const a = add('maintenance', { device: '24-0001', date: '2026-03-10', item: '碳粉 K' });
+  const b = add('maintenance', { device: '24-0001', date: '2026-05-20', item: '感光鼓' });
+  const c = add('maintenance', { device: '24-0001', date: '2026-09-15', item: '碳粉 K' });
+  const d = add('maintenance', { device: '25-0001', date: '2026-08-01', item: '碳粉 C' });
+  assert.deepEqual(plain(Records.recordsAt('maintenance', DH).map(r => r.id)).sort(), [a.id, b.id, d.id].sort());
+  assert.deepEqual(plain(Records.recordsAt('maintenance', AX).map(r => r.id)), [c.id]);
+  assert.equal(Records.movesAt(DH).length, 3);
+  assert.equal(Records.movesAt(AX).length, 1);
+  // 搜尋只找那時候在那裡的：#1001 現在在安心，3 月那筆不會被「安心」找到
+  assert.doesNotMatch(Records.deviceText('24-0001', '2026-03-10'), /安心/);
+  assert.match(Records.deviceText('24-0001', '2026-03-10'), /大華貿易 3F/);
+  assert.match(Records.deviceText('24-0001', '2026-09-15'), /安心診所 櫃台/);
 });
 
 // ---------- 合約 ----------
-test('合約：最新一筆（依簽約日）是目前的合約；快到期、已到期時標色，舊合約不標', () => {
-  const { Records, SCHEMAS, add } = withDevices();
-  const old = add('contracts', { device: '24-0001', signDate: '2024-01-01', endDate: '2025-12-31', content: '舊客戶' });
-  const now = add('contracts', { device: '24-0001', signDate: '2026-01-01', endDate: '2026-10-30', content: '月租 3,000\n含 2,000 張', readDay: '每月 25 日' });
-  assert.equal(Records.currentContract('24-0001').id, now.id);
+test('合約綁位置：一個位置目前的合約是簽約日最新的那一份；機器目前的合約是它所在位置的，換機時不用改', () => {
+  const { Store, Records, SCHEMAS, add, d1, d2 } = withDevices();
+  const old = add('contracts', { locations: DH, signDate: '2024-01-01', endDate: '2025-12-31', content: '舊合約' });
+  const now = add('contracts', { locations: `${DH}、${AX}`, signDate: '2026-01-01', endDate: '2026-10-30', content: '月租 3,000\n含 2,000 張', readDay: '每月 25 日' });
+  assert.equal(Records.currentContract(DH).id, now.id);
+  assert.equal(Records.currentContract(AX).id, now.id); // 一份合約寫兩個位置
+  assert.equal(Records.currentContract(WH), null);
   assert.equal(Records.isCurrentContract(old), false);
+  assert.equal(Records.isCurrentContract(now), true);
   assert.deepEqual(plain(Records.contractNote(now)), { text: '剩 19 天到期（2026/10/30）・抄表 每月 25 日', warn: true });
   assert.deepEqual(plain(Records.contractNote(old)), { text: '到期 2025/12/31', warn: false });
   assert.equal(SCHEMAS.contracts.card.title(now), '月租 3,000');
-  assert.equal(Records.currentContract('25-0001'), null);
+  assert.deepEqual(plain(Records.contractsAt(DH).map(c => c.id)), [old.id, now.id]);
+  // 機器：放在大華就是大華的合約；故障換機，新的那台放進大華，直接是同一份
+  assert.equal(Records.deviceContract('24-0001'), null); // 在倉庫
+  Store.update('devices', d1.id, { location: DH });
+  assert.equal(Records.deviceContract('24-0001').id, now.id);
+  Store.update('devices', d1.id, { location: WH });
+  Store.update('devices', d2.id, { location: DH });
+  assert.equal(Records.deviceContract('25-0001').id, now.id);
+  // 卡片最上面寫合約的位置；說明寫位置和簽約日
+  assert.deepEqual(plain(line(Records, 'contracts', now)), { text: '大華貿易 3F、安心診所 櫃台', warn: false });
+  assert.deepEqual(plain(line(Records, 'contracts', { locations: '' })), { text: '沒有填位置', warn: true });
+  assert.equal(Records.describe('contracts', now), '大華貿易 3F、安心診所 櫃台 2026/01/01 簽約');
+  assert.match(SCHEMAS.contracts.searchText(now), /安心診所 櫃台/);
 });
 
-test('合約：目前的合約已經過了到期日', () => {
+test('合約：目前的合約已經過了到期日；提前結束了就沒有目前的合約', () => {
   const { Records, add } = withDevices();
-  const c = add('contracts', { device: '24-0001', signDate: '2025-01-01', endDate: '2026-09-30' });
+  const c = add('contracts', { locations: DH, signDate: '2025-01-01', endDate: '2026-09-30' });
   assert.deepEqual(plain(Records.endText(c)), { text: '已到期（2026/09/30）', warn: true });
+  const early = add('contracts', { locations: AX, signDate: '2025-01-01', endDate: '2027-12-31', earlyEnd: '2026-06-30' });
+  assert.equal(Records.currentContract(AX), null);
+  assert.deepEqual(plain(Records.endText(early)), { text: '已提前結束（2026/06/30）', warn: false });
+  const later = add('contracts', { locations: WH, signDate: '2025-01-01', endDate: '2027-12-31', earlyEnd: '2026-12-31' });
+  assert.equal(Records.currentContract(WH).id, later.id); // 還沒到提前結束那天
+  assert.deepEqual(plain(Records.endText(later)), { text: '提前結束（2026/12/31）', warn: false });
+});
+
+test('合約：「重新簽約」新增一份，帶入位置、內容、計費方式、抄表日期；改了什麼記在修改紀錄，刪掉合約時一起刪', () => {
+  const { Store, Records, SCHEMAS, add } = withDevices();
+  const s = SCHEMAS.contracts;
+  assert.deepEqual(plain(s.copy.keys), ['locations', 'content', 'billing', 'readDay']);
+  assert.deepEqual(plain(s.copy.watch), ['locations', 'signDate', 'endDate', 'billing']);
+  assert.deepEqual(plain(s.fields.map(f => f.label)), ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期']);
+  const c = add('contracts', { locations: DH, signDate: '2026-01-05', endDate: '2028-12-31', readDay: '每月 25 號', billing: '每張 0.4' });
+  // 新增時不記
+  assert.deepEqual(plain(s.afterSave(null, c)), []);
+  const before = { ...c };
+  Store.update('contracts', c.id, { readDay: '每月 5 號', locations: `${DH}、${AX}` });
+  const logged = s.afterSave(before, Store.get('contracts', c.id));
+  assert.equal(logged.length, 2);
+  assert.deepEqual(plain(s.history(c)), [
+    { date: '2026-10-11', text: '位置：大華貿易 3F → 大華貿易 3F、安心診所 櫃台' },
+    { date: '2026-10-11', text: '抄表日期：每月 25 號 → 每月 5 號' },
+  ]);
+  // 日期寫成 2026/10/11、空白寫（空白）
+  const b2 = { ...Store.get('contracts', c.id) };
+  Store.update('contracts', c.id, { endDate: null });
+  s.afterSave(b2, Store.get('contracts', c.id));
+  assert.equal(s.history(c).at(-1).text, '到期日：2028/12/31 → （空白）'); // 舊到新
+  const log = Store.list('contractLog').find(r => r.field === '到期日');
+  assert.deepEqual(plain([log.contract, log.before, log.after]), [c.id, '2028/12/31', '']);
+  // 沒改：不記
+  assert.deepEqual(plain(Records.logContract(Store.get('contracts', c.id), Store.get('contracts', c.id))), []);
+  // 刪掉合約：修改紀錄一起刪
+  Store.remove('contracts', c.id);
+  s.afterRemove(c);
+  assert.equal(Store.list('contractLog').length, 0);
 });
 
 // ---------- 抄表 ----------
@@ -180,7 +304,7 @@ test('保養、翻新：卡片標題和最下面一行；保養的張數算進�
   assert.equal(SCHEMAS.maintenance.card.title(k), '碳粉 K');
   assert.equal(SCHEMAS.refurbs.card.title(f), '換外殼');
   assert.deepEqual(plain(Records.workNote(k)), { text: '黑白 12,000・彩色 100・客戶說卡紙', warn: false });
-  assert.deepEqual(plain(Records.refurbNote(f)), { text: '2026/09/25 入庫・陳志明・日・噴漆・原廠商 日本拍賣', warn: false });
+  assert.deepEqual(plain(Records.refurbNote(f)), { text: '2026/09/25 入庫・陳志明・日・噴漆・廠商或來源 日本拍賣', warn: false });
   assert.equal(Records.workNote(p), null);
   assert.deepEqual(plain(Records.usageNote(r)), { text: '本期 黑白 600', warn: false });
   assert.equal(Records.describe('maintenance', k), '#1001 2026/09/10 碳粉 K');
@@ -190,10 +314,10 @@ test('保養、翻新：卡片標題和最下面一行；保養的張數算進�
   assert.deepEqual(plain(SCHEMAS.maintenance.fields.filter(x => x.keep).map(x => x.key)), ['date']);
 });
 
-test('翻新：翻新日期、入庫日、工程師（人員）、序號、國別（美／日）、原廠商、噴漆；沒有費用、張數', () => {
+test('翻新：翻新日期、入庫日、工程師（人員）、序號、國別（美／日）、廠商或來源、噴漆；沒有費用、張數', () => {
   const { Store, SCHEMAS, field, d1 } = withDevices();
   assert.deepEqual(plain(SCHEMAS.refurbs.fields.map(x => x.label)),
-    ['設備', '翻新日期', '入庫日', '工程師', '序號', '國別', '原廠商', '噴漆', '翻新項目', '備註']);
+    ['設備', '翻新日期', '入庫日', '工程師', '序號', '國別', '廠商或來源', '噴漆', '翻新項目', '備註']);
   assert.equal(field('refurbs', 'engineer').ref, 'people');
   assert.deepEqual(plain(field('refurbs', 'country').toggle.map(o => o.value)), ['美', '日']);
   assert.equal(field('refurbs', 'painted').type, 'flag');
@@ -231,22 +355,22 @@ test('紀錄的設備欄：表單上寫「位置」、選單顯示位置、存�
   const { Store, Refs, Records, field, add, d1, d2 } = withDevices();
   const f = field('readings', 'device');
   assert.equal(f.formLabel, '位置');
-  assert.deepEqual(plain(Refs.items(f).map(r => r.code)), ['24-0001', '25-0001']);
+  assert.deepEqual(plain(Refs.items(f).map(r => r.code)), ['25-0001', '24-0001']); // 依選單上寫的字排（位置、還沒填位置的寫名稱）
   assert.equal(Refs.targetOf('devices').label(d1), '公司倉庫');
   assert.equal(Refs.targetOf('devices').label(d2), '#1002'); // 還沒填位置的顯示機型＋名稱
   assert.equal(Refs.sub('devices', d1), '#1001 · 3101R800451'); // 選單的小字有序號，打序號也找得到
   assert.equal(Refs.find(f, '24-0001').id, d1.id);
-  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: '公司倉庫', to: '大華貿易 3F' });
+  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: DH });
   add('readings', { device: '24-0001', date: '2026-03-25', bw: 100 });
   add('readings', { device: '99-0001', date: '2026-03-25', bw: 100 }); // 打錯的編號
   assert.equal(Refs.usesText('devices', d1), '1 筆異動、1 筆抄表');
   assert.deepEqual(plain(Refs.missing()), []);
   assert.deepEqual(plain(Records.orphans().map(o => [o.table, o.rec.device])), [['readings', '99-0001']]);
-  assert.deepEqual(plain(Records.recordLine('readings', { device: '99-0001' })), { text: '99-0001：找不到這台設備', warn: true });
-  assert.deepEqual(plain(Records.recordLine('moves', { device: '24-0001' })), { text: '#1001', warn: false });
+  assert.deepEqual(plain(line(Records, 'readings', { device: '99-0001' })), { text: '99-0001：找不到這台設備', warn: true });
+  assert.deepEqual(plain(line(Records, 'moves', { device: '24-0001' })), { text: '#1001', warn: false });
   // 卡片上寫那時候在哪裡：3/1 安裝到大華之前在公司倉庫
-  assert.deepEqual(plain(Records.recordLine('readings', { device: '24-0001', date: '2026-03-25' })), { text: '大華貿易 3F · #1001', warn: false });
-  assert.deepEqual(plain(Records.recordLine('readings', { device: '24-0001', date: '2026-02-01' })), { text: '公司倉庫 · #1001', warn: false });
+  assert.deepEqual(plain(line(Records, 'readings', { device: '24-0001', date: '2026-03-25' })), { text: '大華貿易 3F · #1001', warn: false });
+  assert.deepEqual(plain(line(Records, 'readings', { device: '24-0001', date: '2026-02-01' })), { text: '公司倉庫 · #1001', warn: false });
   // 搜尋紀錄時打序號找得到
   assert.match(Records.deviceText('24-0001'), /3101R800451/);
   // 在試算表裡改了設備編號：紀錄一起改
@@ -339,19 +463,88 @@ test('設備：編號不顯示，認機器看機型＋名稱；名稱下面寫�
   assert.deepEqual(order, ['#5000', '#998', '#1234', '#1001', '#1002']); // 沒填機型的排最後
 });
 
-test('紀錄分頁卡片最上面一行：位置 · 機型 名稱（不寫序號）；合約寫合約期間的位置（不是簽約那天的倉庫）；異動只寫機器', () => {
+test('紀錄分頁卡片最上面一行：位置 · 機型 名稱（不寫序號），保養、抄表寫那時候的位置；異動只寫機器', () => {
   const { Records, add } = withDevices();
-  add('moves', { device: '24-0001', date: '2025-03-05', type: '安裝', from: '公司倉庫', to: '大華貿易 3F' });
-  add('moves', { device: '24-0001', date: '2026-04-01', type: '移機', from: '大華貿易 3F', to: '安心診所 櫃台' });
-  const old = add('contracts', { device: '24-0001', signDate: '2025-03-01', endDate: '2026-03-31' }); // 簽約時還在倉庫
-  const now = add('contracts', { device: '24-0001', signDate: '2026-03-28', endDate: '2028-03-31' });
+  add('moves', { device: '24-0001', date: '2025-03-05', type: '安裝', from: WH, to: DH });
+  add('moves', { device: '24-0001', date: '2026-04-01', type: '移機', from: DH, to: AX });
   const m = add('maintenance', { device: '24-0001', date: '2025-08-01', item: '碳粉 K' });
   const r = add('readings', { device: '24-0001', date: '2026-09-25', month: '2026-09', bw: 1 });
-  const mv = add('moves', { device: '24-0001', date: '2026-04-01', type: '其他', to: '安心診所 櫃台' });
-  assert.deepEqual(plain(Records.recordLine('maintenance', m)), { text: '大華貿易 3F · #1001', warn: false });
-  assert.deepEqual(plain(Records.recordLine('contracts', old)), { text: '大華貿易 3F · #1001', warn: false });
-  assert.deepEqual(plain(Records.recordLine('contracts', now)), { text: '安心診所 櫃台 · #1001', warn: false });
-  assert.deepEqual(plain(Records.recordLine('readings', r)), { text: '安心診所 櫃台 · #1001', warn: false });
-  assert.deepEqual(plain(Records.recordLine('moves', mv)), { text: '#1001', warn: false });
-  assert.deepEqual(plain(Records.recordLine('readings', { device: '99-0001' })), { text: '99-0001：找不到這台設備', warn: true });
+  const mv = add('moves', { device: '24-0001', date: '2026-04-01', type: '其他', to: AX });
+  assert.deepEqual(plain(line(Records, 'maintenance', m)), { text: '大華貿易 3F · #1001', warn: false });
+  assert.deepEqual(plain(line(Records, 'readings', r)), { text: '安心診所 櫃台 · #1001', warn: false });
+  assert.deepEqual(plain(line(Records, 'moves', mv)), { text: '#1001', warn: false });
+  assert.deepEqual(plain(line(Records, 'readings', { device: '99-0001' })), { text: '99-0001：找不到這台設備', warn: true });
+});
+
+// ---------- 位置換成編號、舊資料轉換 ----------
+test('舊資料轉換：選項裡的位置清單 → 位置表；設備、異動寫名字的 → 編號；合約的設備 → 合約期間那台機器所在的位置；做過就不會再做', () => {
+  const a = app();
+  const { Store, Records } = a;
+  a.add('options', { list: '位置', name: '公司倉庫', disabled: false });
+  a.add('options', { list: '位置', name: '大華貿易 3F', disabled: false });
+  a.add('options', { list: '位置', name: '舊點', disabled: true });
+  a.add('options', { list: '品牌', name: 'Ricoh' });
+  const d = a.add('devices', { code: '24-0001', name: '#1001', location: '安心診所 櫃台' }); // 不在清單裡的也建一個
+  const m1 = a.add('moves', { device: '24-0001', date: '2025-03-05', type: '安裝', from: '公司倉庫', to: '大華貿易 3F' });
+  const m2 = a.add('moves', { device: '24-0001', date: '2026-04-01', type: '移機', from: '大華貿易 3F', to: '安心診所 櫃台' });
+  const old = Store.add('contracts', { device: '24-0001', signDate: '2025-03-01', endDate: '2026-03-31' }); // 簽約時還在倉庫
+  const now = Store.add('contracts', { device: '24-0001', signDate: '2026-03-28', endDate: '2028-03-31' });
+  assert.equal(Records.upgrade(), true);
+  assert.deepEqual(plain(Store.list('locations').map(p => [p.code, p.name, !!p.stock, !!p.disabled])), [
+    ['L0001', '公司倉庫', true, false],
+    ['L0002', '大華貿易 3F', false, false],
+    ['L0003', '舊點', false, true],
+    ['L0004', '安心診所 櫃台', false, false],
+  ]);
+  assert.deepEqual(plain(Store.list('options').filter(o => o.list === '位置')), []);
+  assert.equal(Store.list('options').filter(o => o.list === '品牌').length, 1);
+  assert.equal(Store.get('devices', d.id).location, 'L0004');
+  assert.deepEqual(plain([Store.get('moves', m1.id).from, Store.get('moves', m1.id).to, Store.get('moves', m2.id).to]), ['L0001', 'L0002', 'L0004']);
+  assert.equal(Store.get('contracts', old.id).locations, 'L0002'); // 合約期間在大華（不是簽約那天的倉庫）
+  assert.equal(Store.get('contracts', now.id).locations, 'L0004');
+  assert.equal(Store.get('contracts', now.id).device, undefined);
+  assert.equal(Records.upgrade(), false);
+});
+
+test('試算表裡打了位置的名字：換成編號（以前的名字也認得），沒有的建一個；打錯的編號提醒找不到', () => {
+  const { Store, Records, add } = withDevices();
+  const dh = Store.list('locations').find(p => p.code === DH);
+  Store.update('locations', dh.id, { oldNames: '大華舊名（到 2026/01/01）' });
+  const m1 = add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: '公司倉庫', to: '大華舊名' });
+  const m2 = add('moves', { device: '24-0001', date: '2026-04-01', type: '移機', from: DH, to: '新客戶 1F' });
+  const c = add('contracts', { locations: '安心診所 櫃台、L0099', signDate: '2026-01-01' });
+  const changed = plain(Records.fixPlaceRefs());
+  const made = Store.list('locations').find(p => p.name === '新客戶 1F');
+  assert.equal(made.code, 'L0004');
+  assert.deepEqual(changed.map(x => x.table).sort(), ['contracts', 'locations', 'moves', 'moves']);
+  assert.deepEqual(plain([Store.get('moves', m1.id).from, Store.get('moves', m1.id).to, Store.get('moves', m2.id).to]), [WH, DH, 'L0004']);
+  assert.equal(Store.get('contracts', c.id).locations, `${AX}、L0099`);
+  assert.deepEqual(plain(Records.lostPlaces().map(x => [x.table, x.value])), [['contracts', 'L0099']]);
+  assert.deepEqual(plain(Records.fixPlaceRefs()), []);
+});
+
+test('位置編號重複換號：這台裝置上新增的異動、合約跟著這台裝置上新增的位置', () => {
+  const { Store, Records, add } = withDevices();
+  add('locations', { id: 'p1', code: 'L0004', name: '別台裝置新增的' });
+  add('locations', { id: 'p2', code: 'L0004', name: '這台新增的' });
+  add('moves', { id: 'mv', device: '24-0001', date: '2026-10-01', type: '安裝', from: WH, to: 'L0004' });
+  add('contracts', { id: 'c1', locations: `${DH}、L0004`, signDate: '2026-10-01' });
+  add('contracts', { id: 'c2', locations: 'L0004', signDate: '2026-10-01' }); // 試算表讀回來的，留在沒換號的那個
+  const local = new Set(['locations:p2', 'moves:mv', 'contracts:c1']);
+  Store.update('locations', 'p2', { code: 'L0005' });
+  const out = plain(Records.followCodes([{ id: 'p2', from: 'L0004', to: 'L0005' }], (t, id) => local.has(`${t}:${id}`), 'locations'));
+  assert.deepEqual(out, [{ table: 'moves', id: 'mv' }, { table: 'contracts', id: 'c1' }]);
+  assert.equal(Store.get('moves', 'mv').to, 'L0005');
+  assert.equal(Store.get('contracts', 'c1').locations, `${DH}、L0005`);
+  assert.equal(Store.get('contracts', 'c2').locations, 'L0004');
+});
+
+test('紀錄卡片下面那一排：和設備卡片一樣小標題在上（位置｜機型｜名稱），異動沒有位置，合約只有位置', () => {
+  const { Records, Store, add, d1 } = withDevices();
+  Store.update('devices', d1.id, { model: 'IMC4500' });
+  const m = add('maintenance', { device: '24-0001', date: '2026-09-10', item: '碳粉 K' });
+  const mv = add('moves', { device: '24-0001', date: '2026-09-01', type: '其他', to: Store.list('devices')[0].location });
+  assert.deepEqual(plain(Records.recordCells('maintenance', m).map(c => [c.label, c.value])), [['位置', Records.placeName(Store.get('devices', d1.id).location)], ['機型', 'IMC4500'], ['名稱', '#1001']]);
+  assert.deepEqual(plain(Records.recordCells('moves', mv).map(c => c.label)), ['機型', '名稱']);
+  assert.deepEqual(plain(Records.recordCells('contracts', { locations: '' })), [{ label: '位置', value: '沒有填位置', warn: true }]);
 });

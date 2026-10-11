@@ -1,9 +1,10 @@
 // 資料表的欄位定義（除了 optional 的欄位，全部必填）
 //   type:        date | month | text | number | url | email | tel（網址、Email、電話都存成文字，表單上換成對應的鍵盤）
 //                month（月份）：存 2026-09，試算表上是文字 2026/09，表單上是年月的選單
-//                ref（從清單選，存的是名字）：ref 是哪張表（statuses、options、people、vendors、devices）；
-//                     options 另外寫 list（類別、位置、品牌…）
-//                     紀錄的「設備」欄也是 ref：存設備編號（devices 的 target 見下面）
+//                ref（從清單選，存的是名字）：ref 是哪張表（statuses、options、people、vendors、devices、locations）；
+//                     options 另外寫 list（類別、品牌…）
+//                     紀錄的「設備」欄也是 ref：存設備編號（devices 的 target 見下面）；位置存位置編號（locations）
+//                     many：可以選好幾個，存成「L0001、L0002」（合約的位置）
 //                multi（可以複選）：choices 是選項，存成「甲、乙」
 //                flag（勾選）：存 true／false，試算表上是核取方塊
 //   optional:    可以空白
@@ -57,10 +58,16 @@
 //                       name 名字的欄位；group 分清單的欄位（options 的 list）
 //                       active(列) 會不會出現在下拉選單；sub(列) 下拉選單裡名字後面的小字；off 停用時的標籤
 //                       order 排序的欄位（數字小的在前，沒有時依名字排）；tone(列) 標籤的顏色（狀態）
-//                       label(列) 下拉選單和欄位上顯示的字，和存的名字不一樣時（設備：顯示位置、存編號）
+//                       label(列) 下拉選單和欄位上顯示的字，和存的名字不一樣時（設備：顯示位置、存編號；位置：顯示名稱、存編號）
+//                         有 label 的不列在「不在清單裡」（存的是編號，不能用打的字加進清單），下拉選單依 label 排
+//                       addAs 下拉選單裡「＋ 新增」時打的字放在哪個欄位（位置：名稱；沒有時放 name 的欄位）
+//                       also(列) 下拉選單裡打字時另外找得到的字（位置：以前的名字）
 //                       removeHint 有人在用、不能刪除時的建議
 //                       noAdd 下拉選單裡不能「＋ 新增」、不列在「不在清單裡」（設備：紀錄的設備欄只能選已經有的設備）
 //                       cascade 刪除時連同用到它的紀錄一起刪（先問），不是擋下來（設備）
+//   （資料表）copy:      編輯時表單下面的「以這筆為底新增」按鈕（合約的「重新簽約」）：
+//                       { label 按鈕上的字, keys 帶過去的欄位, watch 改了這些欄位時 note 變橘色, note 按鈕下面的說明 }
+//   （資料表）history:   編輯時表單最下面的修改紀錄：history(這一筆) 回傳 [{ date, text }]
 //   （資料表）afterSave、afterRemove: 新增、修改、刪除之後要跟著改的（異動改了，設備的位置跟著算）：
 //                       afterSave(改之前（新增時是 null）, 改之後)、afterRemove(刪掉的那一筆)
 //   （資料表）seed:      全新的裝置上預先放的資料（id 用 seed- 開頭，沒改過時不算這台裝置的資料，見 storage.js）
@@ -81,9 +88,9 @@ const DEFAULT_STATUSES = [
   { name: '報廢', color: '灰', quiet: true },
 ];
 
-// 只有名字的清單，都放在「選項」表，用「清單」欄分
-const OPTION_LISTS = ['類別', '位置', '品牌', '機型', '保養項目', '選配件'];
-// 可以自己排順序的清單（設定 → 清單 →「排序」，↑ ↓ 移動）；其他的依名字排（位置、品牌）
+// 只有名字的清單，都放在「選項」表，用「清單」欄分（位置以前也在這裡，2026-10-11 搬到自己的「位置」表）
+const OPTION_LISTS = ['類別', '品牌', '機型', '保養項目', '選配件'];
+// 可以自己排順序的清單（設定 → 清單 →「排序」，↑ ↓ 移動）；其他的依名字排（品牌）
 const SORTED_LISTS = ['類別', '機型', '保養項目', '選配件'];
 // 預設項目（沒改過時不算這台裝置的資料），照寫的順序排；id 的開頭：類別是 seed-1…，其他加上清單的代號
 const DEFAULT_OPTIONS = [
@@ -109,27 +116,39 @@ function nextDeviceCode(rec = {}) {
   return `${yy}-${String(max + 1).padStart(4, '0')}`;
 }
 
+// 位置的編號：L＋流水號四位數（L0001），取最大的號碼往下編
+const LOC_RE = /^L(\d{4,})$/;
+function nextLocationCode() {
+  const max = Store.list('locations').reduce((n, r) => {
+    const m = String(r.code ?? '').match(LOC_RE);
+    return m ? Math.max(n, Number(m[1])) : n;
+  }, 0);
+  return `L${String(max + 1).padStart(4, '0')}`;
+}
+
 // 同步之後整理編號（見 sync.js）：
 //   沒有編號的（在試算表裡手打、沒填編號的列）補上
 //   系統給的編號重複了（手機和電腦都沒網路時各新增一台）：先新增的留著，後新增的換下一號
 //   回傳改到的 [{ id, from, to, name }]；from 是空字串時是補上的
-function fixDeviceCodes() {
+function fixCodes(table, re, next) {
   const out = [];
   const seen = new Set();
   // id 前段是新增的時間，照 id 排就是照新增的先後
-  [...Store.list('devices')].sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1)).forEach(r => {
+  [...Store.list(table)].sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1)).forEach(r => {
     const code = String(r.code ?? '').trim();
-    if (code && !(CODE_RE.test(code) && seen.has(code))) {
+    if (code && !(re.test(code) && seen.has(code))) {
       seen.add(code);
       return;
     }
-    const to = nextDeviceCode(r);
-    Store.update('devices', r.id, { code: to });
+    const to = next(r);
+    Store.update(table, r.id, { code: to });
     seen.add(to);
     out.push({ id: r.id, from: code, to, name: r.name });
   });
   return out;
 }
+const fixDeviceCodes = () => fixCodes('devices', CODE_RE, nextDeviceCode);
+const fixLocationCodes = () => fixCodes('locations', LOC_RE, nextLocationCode);
 
 // 主機板號碼（事務機的 DNS 名稱）：RNP＋12 碼，例如 RNP123456789012
 //   只打後面 12 碼也可以，存檔時補上 RNP；英文轉大寫、拿掉空白和分隔符號
@@ -180,6 +199,10 @@ const countField = (key, label, more = {}) => ({
   key, label, type: 'number', optional: true, note: v => Records.countNote(v, key), noteLines: 2, ...more,
 });
 const recordMonth = key => ({ key, unit: 'month', label: '月份' });
+// 位置：存位置編號（L0001），畫面上寫名稱（見 records.js 的 placeName）
+const placeField = (key, label, more = {}) => ({
+  key, label, type: 'ref', ref: 'locations', format: v => Records.placeName(v), ...more,
+});
 
 const SCHEMAS = {
   //   編號（24-0001）是系統用來對紀錄的，畫面上不顯示；認機器看「機型＋名稱」（名稱填機身號碼 #1234）
@@ -189,7 +212,8 @@ const SCHEMAS = {
     order: (a, b) => Records.deviceOrder(a, b), // 照機型清單的順序，同一個機型依名稱
     filter: 'status',
     groups: [['category', '類別'], ['model', '機型'], ['location', '位置'], ['keeper', '保管人']],
-    search: ['serial', 'name', 'brand', 'model', 'board', 'location', 'keeper'],
+    search: ['serial', 'name', 'brand', 'model', 'board', 'keeper'],
+    searchText: r => Records.placeText(r.location),
     searchHint: '搜尋序號、名稱或位置',
     // 名稱下面一行寫機器序號（查機器、印紀錄時最常用）
     card: { title: 'name', sub: r => (r.serial ? `序號 ${r.serial}` : ''), badge: 'status', grid: ['model', 'location', 'keeper'] },
@@ -200,7 +224,7 @@ const SCHEMAS = {
       ? `這個主機板號碼已經用在 ${Records.label(dup)}`
       : `編號 ${dup.code} 已經用過了（${Records.label(dup)}）`),
     // 紀錄的「設備」欄從這裡選：顯示位置、存編號（沒填位置的顯示機型＋名稱）；刪除設備時連同它的紀錄一起刪（見 form.js）
-    target: { name: 'code', label: r => r.location || Records.label(r), sub: r => Records.fullLabel(r), noAdd: true, cascade: true },
+    target: { name: 'code', label: r => Records.placeName(r.location) || Records.label(r), sub: r => Records.fullLabel(r), noAdd: true, cascade: true },
     empty: '還沒有設備<br>點右上角「＋ 新增」開始記錄',
     fields: [
       // 年份照購買日期（沒填用今年），給了就不會變；表單上不顯示
@@ -214,9 +238,9 @@ const SCHEMAS = {
       { key: 'model',    label: '機型',     was: ['型號'], type: 'ref', ref: 'options', list: '機型', optional: true, keep: true },
       { key: 'serial',   label: '序號',     type: 'text', optional: true, caps: true, section: '機器識別' },
       { key: 'board',    label: '主機板號碼', type: 'text', optional: true, caps: true, tight: true, clean: cleanBoard, note: boardNote },
-      // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示
-      { key: 'location', label: '位置',     type: 'ref', ref: 'options', list: '位置', optional: true, keep: true, section: '放置與保管',
-        lock: r => (Records.hasMoves(r.code) ? '要換位置請新增異動' : '') },
+      // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示；那裡已經有別台機器時提醒（倉庫不提醒）
+      placeField('location', '位置', { optional: true, keep: true, section: '放置與保管',
+        lock: r => (Records.hasMoves(r.code) ? '要換位置請新增異動' : ''), note: v => Records.slotNote(v.location, v.code) }),
       { key: 'keeper',   label: '保管人',   type: 'ref', ref: 'people', optional: true },
       { key: 'buyDate',  label: '購買日期', type: 'date', optional: true, keep: true, section: '購買與保固' },
       { key: 'price',    label: '購買金額', type: 'number', optional: true, keep: true },
@@ -224,6 +248,29 @@ const SCHEMAS = {
       { key: 'warranty', label: '保固到期', type: 'date', optional: true, keep: true },
       { key: 'link',     label: '連結',     type: 'url', optional: true, full: true, hint: '照片、說明書或雲端硬碟資料夾的網址', section: '其他' },
       { key: 'note',     label: '備註',     type: 'text', optional: true, full: true, multiline: true },
+    ],
+  },
+
+  // 位置：擺一台機器的一格（「大華公司 3F」），同一格同時只放一台；倉庫、維修中心勾「倉庫」，可以放好幾台（見 PLAN.md 第 4-3 節）
+  //   編號（L0001）系統給的、不會變：設備、異動、合約存的都是編號，畫面上只顯示名稱
+  //   改名時舊名字自動加一行到「以前的名字」（records.js 的 keepOldName）；搜尋時以前的名字也找得到
+  locations: {
+    title: '位置',
+    unit: '個位置',
+    noList: true,
+    target: { name: 'code', addAs: 'name', label: r => r.name || r.code, sub: r => Records.placeSub(r), also: r => r.oldNames,
+      active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
+    unique: [['code'], ['name']],
+    uniqueMsg: (dup, keys) => (keys[0] === 'name' ? `已經有「${dup.name}」了` : `編號 ${dup.code} 已經用過了`),
+    describe: r => r.name,
+    afterSave: (before, after) => Records.keepOldName(before, after),
+    fields: [
+      { key: 'code',     label: '編號',       type: 'text', auto: nextLocationCode, hidden: true },
+      { key: 'name',     label: '名稱',       type: 'text', full: true, hint: '寫到分得出是哪一格，例如「大華公司 3F」' },
+      { key: 'oldNames', label: '以前的名字', type: 'text', optional: true, full: true, multiline: true, hint: '改名時自動記下來' },
+      { key: 'stock',    label: '倉庫',       type: 'flag', optional: true, hint: '倉庫、維修中心這類，可以放好幾台' },
+      { key: 'disabled', label: '停用',       type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的資料照常顯示' },
+      { key: 'note',     label: '備註',       type: 'text', optional: true, full: true, multiline: true },
     ],
   },
 
@@ -235,8 +282,8 @@ const SCHEMAS = {
     card: { title: r => Records.moveTitle(r), badge: 'type', grid: [] },
     note: r => Records.noteLine(r.note),
     describe: r => Records.describe('moves', r),
-    search: ['device', 'from', 'to', 'note'],
-    searchText: r => Records.deviceText(r.device, r.date),
+    search: ['device', 'note'],
+    searchText: r => [Records.placeText(r.from), Records.placeText(r.to), Records.deviceText(r.device)].join(' '),
     searchHint: '搜尋位置',
     afterSave: (before, after) => Records.syncLocations(before ? [before] : []),
     afterRemove: r => Records.syncLocations([r]),
@@ -244,13 +291,17 @@ const SCHEMAS = {
       deviceField(),
       dateField('date', '日期', { keep: true }),
       { key: 'type', label: '類型', type: 'text', keep: true, toggle: toggleOf(MOVE_TYPES) },
-      { key: 'from', label: '原位置', type: 'ref', ref: 'options', list: '位置', optional: true, hidden: true, calc: v => Records.device(v.device)?.location || '' },
-      { key: 'to',   label: '新位置', type: 'ref', ref: 'options', list: '位置' },
+      placeField('from', '原位置', { optional: true, hidden: true, calc: v => Records.device(v.device)?.location || '' }),
+      // 一格一台：那裡已經有別台機器時提醒（換機時兩筆異動先輸入哪一筆都可以，所以只提醒）
+      placeField('to', '新位置', { full: true, note: v => Records.slotNote(v.to, v.device) }),
       noteField(),
     ],
   },
 
-  // 合約：一份一筆，最新一筆（依簽約日）是目前的合約；兩個日期之外都是自由輸入的文字
+  // 合約：綁位置、不綁機器（一次租三台是一份合約寫三個位置）；機器目前的合約＝它現在所在位置的合約，換機時不用改
+  //   一個位置目前的合約：包含它的合約裡簽約日最新的那一份（提前結束了的話沒有）
+  //   重簽、續約、改條件都按「重新簽約」新增一份；修改只用來改打錯的，改了什麼記在合約修改紀錄（見 records.js）
+  //   兩個日期之外都是自由輸入的文字
   contracts: {
     title: '合約',
     period: recordMonth('signDate'),
@@ -258,16 +309,40 @@ const SCHEMAS = {
     status: r => (Records.isCurrentContract(r) ? { label: '目前', cls: 'blue' } : null),
     note: r => Records.contractNote(r),
     describe: r => Records.describe('contracts', r),
-    search: ['device', 'content', 'billing'],
-    searchText: r => Records.deviceText(r.device, r.signDate),
+    search: ['content', 'billing'],
+    searchText: r => Records.contractPlaces(r).map(Records.placeText).join(' '),
     searchHint: '搜尋位置或合約內容',
+    copy: {
+      label: '重新簽約',
+      keys: ['locations', 'content', 'billing', 'readDay'],
+      watch: ['locations', 'signDate', 'endDate', 'billing'],
+      note: '重新簽約、續約、改條件都按這裡，會新增一份；上面只用來改打錯的地方',
+    },
+    history: r => Records.contractHistory(r.id),
+    afterSave: (before, after) => Records.logContract(before, after),
+    afterRemove: r => Records.dropContractLog(r),
     fields: [
-      deviceField(),
+      placeField('locations', '位置', { many: true, full: true, placeholder: '選擇或搜尋，可以選好幾個' }),
       dateField('signDate', '簽約日'),
       { key: 'endDate', label: '到期日', type: 'date', optional: true },
+      { key: 'earlyEnd', label: '提前結束日', type: 'date', optional: true, hint: '違約、提前結束時才填' },
       { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true },
       { key: 'billing', label: '計費方式', type: 'text', optional: true, full: true, multiline: true },
       { key: 'readDay', label: '抄表日期', type: 'text', optional: true, full: true },
+    ],
+  },
+
+  // 合約修改紀錄：修改合約時自動記（在試算表裡改的，同步時記），編輯合約的表單最下面列出來；不用自己填
+  //   合約寫合約的 id；改之前、改之後是畫面上看到的字（位置寫名稱、日期寫 2026/10/11）
+  contractLog: {
+    title: '合約修改紀錄',
+    noList: true,
+    fields: [
+      { key: 'contract', label: '合約', type: 'text' },
+      { key: 'date',     label: '日期', type: 'date' },
+      { key: 'field',    label: '欄位', type: 'text' },
+      { key: 'before',   label: '改之前', type: 'text', optional: true, multiline: true },
+      { key: 'after',    label: '改之後', type: 'text', optional: true, multiline: true },
     ],
   },
 
@@ -330,7 +405,7 @@ const SCHEMAS = {
       { key: 'serial',    label: '序號', type: 'text', optional: true, caps: true,
         calc: v => Records.device(v.device)?.serial || '', note: v => Records.serialNote(v) },
       { key: 'country',   label: '國別', type: 'text', optional: true, toggle: toggleOf(COUNTRIES) },
-      { key: 'source',    label: '原廠商', type: 'text', optional: true },
+      { key: 'source',    label: '廠商或來源', was: ['原廠商'], type: 'text', optional: true },
       { key: 'painted',   label: '噴漆', type: 'flag', optional: true },
       { key: 'content',   label: '翻新項目', type: 'text', full: true, multiline: true },
       noteField(),
@@ -374,7 +449,7 @@ const SCHEMAS = {
     ],
   },
 
-  // 只有名字的清單（類別、位置、品牌、機型、保養項目、選配件）
+  // 只有名字的清單（類別、品牌、機型、保養項目、選配件）
   //   順序：可以排序的清單在清單頁用 ↑ ↓ 排（存 1、2、3…），表單上不顯示；沒有順序的排在後面、依名字排
   options: {
     title: '選項',

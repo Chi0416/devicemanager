@@ -5,8 +5,10 @@
 //         寫回時用 id 找到那一列再改，不靠列號；在試算表裡手動輸入、沒有 id 的列會補上 id
 //         試算表缺了選填的欄（新版加的欄位）：補在最後面，用這台裝置的資料填上
 //         在試算表裡改了清單的名字（狀態、選項、人員、廠商）：用到舊名字的資料一起改，同一次寫回去
-//         設備沒有編號的補上、系統給的編號重複的換下一號（見 schema.js 的 fixDeviceCodes），紀錄跟著換，同一次寫回去
-//         在試算表裡改了設備編號：紀錄的設備欄一起改；在試算表裡加了異動：設備的位置跟著算（見 records.js），同一次寫回去
+//         設備、位置沒有編號的補上、系統給的編號重複的換下一號（見 schema.js 的 fixCodes），用到它的資料跟著換，同一次寫回去
+//         在試算表裡改了設備、位置編號：用到它的資料一起改；在試算表裡加了異動：設備的位置跟著算（見 records.js），同一次寫回去
+//         在試算表裡打了位置的名字（不是編號）：換成編號，沒有這個位置就建一個（見 records.js 的 fixPlaceRefs）
+//         在試算表裡改了位置的名字：舊名字記在「以前的名字」；改了合約：記在合約修改紀錄（和在 App 裡改的一樣）
 //   時機：打開 App、從背景切回來、修改資料後（等幾秒一起送），登入還有效就自動同步
 //         登入過期時，修改資料的那一下順便跳出 Google 視窗（沒有網路時不跳）；沒成功就顯示「同步」按鈕讓使用者按
 //   登出：先同步一次，確定試算表已經有這台裝置的全部資料，才清掉這台裝置上的資料（換帳號時不會混在一起）
@@ -240,6 +242,22 @@ const Sync = (() => {
         && Refs.nameOf(table, before) !== Refs.nameOf(table, after)));
   }
 
+  // 在試算表或其他裝置上改了的位置、合約（同一個 id）：記下改之前的，合併之後記舊名字、修改紀錄
+  //   這台裝置自己也改了的（還沒同步）以這台的為準，不算
+  function remoteEdits(parsed, skip, snap) {
+    const pending = new Set(snap.items.map(i => `${i.table}:${i.id}`));
+    return ['locations', 'contracts'].filter(t => !skip.includes(t)).flatMap(t => parsed.data[t]
+      .filter(after => Store.get(t, after.id) && !pending.has(`${t}:${after.id}`))
+      .map(after => ({ t, id: after.id, before: { ...Store.get(t, after.id) } })));
+  }
+
+  // 改名的位置：舊名字加到「以前的名字」；改過的合約：記修改紀錄；改到的加進這次的快照
+  function keepEdits(edits, snap) {
+    addToSnap(edits.flatMap(({ t, id, before }) => (t === 'locations'
+      ? Records.keepOldName(before, Store.get(t, id))
+      : Records.logContract(before, Store.get(t, id)))), snap);
+  }
+
   // 用到舊名字的資料一起改；改到的加進這次的快照，和其他修改一起寫回去
   function cascade(renames, snap) {
     addToSnap(renames.flatMap(({ t, before, after }) => Refs.renameRefs(t, before, after)), snap);
@@ -260,13 +278,15 @@ const Sync = (() => {
     });
   }
 
-  // 設備的編號：沒有的補上、重複的換下一號，這台裝置上新增的紀錄跟著換（見 records.js 的 followCodes）
-  //   編號只在系統裡用、畫面上看不到（認機器看機型＋名稱），所以換號不用提醒
-  function fixCodes(snap) {
+  // 設備、位置的編號：沒有的補上、重複的換下一號，這台裝置上新增的資料跟著換（見 records.js 的 followCodes）
+  //   編號只在系統裡用、畫面上看不到（認機器看機型＋名稱，位置看名稱），所以換號不用提醒
+  function fixCodes(snap, skip) {
     const local = new Set(snap.items.map(i => `${i.table}:${i.id}`));
-    const fixed = fixDeviceCodes();
-    const followed = Records.followCodes(fixed, (t, id) => local.has(`${t}:${id}`));
-    addToSnap([...fixed.map(f => ({ table: 'devices', id: f.id })), ...followed], snap);
+    const isLocal = (t, id) => local.has(`${t}:${id}`);
+    [['devices', fixDeviceCodes], ['locations', fixLocationCodes]].filter(([t]) => !skip.includes(t)).forEach(([t, fix]) => {
+      const fixed = fix();
+      addToSnap([...fixed.map(f => ({ table: t, id: f.id })), ...Records.followCodes(fixed, isLocal, t)], snap);
+    });
   }
 
   // 回傳這次處理到的表；缺欄位的表不處理，修改留在待同步清單
@@ -295,9 +315,13 @@ const Sync = (() => {
     const skip = [...new Set([...parsed.broken, ...empty])];
     keepOrDelete(parsed, skip, snap);
     const renames = remoteRenames(parsed, skip, snap);
+    const edits = remoteEdits(parsed, skip, snap);
     Store.mergeRemote(parsed.data, skip, parsed.missing);
     cascade(renames, snap);
-    if (!skip.includes('devices')) fixCodes(snap);
+    keepEdits(edits, snap);
+    fixCodes(snap, skip);
+    // 試算表裡打的位置名字換成編號（異動改了的話，下面設備的位置跟著算）
+    if (!skip.includes('locations')) addToSnap(Records.fixPlaceRefs(), snap);
     // 設備的位置＝最新一筆異動的新位置（在試算表或其他裝置上改了異動）
     if (!skip.includes('devices') && !skip.includes('moves')) addToSnap(Records.syncLocations(), snap);
     hooks.onData();

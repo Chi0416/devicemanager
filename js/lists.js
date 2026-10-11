@@ -1,6 +1,6 @@
 // 清單管理：設定 → 清單 → 狀態、類別、位置、品牌、機型、保養項目、選配件、人員、廠商（見 refs.js 的 lists）
-//   列出這份清單的每一項：名字、小字（職稱、部門；聯絡人、電話）、幾台設備（幾筆紀錄）在用、停用的標籤
-//   點一項打開編輯表單（改名時用到舊名字的設備一起改，見 form.js）；右上角新增
+//   列出這份清單的每一項：名字、小字（職稱、部門；聯絡人、電話；位置現在放著哪台）、幾台設備（幾筆紀錄）在用、停用的標籤
+//   點一項打開編輯表單（改名時用到舊名字的設備一起改，見 form.js）；位置打開位置詳情（見 detail.js）；右上角新增
 //   設備裡填過、但不在清單裡的值（試算表手打的、清單做好之前填的）：最上面寫出來，一鍵全部加進清單
 //   可以排序的清單（狀態、機型…）：按「排序」，每一項旁邊有 ↑ ↓，右上角「完成」；下拉選單、總覽照這個順序
 const Lists = (() => {
@@ -14,7 +14,7 @@ const Lists = (() => {
   let opened = false;  // 這次打開後已經畫過了
   let sorting = false; // 排序中
   let movedId = null;  // 剛移動的那一項（閃一下）
-  let hooks = { toast() {}, onChanged() {} };
+  let hooks = { toast() {}, onChanged() {}, openItem: (t, id) => Form.open(t, id) };
 
   // 這份清單的「不在清單裡」：選項是那一份清單，其他是整張表
   const missingOf = l => Refs.missing().filter(s => (l.list ? s.key === `options:${l.list}` : s.ref === l.table));
@@ -30,7 +30,7 @@ const Lists = (() => {
       <li>
         <button type="button" class="list-item${off ? ' off' : ''}" data-id="${U.esc(r.id)}">
           ${tone ? `<i class="dot ${U.esc(tone)}" aria-hidden="true"></i>` : ''}
-          <span class="member-info"><b>${U.esc(Refs.nameOf(t, r))}</b>${subs ? `<small>${U.esc(subs)}</small>` : ''}</span>
+          <span class="member-info"><b>${U.esc(Refs.labelOf(t, r))}</b>${subs ? `<small>${U.esc(subs)}</small>` : ''}</span>
           ${off ? `<span class="badge gray">${U.esc(tg.off || '停用')}</span>` : ''}
           <span class="uses">${uses ? U.esc(uses) : '沒有在用'}</span>
         </button>
@@ -42,10 +42,10 @@ const Lists = (() => {
     const t = current.table;
     const on = Refs.listItems(current).filter(r => Refs.active(t, r));
     const btn = (r, dir, off) => `<button type="button" class="sort-btn" data-move="${dir}" data-id="${U.esc(r.id)}"` +
-      ` aria-label="${U.esc(Refs.nameOf(t, r))}往${dir < 0 ? '上' : '下'}移"${off ? ' disabled' : ''}>${dir < 0 ? '↑' : '↓'}</button>`;
+      ` aria-label="${U.esc(Refs.labelOf(t, r))}往${dir < 0 ? '上' : '下'}移"${off ? ' disabled' : ''}>${dir < 0 ? '↑' : '↓'}</button>`;
     return `<p class="note muted lists-sort-hint">點 ↑ ↓ 移動，下拉選單${current.list === '機型' ? '和總覽' : ''}都照這個順序。好了按右上角「完成」。</p>
       <ul class="member-list list-items sorting">${on.map((r, i) => `
-        <li class="${r.id === movedId ? 'moved' : ''}"><span class="sort-name">${U.esc(Refs.nameOf(t, r))}</span>${btn(r, -1, i === 0)}${btn(r, 1, i === on.length - 1)}</li>`).join('')}
+        <li class="${r.id === movedId ? 'moved' : ''}"><span class="sort-name">${U.esc(Refs.labelOf(t, r))}</span>${btn(r, -1, i === 0)}${btn(r, 1, i === on.length - 1)}</li>`).join('')}
       </ul>`;
   }
 
@@ -61,7 +61,8 @@ const Lists = (() => {
     }
     const q = Refs.norm(searchEl.value);
     const all = Refs.listItems(current);
-    const items = q ? all.filter(r => Refs.norm(`${Refs.nameOf(current.table, r)} ${Refs.sub(current.table, r)}`).includes(q)) : all;
+    const also = Refs.targetOf(current.table).also || (() => '');
+    const items = q ? all.filter(r => Refs.norm(`${Refs.labelOf(current.table, r)} ${Refs.sub(current.table, r)} ${also(r) ?? ''}`).includes(q)) : all;
     if (!opened) searchEl.hidden = all.length < 8; // 項目少時不用搜尋；打開後不再變，新增到第 8 項時畫面不會跳
     opened = true;
     const canSort = current.sortable && !q && all.filter(r => Refs.active(current.table, r)).length > 1;
@@ -79,8 +80,9 @@ const Lists = (() => {
   }
 
   // 清單最下面的說明
-  const USED_BY = { 保養項目: '保養的項目', 選配件: '選配件的名稱', 位置: '設備和異動的位置' };
+  const USED_BY = { 保養項目: '保養的項目', 選配件: '選配件的名稱' };
   function noteOf(l) {
+    if (l.table === 'locations') return '設備、異動、合約的位置從這裡選。一個位置放一台機器，倉庫可以放好幾台。改名時舊名字會記在「以前的名字」。點一項看這個位置的機器、合約和紀錄。';
     if (l.table === 'people') return '設備的保管人、翻新的工程師從這裡選。填了離職日，那天以後就不會出現在選單裡。';
     if (l.table === 'vendors') return '設備的購買廠商從這裡選。';
     if (l.table === 'statuses') return '設備的狀態從這裡選，依「順序」排，新增設備時預設選第一個。勾了「不用提醒」的（報廢這類）不提醒保固、保養。改名時，用到舊名字的設備會一起改。';
@@ -144,7 +146,7 @@ const Lists = (() => {
         return;
       }
       const item = e.target.closest('[data-id]');
-      if (item) Form.open(current.table, item.dataset.id);
+      if (item) hooks.openItem(current.table, item.dataset.id);
     });
   }
 

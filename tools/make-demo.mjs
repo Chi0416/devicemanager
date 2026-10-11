@@ -1,5 +1,7 @@
-// 產生測試用的假資料（data.json 的格式）：30 台事務機和它們的異動、合約、抄表、保養、翻新、選配件
+// 產生測試用的假資料（data.json 的格式）：30 台事務機和它們的位置、異動、合約、抄表、保養、翻新、選配件
 //   設備的名稱是機身號碼（#1001…），編號是系統給的（畫面上不顯示）
+//   位置存編號（L0001…）：一個位置放一台，公司倉庫是倉庫；合約綁位置（鼎泰國際 3F、4F、5F 是同一份合約）
+//   有幾台跟著客戶搬到新辦公室：新的位置另簽一份合約，舊的那份提前結束
 //   用法：node tools/make-demo.mjs > data-demo.json，再到 App 的設定 → 匯入 data.json
 //   每次產生的內容都一樣（固定的亂數種子）；日期以 2026-10-11 為準
 //   data-demo.json 符合 .gitignore 的 data*.json，不會推上 GitHub
@@ -41,7 +43,10 @@ const mono = m => /^MP\d/.test(m); // MP 開頭沒有 C 的是黑白機
 const LOCATIONS = ['大華貿易 3F', '安心診所 櫃台', '晨光設計工作室', '宏遠建設 總務部', '興隆會計師事務所', '青山國小 教務處',
   '日新補習班 2F', '長榮物流 倉管', '和平藥局', '永豐法律事務所', '新光牙醫診所', '太平洋旅行社', '聯合工程顧問', '明德高中 圖書館',
   '福星餐飲 總部', '群益印刷', '東方汽車 業務部', '金城保險 3F', '藍海科技 研發部', '綠野建築師事務所', '中興地政事務所',
-  '美好月子中心', '北辰補習班', '鼎泰國際 5F'];
+  '鼎泰國際 3F', '鼎泰國際 4F', '鼎泰國際 5F'];
+const GROUP = '鼎泰國際'; // 一次租三台：一份合約寫三個位置
+// 改過名字的位置：以前的名字
+const OLD_NAMES = { '金城保險 3F': '金城產險 3F（到 2026/03/01）' };
 const STOCK = '公司倉庫';
 const PEOPLE = [
   { name: '陳志明', jobTitle: '技術組長', dept: '技術部', phone: '0912-345-678' },
@@ -68,11 +73,30 @@ const data = {
     { id: uid(), list: '類別', name: '多功能事務機', order: 0, disabled: false },
     { id: uid(), list: '品牌', name: 'Ricoh', order: null, disabled: false },
     ...MODELS.map((name, i) => ({ id: uid(), list: '機型', name, order: i + 1, disabled: false })),
-    ...[STOCK, ...LOCATIONS].map(name => ({ id: uid(), list: '位置', name, order: null, disabled: false })),
   ],
+  locations: [],
   people: PEOPLE.map(p => rec('people', p)),
   vendors: VENDORS.map(v => rec('vendors', v)),
-  devices: [], moves: [], contracts: [], readings: [], maintenance: [], refurbs: [], parts: [],
+  devices: [], moves: [], contracts: [], contractLog: [], readings: [], maintenance: [], refurbs: [], parts: [],
+};
+
+// 位置：L0001 起編號；名字 → 編號
+const place = name => {
+  let p = data.locations.find(x => x.name === name);
+  if (!p) {
+    p = rec('locations', { code: `L${String(data.locations.length + 1).padStart(4, '0')}`, name, oldNames: OLD_NAMES[name] || '', stock: name === STOCK });
+    data.locations.push(p);
+  }
+  return p.code;
+};
+[STOCK, ...LOCATIONS].forEach(place);
+const terms = model => {
+  const rent = pick([2500, 3000, 3500, 4000, 5000]);
+  return {
+    content: mono(model) ? `月租 ${rent.toLocaleString()} 元，含黑白 ${pick([3000, 5000])} 張\n碳粉、保養都包` : `月租 ${rent.toLocaleString()} 元，含黑白 ${pick([2000, 3000])} 張、彩色 ${pick([300, 500])} 張\n碳粉、保養都包`,
+    billing: mono(model) ? '超過的黑白每張 0.3 元' : '超過的黑白每張 0.3 元、彩色每張 3 元',
+    readDay: pick(['每月 25 日', '每月月底', '每月 5 日（抄上個月）']),
+  };
 };
 
 // ---------- 30 台設備：22 台出租中、5 台庫存、2 台維修中、1 台報廢 ----------
@@ -90,7 +114,7 @@ STATUSES.forEach((status, n) => {
   const warranty = n === 1 || n === 7 || n === 23 ? addDays(TODAY, int(5, 28)) : addMonths(buy, 12);
   const d = rec('devices', {
     code, name: `#${1001 + n * 37}`, status, category: '多功能事務機', brand: 'Ricoh', model,
-    serial: `3${int(100, 999)}R${int(100000, 999999)}`, board: `RNP${hex(12)}`, location: STOCK, keeper: pick(KEEPERS),
+    serial: `3${int(100, 999)}R${int(100000, 999999)}`, board: `RNP${hex(12)}`, location: place(STOCK), keeper: pick(KEEPERS),
     buyDate: buy, price: int(4, 12) * 10000, vendor: pick(VENDORS).name, warranty, link: '', note: '',
   });
   data.devices.push(d);
@@ -100,25 +124,24 @@ STATUSES.forEach((status, n) => {
     const where = LOCATIONS[customer++ % LOCATIONS.length];
     const after = addDays(buy, int(7, 40));
     const install = after < TODAY ? after : addDays(TODAY, -int(60, 120));
-    data.moves.push(rec('moves', { device: code, date: install, type: '安裝', from: STOCK, to: where }));
-    d.location = where;
-    if (chance(0.15)) {
-      const moved = LOCATIONS[(customer + 7) % LOCATIONS.length];
-      const later = addDays(install, int(90, 300));
-      data.moves.push(rec('moves', { device: code, date: later < TODAY ? later : addDays(TODAY, -10), type: '移機', from: where, to: moved,
-        note: '客戶搬到新辦公室' }));
-      d.location = moved;
-    }
-    // 合約：簽約日在安裝前幾天，2 年或 3 年；有 2 份快到期、1 份已經過了
+    data.moves.push(rec('moves', { device: code, date: install, type: '安裝', from: place(STOCK), to: place(where) }));
+    d.location = place(where);
+    // 合約：簽約日在安裝前幾天，2 年或 3 年；有 2 份快到期、1 份已經過了；鼎泰國際三個位置同一份
     const sign = addDays(install, -int(1, 10));
     const end = n === 2 ? addDays(TODAY, 18) : n === 5 ? addDays(TODAY, 26) : n === 9 ? addDays(TODAY, -12) : addMonths(sign, pick([24, 36]));
-    const rent = pick([2500, 3000, 3500, 4000, 5000]);
-    data.contracts.push(rec('contracts', {
-      device: code, signDate: sign, endDate: end,
-      content: mono(model) ? `月租 ${rent.toLocaleString()} 元，含黑白 ${pick([3000, 5000])} 張\n碳粉、保養都包` : `月租 ${rent.toLocaleString()} 元，含黑白 ${pick([2000, 3000])} 張、彩色 ${pick([300, 500])} 張\n碳粉、保養都包`,
-      billing: mono(model) ? '超過的黑白每張 0.3 元' : '超過的黑白每張 0.3 元、彩色每張 3 元',
-      readDay: pick(['每月 25 日', '每月月底', '每月 5 日（抄上個月）']),
-    }));
+    const shared = where.startsWith(GROUP) && data.contracts.find(c => c.group);
+    if (shared) shared.locations += `、${place(where)}`;
+    else data.contracts.push(rec('contracts', { locations: place(where), signDate: sign, endDate: end, ...terms(model), ...(where.startsWith(GROUP) ? { group: true } : {}) }));
+    // 有幾台跟著客戶搬到新辦公室：新的位置另簽一份合約，舊的那份提前結束
+    if (!where.startsWith(GROUP) && chance(0.15)) {
+      const moved = `${where.split(' ')[0]} 新辦公室`;
+      const later = addDays(install, int(90, 300));
+      const date = later < TODAY ? later : addDays(TODAY, -10);
+      data.moves.push(rec('moves', { device: code, date, type: '移機', from: place(where), to: place(moved), note: '客戶搬到新辦公室' }));
+      d.location = place(moved);
+      data.contracts.at(-1).earlyEnd = date;
+      data.contracts.push(rec('contracts', { locations: place(moved), signDate: date, endDate: addMonths(date, 24), ...terms(model) }));
+    }
 
     // 抄表：2026/06～2026/09 的帳，月底或下個月初抄；有幾台 9 月還沒抄
     let bw = int(20000, 300000);
@@ -152,5 +175,10 @@ STATUSES.forEach((status, n) => {
     if (n === 24) data.parts.push(rec('parts', { device: code, name: '送紙匣', serial: `PB${int(1000, 9999)}`, installDate: addDays(buy, 20), removeDate: date }));
   }
 });
+
+// 合約修改紀錄：第一份合約的抄表日期打錯過
+const first = data.contracts[0];
+data.contractLog.push(rec('contractLog', { contract: first.id, date: addDays(first.signDate, 3), field: '抄表日期', before: '每月 52 日', after: first.readDay }));
+data.contracts.forEach(c => { delete c.group; });
 
 process.stdout.write(JSON.stringify({ app: 'devicemanager', version: 1, exportedAt: `${TODAY}T00:00:00.000Z`, ...data }, null, 2));

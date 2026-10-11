@@ -3,9 +3,12 @@
 //   系統產生的欄位（auto，設備的編號）：不能改，新增時寫「存檔後自動產生：26-0003」，存檔時才給
 //   從清單選的欄位（ref，見 refs.js）：可以打字搜尋的下拉選單，只能選清單裡的；找不到時點「＋ 新增」馬上加進清單
 //     舊資料裡不在清單上的值（試算表手打的），沒改的話照常可以存；紀錄的設備欄只能選已經有的設備
-//     顯示的字和存的值不一樣的（target 有 label：紀錄的設備欄顯示位置、存設備編號）：打位置找得到，存的值放在藏起來的欄位
+//     顯示的字和存的值不一樣的（target 有 label：紀錄的設備欄顯示位置、存設備編號；位置顯示名稱、存位置編號）：打位置找得到，存的值放在藏起來的欄位
+//     可以選好幾個的（many，合約的位置）：表單上列出全部，點了另外開一個小視窗改（見下面的 Picker）
 //   藏起來的欄位（hidden，異動的原位置）：不顯示，由 calc 填好
 //   不能改的舊值（lock，有異動的設備的位置）：只顯示，下面寫原因
+//   以這筆為底新增（schema 的 copy，合約的「重新簽約」）：編輯時才有；改過還沒存時不能按
+//   修改紀錄（schema 的 history，合約）：編輯時列在下面
 //   刪除：按第一次在按鈕下面寫會刪掉什麼，再按一次才刪；不用瀏覽器的確認視窗（有些環境不會跳出來，按了就像沒反應）
 //     設備有紀錄的：寫出有幾筆、建議改成報廢，真的要刪就連同紀錄一起刪（schema 的 target.cascade）
 const Form = (() => {
@@ -16,6 +19,9 @@ const Form = (() => {
   const delBtn = dlg.querySelector('[data-act="delete"]');
   const delNote = dlg.querySelector('.delete-note');
   const anotherBtn = dlg.querySelector('[data-act="another"]');
+  const copyBtn = dlg.querySelector('[data-act="copy"]');
+  const copyNote = dlg.querySelector('.copy-note');
+  const historyEl = dlg.querySelector('.form-history');
   const bodyEl = dlg.querySelector('.sheet-body');
   const statusEl = dlg.querySelector('.sheet-status');
   const fieldsEl = dlg.querySelector('.fields');
@@ -26,6 +32,7 @@ const Form = (() => {
   let chipBoxes = []; // 各欄位的快選按鈕容器（沒有快選的欄位為 null）
   let noteEls = [];   // 各欄位的提醒（schema 的 note；沒有的欄位為 null）
   let combos = [];    // 從清單選的欄位：{ list, info, open }（不是的欄位為 null）
+  let manys = [];     // 可以選好幾個的欄位：表單上列出全部的那一塊（不是的欄位為 null）
   let autos = [];     // 系統產生的欄位：顯示值的那一格（不是的欄位為 null）
   let initial = [];   // 開啟或連續新增後的欄位值，用來判斷是否有未儲存的內容
   let original = [];  // 打開表單時的值（不在清單上的舊值，沒改的話照常可以存）
@@ -64,6 +71,12 @@ const Form = (() => {
     resetDelete();
     delBtn.hidden = !id;
     anotherBtn.hidden = !!id;
+    copyBtn.hidden = copyNote.hidden = !(id && schema.copy);
+    if (schema.copy) {
+      copyBtn.textContent = schema.copy.label;
+      copyNote.textContent = schema.copy.note || '';
+    }
+    renderHistory(rec);
     statusEl.hidden = true;
     buildFields(rec, preset);
     dlg.style.height = '';
@@ -74,6 +87,14 @@ const Form = (() => {
   }
 
   const fieldIndex = key => ctx.fields.findIndex(f => f.key === key);
+
+  // 修改紀錄（合約）：舊到新，日期在前
+  function renderHistory(rec) {
+    const lines = rec && ctx.schema.history ? ctx.schema.history(rec) : [];
+    historyEl.hidden = !lines.length;
+    historyEl.innerHTML = lines.length ? `<h3 class="form-section">修改紀錄</h3><ul>${lines.map(l =>
+      `<li><small>${U.esc(U.fmtDate(l.date))}</small><span>${U.esc(l.text)}</span></li>`).join('')}</ul>` : '';
+  }
 
   const INPUT_TYPE = { date: 'date', month: 'month', url: 'url', email: 'email', tel: 'tel' };
 
@@ -122,6 +143,7 @@ const Form = (() => {
     chipBoxes = fields.map(() => null);
     noteEls = fields.map(() => null);
     combos = fields.map(() => null);
+    manys = fields.map(() => null);
     autos = fields.map(() => null);
     locked = fields.map(f => !!(rec && f.lock && f.lock(rec)));
     inputs = fields.map((f, i) => {
@@ -168,6 +190,8 @@ const Form = (() => {
         seg.innerHTML = opts.map(o => `<button type="button" class="${U.esc(o.tone || 'plain')}" data-${f.type === 'multi' ? 'multi' : 'toggle'}="${i}"` +
           ` data-v="${U.esc(o.value)}" aria-pressed="false">${U.esc(o.label)}</button>`).join('');
         wrap.append(inp, seg);
+      } else if (f.type === 'ref' && f.many) {
+        wrap.appendChild(buildMany(f, i, inp));
       } else if (f.type === 'ref') {
         wrap.appendChild(buildCombo(f, i, inp));
       } else if (f.auto) {
@@ -213,6 +237,7 @@ const Form = (() => {
     combos.forEach((c, i) => c && renderCombo(i));
     initial = inputs.map((_, i) => getVal(i));
     original = [...initial];
+    renderCopyNote();
   }
 
   // 系統產生的欄位：已經有值就顯示；新增（或舊資料沒有值）時寫存檔後會是什麼（購買日期改了跟著變）
@@ -264,7 +289,52 @@ const Form = (() => {
     const c = combos[i];
     if (c && c.text !== inputs[i]) c.text.value = shownText(i, inputs[i].value);
   }
-  const syncTexts = () => combos.forEach((c, i) => c && syncText(i));
+  // 從清單選的欄位、可以選好幾個的欄位：存的值改了之後畫面跟著換
+  const syncTexts = () => {
+    combos.forEach((c, i) => c && syncText(i));
+    manys.forEach((m, i) => m && renderMany(i));
+  };
+
+  // ---------- 可以選好幾個的欄位（合約的位置）：表單上列出全部，點了打開小視窗改 ----------
+  const picked = i => Refs.valuesOf(ctx.fields[i], inputs[i].value);
+  // 一項的名字和小字（位置：現在放著哪台）；找不到時照原本的字
+  function pickedItem(f, v) {
+    const r = Refs.find(f, v);
+    return r ? { name: Refs.labelOf(f.ref, r), sub: Refs.sub(f.ref, r) } : { name: v, sub: '' };
+  }
+
+  function buildMany(f, i, inp) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'many-box';
+    btn.id = inp.id;
+    inp.removeAttribute('id');
+    inp.type = 'hidden';
+    btn.addEventListener('click', () => Picker.open(f, picked(i), vals => {
+      inputs[i].value = vals.join('、');
+      renderMany(i);
+      setError(i, '');
+      renderNotes();
+    }, `${ctx.schema.formTitle || ctx.schema.title}的${f.label}`));
+    manys[i] = btn;
+    const box = document.createElement('div');
+    box.append(inp, btn);
+    return box;
+  }
+
+  // 表單上最多列 5 個，多的寫「…還有 15 個」（合約有 20 台時表單不會太長；全部在小視窗裡看）
+  const MANY_ROWS = 5;
+  function renderMany(i) {
+    const f = ctx.fields[i];
+    const vals = picked(i);
+    const more = vals.length - MANY_ROWS;
+    manys[i].innerHTML = vals.length
+      ? `<span class="many-rows">${vals.slice(0, MANY_ROWS).map(v => {
+        const it = pickedItem(f, v);
+        return `<span class="many-row"><b>${U.esc(it.name)}</b>${it.sub ? `<small>${U.esc(it.sub)}</small>` : ''}</span>`;
+      }).join('')}${more > 0 ? `<span class="many-more">…還有 ${more} 個</span>` : ''}</span><span class="many-edit">修改 ›</span>`
+      : `<span class="many-empty">選擇${U.esc(f.label)}</span><span class="many-edit">›</span>`;
+  }
 
   function buildCombo(f, i, inp) {
     const box = document.createElement('div');
@@ -356,7 +426,7 @@ const Form = (() => {
         pick(i, Refs.nameOf(f.ref, rec));
         inp.blur();
         hooks.onChanged(f.ref, rec);
-        hooks.toast(`已加入${listName(f)}：${Refs.nameOf(f.ref, rec)}`);
+        hooks.toast(`已加入${listName(f)}：${Refs.labelOf(f.ref, rec)}`);
       }
     });
     return box;
@@ -403,9 +473,12 @@ const Form = (() => {
     const name = r => Refs.nameOf(f.ref, r);
     // 選單上寫的字：設備寫位置（編號、名稱寫在小字）
     const label = labelOf(f) || name;
-    // 空白、或已經選好還沒打字時列出全部；打字時列出名字或小字裡有這些字的
+    const also = Refs.targetOf(f.ref).also || (() => '');
+    // 打的字剛好是清單裡的一項（沒有的話才有「＋ 新增」）
+    const exact = q ? Refs.items(f, { all: true }).find(r => [name(r), label(r)].some(x => Refs.norm(x) === n)) : null;
+    // 空白、或已經選好還沒打字時列出全部；打字時列出名字或小字（以前的名字）裡有這些字的
     const listed = !q || (hit && !c.typed) ? all : all.filter(r =>
-      [name(r), label(r), Refs.sub(f.ref, r)].some(x => Refs.norm(x).includes(n)));
+      [name(r), label(r), Refs.sub(f.ref, r), also(r)].some(x => Refs.norm(x).includes(n)));
     c.list.innerHTML = listed.slice(0, 60).map(r => {
       const on = hit && r.id === hit.id;
       const sub = Refs.sub(f.ref, r);
@@ -413,7 +486,7 @@ const Form = (() => {
       return `<button type="button" class="combo-opt${on ? ' on' : ''}" role="option" aria-selected="${!!on}" data-pick="${U.esc(name(r))}">` +
         `${tone ? `<i class="dot ${U.esc(tone)}" aria-hidden="true"></i>` : ''}<span>${U.esc(label(r) || name(r))}</span>${sub ? `<small>${U.esc(sub)}</small>` : ''}</button>`;
     }).join('') +
-      (q && !hit && canAdd(f) ? `<button type="button" class="combo-add" data-add>＋ 新增${U.esc(Refs.scopeName(f))}「${U.esc(q)}」</button>` : '') +
+      (q && !exact && canAdd(f) ? `<button type="button" class="combo-add" data-add>＋ 新增${U.esc(Refs.scopeName(f))}「${U.esc(q)}」</button>` : '') +
       (q && !listed.length && !canAdd(f) ? `<p class="combo-empty">找不到「${U.esc(q)}」</p>` : '') +
       (!q && !all.length ? `<p class="combo-empty">${canAdd(f) ? `${U.esc(listName(f))}還是空的，打字後點「＋ 新增」` : `還沒有${U.esc(listName(f))}`}</p>` : '');
     c.list.hidden = !c.open || !c.list.innerHTML;
@@ -431,7 +504,7 @@ const Form = (() => {
     while (k < ctx.fields.length && (locked[k] || ctx.fields[k].auto || ctx.fields[k].hidden)) k++;
     const f = ctx.fields[k];
     const btn = (f?.toggle || f?.type === 'multi') && inputs[k].parentElement.querySelector('[data-toggle], [data-multi]');
-    (btn || combos[k]?.text || inputs[k])?.focus();
+    (btn || combos[k]?.text || manys[k] || inputs[k])?.focus();
   }
 
   // 各欄位目前填的內容（日期轉成 2025-06-05，看不懂時是空字串）；id 是正在編輯的那一筆（新增時是 null）
@@ -470,6 +543,7 @@ const Form = (() => {
   function renderNotes() {
     recalc();
     renderAutos();
+    renderCopyNote();
     if (!noteEls.some(Boolean)) return;
     const values = formValues();
     noteEls.forEach((el, i) => {
@@ -478,6 +552,12 @@ const Form = (() => {
       el.textContent = typeof n === 'string' ? n : n.text;
       el.classList.toggle('warn', !!n.warn);
     });
+  }
+
+  // 「重新簽約」下面的說明：改了位置、日期、計費方式時變橘色（和打開表單時的值比）
+  function renderCopyNote() {
+    const copy = ctx.id && ctx.schema.copy;
+    if (copy) copyNote.classList.toggle('warn', initial.length === inputs.length && copy.watch.some(k => getVal(fieldIndex(k)) !== initial[fieldIndex(k)]));
   }
 
   // ---------- 快選按鈕：本表最近輸入過的在前，再補上預設值 ----------
@@ -530,11 +610,21 @@ const Form = (() => {
       } else if (!raw) {
         if (f.optional) v = f.type === 'number' || f.type === 'date' ? null : '';
         else msg = f.toggle ? `請選${f.toggle.map(o => o.label).join('、')}其中一個`
-          : f.type === 'multi' ? '至少選一個' : '必填';
+          : f.type === 'multi' || f.many ? '至少選一個' : '必填';
       } else if (f.type === 'number' && (v = U.parseNum(raw)) === null) msg = '請輸入數字';
       else if (f.type === 'date' && (v = U.parseDate(raw)) === null) msg = '日期格式如 2025/06/05';
       else if (f.type === 'month' && (v = U.parseMonth(raw)) === null) msg = '月份格式如 2026/09';
-      else if (f.type === 'ref') {
+      else if (f.type === 'ref' && f.many) {
+        // 每一個都要在清單裡（舊資料裡本來就有的照常可以存）
+        const old = Refs.valuesOf(f, original[i]);
+        const vals = Refs.valuesOf(f, raw).map(x => {
+          const hit = Refs.find(f, x);
+          if (!hit && !old.includes(x)) msg ||= `找不到${listName(f)}「${x}」，請從選單選`;
+          return hit ? Refs.nameOf(f.ref, hit) : x;
+        });
+        v = vals.join('、');
+        if (!vals.length && !f.optional) msg = '至少選一個';
+      } else if (f.type === 'ref') {
         const hit = Refs.find(f, raw);
         if (hit) v = Refs.nameOf(f.ref, hit);
         else if (raw !== original[i]) msg = canAdd(f) ? `${listName(f)}裡沒有「${raw}」，請從選單選，或點「＋ 新增」` : `找不到${listName(f)}「${raw}」，請從選單選`;
@@ -542,7 +632,7 @@ const Form = (() => {
       else if (f.upper) v = U.toHalf(raw).toUpperCase();
       setError(i, msg);
       if (msg && !firstBad) {
-        firstBad = f.toggle || f.type === 'multi' ? inputs[i].parentElement.querySelector('[data-toggle], [data-multi]') : combos[i]?.text || inputs[i];
+        firstBad = f.toggle || f.type === 'multi' ? inputs[i].parentElement.querySelector('[data-toggle], [data-multi]') : combos[i]?.text || manys[i] || inputs[i];
       }
       rec[f.key] = v;
     });
@@ -710,8 +800,21 @@ const Form = (() => {
     leaveTimer = setTimeout(() => setCloseLabel(closeLabel), LEAVE_MS);
   }
 
+  // 以這筆為底新增（合約的「重新簽約」）：帶入 copy.keys 的欄位，其他是新增時的預設值；改過還沒存時先存或取消
+  function copyAsNew() {
+    if (isDirty()) {
+      hooks.toast('這裡改過還沒儲存，先按「儲存」或「取消」');
+      return;
+    }
+    const rec = Store.get(ctx.tableKey, ctx.id);
+    const { tableKey, schema } = ctx;
+    dlg.close();
+    open(tableKey, null, Object.fromEntries(schema.copy.keys.map(k => [k, rec[k]])));
+  }
+
   // ---------- 事件 ----------
   saveBtn.addEventListener('click', () => save());
+  copyBtn.addEventListener('click', copyAsNew);
   anotherBtn.addEventListener('click', () => save(true));
   closeBtn.addEventListener('click', requestClose);
   delBtn.addEventListener('click', remove);
