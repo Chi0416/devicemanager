@@ -1,0 +1,4 @@
+# 真實資料與備份檔
+data*.json
+
+.DS_Store

@@ -1,0 +1,368 @@
+// 進入點：分頁、列表、表單、Google 雲端硬碟同步、提醒、資料備份
+//   底部 3 格：總覽｜設備｜紀錄（見 GROUPS）
+(() => {
+  const TAB_KEY = `${Store.PREFIX}tab`;
+  const LOGOUT_KEY = `${Store.PREFIX}loggedOut`; // 登出後重新載入頁面時顯示「已登出」（sessionStorage，登出清資料時不會被清掉）
+  const $ = id => document.getElementById(id);
+
+  // ---------- 提示訊息（有開啟的 sheet 時顯示在 sheet 上層） ----------
+  const toastEl = $('toast');
+  let toastTimer;
+  function toast(msg, kind = '') {
+    (document.querySelector('dialog[open]') || document.body).appendChild(toastEl);
+    toastEl.textContent = msg;
+    toastEl.className = `show ${kind}`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.className = ''; }, kind === 'error' ? 3500 : 1800);
+  }
+
+  // ---------- 頁面 ----------
+  // 還沒做好的頁面：只有標題和一段說明
+  function createPlaceholder(text) {
+    const el = document.createElement('section');
+    el.className = 'panel';
+    el.hidden = true;
+    el.innerHTML = `<p class="empty">${text}</p>`;
+    return { el, refresh() {}, changed() {}, reset() {} };
+  }
+
+  const PAGES = {
+    overview: { title: '總覽' },
+    records: { title: '紀錄' },
+    ...SCHEMAS,
+  };
+  const lists = {
+    overview: createPlaceholder('這裡之後會列出各狀態的設備數量<br>和即將到期的保固、保養'),
+    devices: createList('devices', SCHEMAS.devices, { openForm: id => Form.open('devices', id) }),
+    records: createPlaceholder('這裡之後會列出所有設備的<br>維修、保養、異動、配件紀錄'),
+  };
+  Object.values(lists).forEach(l => $('panels').appendChild(l.el));
+  let current = 'devices';
+
+  // 新增、修改、刪除之後：那一頁重畫，剛改的那筆閃一下
+  function onChanged(key, rec) {
+    lists[key]?.changed(rec);
+  }
+  Form.init({ toast, onChanged });
+
+  // ---------- 分頁 ----------
+  // 底部的每一格（key）和裡面的頁（pages：[頁面, 上方切換的名稱]）；只有一頁的不顯示上方切換
+  const GROUPS = [
+    { key: 'overview', label: '總覽', pages: [['overview', '總覽']] },
+    { key: 'devices', label: '設備', pages: [['devices', '設備']] },
+    { key: 'records', label: '紀錄', pages: [['records', '紀錄']] },
+  ];
+  const groupOf = key => GROUPS.find(g => g.key === key || g.pages.some(([k]) => k === key));
+  // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽、紀錄（還沒做好）沒有新增按鈕
+  const ADD = { devices: ['devices', '設備'] };
+  const tabBtns = [...document.querySelectorAll('.tabbar [data-tab]')];
+  const subtabsEl = $('subtabs');
+  const addBtn = $('btn-add');
+  const addWhat = addBtn.querySelector('.add-what');
+
+  // key：底部的一格或其中一頁；提醒也會直接指定某一頁
+  //   有兩頁以上的格子：標題寫格子的名稱，下面切換是哪一頁
+  function showTab(key) {
+    const group = groupOf(key) || GROUPS[0];
+    if (group.key === key) key = group.pages[0][0];
+    if (!lists[key]) key = 'devices';
+    current = key;
+    $('page-title').textContent = group.pages.length > 1 ? group.label : PAGES[key].title;
+    subtabsEl.hidden = group.pages.length < 2;
+    subtabsEl.innerHTML = group.pages.length < 2 ? '' : group.pages.map(([k, label]) =>
+      `<button type="button" role="tab" data-page="${k}" aria-selected="${k === key}">${label}</button>`).join('');
+    const add = ADD[key];
+    addBtn.disabled = !add;
+    if (add) {
+      addWhat.textContent = add[1];
+      addBtn.setAttribute('aria-label', `新增${add[1]}`);
+    }
+    tabBtns.forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === group.key)));
+    Object.entries(lists).forEach(([k, l]) => { l.el.hidden = k !== key; });
+    try { localStorage.setItem(TAB_KEY, key); } catch (_) {}
+  }
+
+  tabBtns.forEach(b => b.addEventListener('click', () => {
+    if (groupOf(current).key !== b.dataset.tab) showTab(b.dataset.tab);
+    window.scrollTo(0, 0);
+  }));
+  subtabsEl.addEventListener('click', e => {
+    const btn = e.target.closest('[data-page]');
+    if (!btn || btn.dataset.page === current) return;
+    showTab(btn.dataset.page);
+    window.scrollTo(0, 0);
+  });
+  addBtn.addEventListener('click', () => { if (ADD[current]) Form.open(ADD[current][0], null); });
+
+  const refreshAll = () => Object.values(lists).forEach(l => l.refresh());
+
+  // ---------- 設定：資料備份 ----------
+  const menu = $('menu-sheet');
+
+  function renderBackupInfo() {
+    $('stats').innerHTML = Object.entries(SCHEMAS).map(([k, s]) =>
+      `<div><dt>${s.title}</dt><dd>${Store.list(k).length}</dd></div>`).join('');
+    const t = Store.lastExportAt();
+    $('last-export').textContent = t ? `上次匯出：${U.fmtDateTime(t)}` : '尚未匯出過備份';
+  }
+
+  function openMenu() {
+    renderBackupInfo();
+    if (!menu.open) menu.showModal();
+  }
+
+  $('btn-menu').addEventListener('click', () => openMenu());
+  menu.querySelector('[data-act="close"]').addEventListener('click', () => menu.close());
+  menu.addEventListener('click', e => { if (e.target === menu) menu.close(); }); // 點背景關閉
+
+  function download(file) {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  $('btn-export').addEventListener('click', async () => {
+    const json = JSON.stringify(Store.exportPayload(), null, 2);
+    const file = new File([json], 'data.json', { type: 'application/json' });
+    // 手機優先用分享選單（可「儲存到檔案」或傳到雲端），不支援時改成直接下載
+    const touch = matchMedia('(pointer: coarse)').matches;
+    if (touch && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        download(file);
+      }
+    } else {
+      download(file);
+    }
+    Store.markExported();
+    renderBackupInfo();
+    toast('已匯出 data.json');
+  });
+
+  const fileInput = $('file-import');
+  $('btn-import').addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+
+    let obj;
+    try {
+      obj = JSON.parse(await file.text());
+    } catch (e) {
+      toast('無法讀取：不是有效的 JSON 檔', 'error');
+      return;
+    }
+    const parsed = Store.parseImport(obj);
+    if (!parsed) {
+      toast('檔案內容不是設備管理的備份格式', 'error');
+      return;
+    }
+
+    const lines = Object.entries(SCHEMAS).map(([k, s]) => `${s.title}：${Store.list(k).length} → ${parsed[k].length} 筆`);
+    // 連結了試算表時，同步會整份改寫試算表：其他裝置或試算表裡新增、還沒同步到這台的資料也會不見
+    const cloudNote = Sync.state().linked
+      ? '\n\nGoogle 試算表也會整份換成這個檔案的內容。其他裝置或試算表裡新增、還沒同步到這台的資料也會不見。' : '';
+    if (!confirm(`匯入「${file.name}」會取代目前所有資料。${cloudNote}\n\n${lines.join('\n')}\n\n確定匯入？`)) return;
+
+    Store.replaceAll(parsed);
+    Object.values(lists).forEach(l => l.reset());
+    renderBackupInfo();
+    toast('匯入完成');
+  });
+
+  // ---------- Google 雲端硬碟（同步的流程見 sync.js） ----------
+  const cloudEl = $('cloud');
+  const syncBar = $('sync-bar');
+  const syncText = syncBar.querySelector('.sync-text');
+  const syncBtn = syncBar.querySelector('.sync-btn');
+  let syncAction = null;
+
+  // 「3 小時前」；超過這麼久沒同步、登入又過期時，上方提示列提醒按「同步」
+  const STALE = 60 * 60000;
+  function ago(iso) {
+    const min = Math.max(1, Math.floor((Date.now() - Date.parse(iso)) / 60000));
+    if (min < 60) return `${min} 分鐘前`;
+    const h = Math.floor(min / 60);
+    return h < 24 ? `${h} 小時前` : `${Math.floor(h / 24)} 天前`;
+  }
+
+  // 登入過期時連上網路也不會自動同步，要按「同步」重新登入
+  const offlineText = st => {
+    if (st.needLogin) return st.pending ? `目前沒有網路，${st.pending} 筆資料還沒同步，連上網路後請按「同步」` : '目前沒有網路';
+    return st.pending ? `目前沒有網路，${st.pending} 筆資料會在連上網路後自動同步` : '目前沒有網路，連上後會自動同步';
+  };
+
+  function syncStatusText(st) {
+    if (st.running) return '同步中…';
+    if (st.offline) return offlineText(st);
+    if (st.error) return `同步失敗：${st.error}`;
+    if (st.pending && st.needLogin) return `有 ${st.pending} 筆還沒同步，請按「同步」`;
+    if (st.needLogin) return '登入已過期，按「同步」可以抓試算表的最新資料';
+    if (st.pending) return `有 ${st.pending} 筆等待同步`;
+    return '已是最新';
+  }
+
+  const redirectNote = '<p class="note muted">登入視窗打不開時，可以'
+    + '<button type="button" class="link-btn" data-act="redirect">改用整頁登入</button>。</p>';
+
+  function renderCloud(st) {
+    if (!st.configured && !st.linked) {
+      cloudEl.innerHTML = '<p class="note muted cloud-intro">雲端同步還沒設定好，目前資料只存在這台裝置。建議定期匯出 data.json 備份。</p>';
+      return;
+    }
+    if (!st.linked) {
+      cloudEl.innerHTML = `
+        <p class="note muted cloud-intro">連結後，資料會存到你自己的 Google 雲端硬碟（一份試算表）。手機和電腦登入同一個帳號，就能看到同一份資料，也可以直接用 Google 試算表查看、修改。</p>
+        <button type="button" class="wide-btn primary" data-act="link" ${st.running ? 'disabled' : ''}>${st.running ? '連結中…' : '連結 Google 帳號'}</button>
+        ${redirectNote}`;
+      return;
+    }
+    cloudEl.innerHTML = `
+      <ul class="member-list cloud-info">
+        <li><span class="member-info"><small>帳號</small><b>${U.esc(st.email)}</b></span></li>
+        <li><span class="member-info"><small>上次同步</small><b>${st.lastSyncAt ? U.fmtDateTime(st.lastSyncAt) : '—'}</b></span></li>
+        <li><span class="member-info"><small>狀態</small><b class="${st.error ? 'warn' : ''}">${U.esc(syncStatusText(st))}</b></span></li>
+      </ul>
+      ${st.problems.length ? `
+        <p class="note warn-text">試算表裡有 ${st.problems.length} 個地方看不懂，這幾筆可能不正確。
+          哪一列、哪一格請看<button type="button" class="link-btn" data-act="inbox">提醒</button>。</p>` : ''}
+      <button type="button" class="wide-btn primary" data-act="sync" ${st.running ? 'disabled' : ''}>${st.running ? '同步中…' : '同步'}</button>
+      ${st.url ? `<a class="wide-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">開啟試算表</a>` : ''}
+      ${redirectNote}
+      <button type="button" class="text-btn danger cloud-logout" data-act="logout" ${st.running || st.loggingOut ? 'disabled' : ''}>${st.loggingOut ? '登出中…' : '登出'}</button>
+      <p class="note muted cloud-logout-note">登出會清除這台裝置上的資料，資料都還在試算表裡。要換別的 Google 帳號時先登出。</p>`;
+  }
+
+  // 「同步」要在點擊的當下呼叫（登入過期時會跳出 Google 視窗）
+  cloudEl.addEventListener('click', e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'link') Sync.startLink();
+    else if (act === 'sync') Sync.syncNow();
+    else if (act === 'redirect') Sync.loginByRedirect();
+    else if (act === 'logout') Sync.logout();
+    else if (act === 'inbox') {
+      menu.close();
+      Inbox.open();
+    }
+  });
+
+  // 畫面上方的提示列：只在需要使用者處理時出現；自動同步進行中不出現，免得一直閃
+  function renderSyncBar(st) {
+    let text = '';
+    let btn = '';
+    syncAction = null;
+    if (!st.linked) {
+      text = '';
+    } else if (st.running) {
+      if (syncBar.hidden) return;
+      text = '同步中…';
+    } else if (st.offline) {
+      text = offlineText(st);
+    } else if (st.error) {
+      text = `同步失敗：${st.error}`;
+      btn = '重試';
+      syncAction = Sync.syncNow;
+    } else if (st.pending && st.needLogin) {
+      text = `有 ${st.pending} 筆還沒同步`;
+      btn = '同步';
+      syncAction = Sync.syncNow;
+    } else if (st.needLogin && (!st.lastSyncAt || Date.now() - Date.parse(st.lastSyncAt) > STALE)) {
+      // 登入過期就不會自動同步：試算表或其他裝置改過的資料，要按「同步」才看得到
+      text = st.lastSyncAt ? `上次同步是 ${ago(st.lastSyncAt)}` : '還沒有同步過';
+      btn = '同步';
+      syncAction = Sync.syncNow;
+    }
+    syncBar.hidden = !text;
+    syncText.textContent = text;
+    syncBtn.hidden = !btn;
+    syncBtn.textContent = btn;
+  }
+
+  syncBtn.addEventListener('click', () => { if (syncAction) syncAction(); });
+
+  // ---------- 啟動 ----------
+  if (!Store.available) {
+    const banner = $('banner');
+    banner.textContent = '這個瀏覽器目前不允許儲存資料（可能是無痕模式或隱私設定），輸入的資料關掉頁面後就會消失。';
+    banner.hidden = false;
+  }
+  // 請瀏覽器盡量不要自動清掉這個網站的資料
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+  refreshAll();
+  // 換日後回到這個頁面（例如手機隔天從背景切回來）時全部重畫：快到期的提醒跟著今天的日期變
+  let renderedDay = U.today();
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || U.today() === renderedDay) return;
+    renderedDay = U.today();
+    refreshAll();
+  });
+  let savedTab = 'devices';
+  try { savedTab = localStorage.getItem(TAB_KEY) || 'devices'; } catch (_) {}
+  showTab(savedTab);
+  try {
+    if (sessionStorage.getItem(LOGOUT_KEY)) {
+      sessionStorage.removeItem(LOGOUT_KEY);
+      toast('已登出，這台裝置上的資料已清除');
+    }
+  } catch (_) {}
+
+  // ---------- 提醒（見 inbox.js） ----------
+  // 點提醒：打開那一筆資料、打開試算表、切到相關頁面或同步
+  Inbox.init({
+    onAction(a) {
+      if (a.type === 'record') {
+        if (!Store.get(a.table, a.id)) {
+          toast('這筆資料已經不在了');
+          return;
+        }
+        showTab(a.table);
+        Form.open(a.table, a.id);
+      } else if (a.type === 'tab') {
+        showTab(a.tab);
+        window.scrollTo(0, 0);
+      } else if (a.type === 'sheet') {
+        const url = Sync.state().url;
+        if (url) window.open(url, '_blank', 'noopener');
+        else toast('還沒有連結 Google 試算表');
+      } else if (a.type === 'sync') {
+        Sync.syncNow();
+      }
+    },
+  });
+
+  // 試算表的資料讀回來之後，全部重畫
+  Sync.init({
+    toast,
+    notify: Inbox.add,
+    onData() {
+      refreshAll();
+      if (menu.open) renderBackupInfo();
+    },
+    onStatus(st) {
+      renderSyncBar(st);
+      renderCloud(st);
+      Inbox.syncStatus(st);
+    },
+    // 登出：這台裝置的資料已經清掉，重新載入頁面，畫面和記在記憶體裡的東西全部從空白開始
+    onLogout() {
+      try { sessionStorage.setItem(LOGOUT_KEY, '1'); } catch (_) {}
+      location.reload();
+    },
+  });
+
+  // 離線也打得開（見 sw.js）：版本號跟著這個檔案網址後面的 ?v=，換版本時存在手機裡的那份也一起換
+  if ('serviceWorker' in navigator) {
+    const v = new URL(document.currentScript?.src || location.href).searchParams.get('v') || '';
+    navigator.serviceWorker.register(`sw.js?v=${encodeURIComponent(v)}`).catch(() => {});
+  }
+})();

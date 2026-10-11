@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141a24" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="設備管理">
+  <!-- 加到主畫面時的名稱與圖示 -->
+  <link rel="manifest" href="manifest.json?v=2026.10.11.1">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <title>設備管理</title>
+  <link rel="stylesheet" href="css/style.css?v=2026.10.11.1">
+</head>
+<body>
+  <div class="app">
+    <header class="appbar">
+      <div class="appbar-title">
+        <h1 id="page-title">設備</h1>
+      </div>
+      <div class="appbar-actions">
+        <!-- 新增：寫出會新增什麼（新增設備） -->
+        <button id="btn-add" class="add-btn" type="button" aria-label="新增">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>新增<span class="add-what"></span></span>
+        </button>
+        <!-- 提醒：需要注意的事收在這裡（見 inbox.js），有未讀時顯示數字 -->
+        <button id="btn-inbox" class="icon-btn inbox-btn" type="button" aria-label="提醒">
+          <svg class="line" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 2H4.4z"/><path d="M10 20.6a2.2 2.2 0 0 0 4 0"/></svg>
+          <span id="inbox-count" class="count-badge" hidden></span>
+        </button>
+        <button id="btn-menu" class="icon-btn" type="button" aria-label="設定：雲端同步、資料備份">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+        </button>
+      </div>
+    </header>
+    <!-- 上方切換：底部一格裡有好幾頁時，在標題下面左右切換（見 app.js 的 GROUPS） -->
+    <div id="subtabs" class="subtabs" role="tablist" hidden></div>
+    <div id="banner" class="banner" hidden></div>
+    <!-- 同步提示：有資料還沒同步、太久沒同步、沒有網路、同步失敗時才出現（其他提醒在鈴鐺） -->
+    <div id="sync-bar" class="sync-bar" role="status" hidden>
+      <span class="sync-text"></span>
+      <button type="button" class="sync-btn"></button>
+    </div>
+    <main id="panels"></main>
+  </div>
+
+  <nav class="tabbar">
+    <div class="side-brand">設備管理</div>
+    <div class="tabbar-inner" role="tablist">
+      <button type="button" role="tab" data-tab="overview">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg>
+        <span>總覽</span>
+      </button>
+      <button type="button" role="tab" data-tab="devices">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
+        <span>設備</span>
+      </button>
+      <!-- 紀錄：維修、保養、異動、配件 -->
+      <button type="button" role="tab" data-tab="records">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4.5" width="14" height="16" rx="2.5"/><path d="M9 3.5h6v2.5H9zM8.5 10.5h7M8.5 14h7M8.5 17.5h4"/></svg>
+        <span>紀錄</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- 新增／編輯表單 -->
+  <dialog id="form-sheet" class="sheet">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">取消</button>
+      <h2 class="sheet-title"></h2>
+      <button type="button" class="text-btn strong" data-act="save">儲存</button>
+    </div>
+    <div class="sheet-body">
+      <p class="sheet-status" hidden></p>
+      <div class="fields"></div>
+      <button type="button" class="wide-btn danger" data-act="delete" hidden>刪除這筆</button>
+    </div>
+  </dialog>
+
+  <!-- 設定：雲端同步、資料備份 -->
+  <dialog id="menu-sheet" class="sheet">
+    <div class="sheet-head">
+      <span></span>
+      <h2 class="sheet-title">設定</h2>
+      <button type="button" class="text-btn" data-act="close">關閉</button>
+    </div>
+    <div class="sheet-body">
+      <h3 class="section-head">Google 雲端硬碟</h3>
+      <div id="cloud"></div>
+
+      <h3 class="section-head">資料備份</h3>
+      <dl id="stats" class="stats"></dl>
+      <p id="last-export" class="muted"></p>
+      <button id="btn-export" type="button" class="wide-btn primary">匯出 data.json</button>
+      <button id="btn-import" type="button" class="wide-btn">匯入 data.json</button>
+      <p class="note muted">匯入會以檔案內容取代目前所有資料。</p>
+      <input id="file-import" type="file" accept=".json,application/json" hidden>
+
+      <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
+           css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
+      <p class="note muted">版本 2026.10.11.1</p>
+    </div>
+  </dialog>
+
+  <!-- 提醒 -->
+  <dialog id="inbox-sheet" class="sheet inbox">
+    <div class="sheet-head">
+      <button id="inbox-clear" type="button" class="text-btn">清除已讀</button>
+      <h2 class="sheet-title">提醒</h2>
+      <button type="button" class="text-btn" data-act="close">關閉</button>
+    </div>
+    <div class="sheet-body">
+      <ul id="inbox-list" class="inbox-list"></ul>
+      <div id="inbox-empty" class="inbox-empty" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 2H4.4z"/><path d="M10 20.6a2.2 2.2 0 0 0 4 0"/></svg>
+        <p>沒有提醒</p>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/util.js?v=2026.10.11.1"></script>
+  <script src="js/schema.js?v=2026.10.11.1"></script>
+  <script src="js/storage.js?v=2026.10.11.1"></script>
+  <script src="js/list.js?v=2026.10.11.1"></script>
+  <script src="js/form.js?v=2026.10.11.1"></script>
+  <script src="js/config.js?v=2026.10.11.1"></script>
+  <script src="js/google.js?v=2026.10.11.1"></script>
+  <script src="js/sheet.js?v=2026.10.11.1"></script>
+  <script src="js/sync.js?v=2026.10.11.1"></script>
+  <script src="js/inbox.js?v=2026.10.11.1"></script>
+  <script src="js/app.js?v=2026.10.11.1"></script>
+  <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
+  <script src="https://accounts.google.com/gsi/client" async></script>
+</body>
+</html>
