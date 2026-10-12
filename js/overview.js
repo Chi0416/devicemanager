@@ -1,10 +1,10 @@
 // 總覽：最上面寫共幾台、幾種機型；下面是狀態方塊、要處理、各機型有幾台（計算見 records.js）
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
 //   要處理：合約到期、快到期，保固 30 天內到期，空著的位置；依資料算，處理掉就自己不見，沒有的那一列不列
-//     點一列打開那份清單（#todo-sheet），點一項打開那份合約、那台設備、那個位置
+//     合約、保固：點一列打開那份清單（#todo-sheet），點一項打開那份合約、那台設備；空著的位置：到位置頁、篩好空著的（onPlaces）
 //   機型：依世代分組（機型清單的「世代」，空白時照型號猜），每組寫小計；組裡兩欄、照機型清單的順序，細長條是台數
 //     點一個到設備頁，篩好狀態和機型（onPick，見 app.js）
-function createOverview({ onPick }) {
+function createOverview({ onPick, onPlaces }) {
   const KEY = `${Store.PREFIX}overview.status`;
   const statusField = SCHEMAS.devices.fields.find(f => f.key === 'status');
   let status = null; // 選的狀態；'' 是全部；null 是還沒選過（用第一個狀態）
@@ -52,11 +52,7 @@ function createOverview({ onPick }) {
       key: 'places', title: '空著的位置', icon: 'pin', tone: 'blue',
       list: () => Records.emptyPlaces(),
       summary: () => '等安裝，或客戶不租了要停用',
-      row: p => {
-        const m = Records.lastMoveAt(p.code);
-        return { title: p.name, sub: m ? `${U.fmtDate(m.date)} ${m.type || ''} ${Records.label(Records.device(m.device))}`.replace(/\s+/g, ' ').trim() : '還沒有放過機器' };
-      },
-      open: p => Place.open(p.id),
+      go: () => onPlaces('empty'),
     },
   ];
   const todoOf = k => TODOS.find(t => t.key === k);
@@ -159,7 +155,9 @@ function createOverview({ onPick }) {
     }
     const t = e.target.closest('[data-todo]');
     if (t) {
-      openTodo(t.dataset.todo);
+      const todo = todoOf(t.dataset.todo);
+      if (todo.go) todo.go();
+      else openTodo(todo.key);
       return;
     }
     const row = e.target.closest('[data-model]');

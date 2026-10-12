@@ -4,7 +4,7 @@
 //   右上角「編輯」打開那一筆的表單；那一筆被刪掉時這一頁跟著關
 //   設備：點設備卡片打開（見 app.js）；標題寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
 //     在這裡新增紀錄時自動帶入這台設備；合約是它現在所在位置的，新增時帶入這個位置
-//   位置：設定 → 清單 → 位置，點一項打開（見 lists.js）；標題寫位置名稱；資訊卡上點現在放著的機器打開設備詳情
+//   位置：位置頁點一張卡片打開（見 places.js）；標題寫位置名稱；資訊卡上點現在放著的機器打開設備詳情
 //     機器：進出這個位置的異動；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
 //     新增抄表、保養、翻新時，這裡只放著一台的話帶入那一台
 function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = () => {} }) {
@@ -205,11 +205,8 @@ const Detail = (() => {
 
 // ---------- 位置詳情 ----------
 const Place = (() => {
-  // 紀錄卡片最上面寫哪一台（位置都一樣，不用寫）
-  const machine = r => {
-    const d = Records.device(r.device);
-    return d ? { text: Records.label(d), warn: false } : { text: `${r.device || '沒有填設備'}：找不到這台設備`, warn: true };
-  };
+  // 紀錄卡片最上面那一排：機型｜名稱（位置都一樣，不用寫；和異動卡片一樣，見 records.js 的 recordCells）；找不到設備時提醒
+  const machine = r => Records.recordCells('moves', r);
   // 這裡只放著一台時，新增紀錄帶入那一台
   const theOne = p => {
     const on = Records.machinesAt(p.code);

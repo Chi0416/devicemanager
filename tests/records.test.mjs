@@ -658,6 +658,63 @@ test('機型的世代：照型號猜（IM C、C xx04…、黑白 MP），清單�
   ]);
 });
 
+test('位置的用量：以一期算（兩次抄表之間），每月抄、一季抄都比每月平均；換機那個月兩台加起來；第一次抄表不算', () => {
+  const { Records, Refs, add } = withDevices(); // 今天 2026-10-11
+  // 大華每月抄：#1001 3/1 裝進去、7/1 換成 #1002
+  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: DH });
+  add('moves', { device: '24-0001', date: '2026-07-01', type: '撤機', from: DH, to: WH });
+  add('moves', { device: '25-0001', date: '2026-07-01', type: '安裝', from: WH, to: DH });
+  const read = (device, date, month, bw, color) => add('readings', { device, date, month, bw, color });
+  read('24-0001', '2026-03-01', '2026-02', 1000, 100); // 安裝當天：起點，不算用量
+  read('24-0001', '2026-04-01', '2026-03', 3000, 300);
+  read('24-0001', '2026-05-01', '2026-04', 5000, 500);
+  read('24-0001', '2026-07-01', '2026-06', 9000, 900); // 5 月漏抄：這一期兩個月
+  read('25-0001', '2026-07-01', '2026-06', 200, 0);    // 換上去的那台：起點
+  read('25-0001', '2026-08-01', '2026-07', 2200, 50);
+  // 中間保養填的張數不分段（整期才不會少算）
+  add('maintenance', { device: '25-0001', date: '2026-08-20', item: '碳粉 K', bw: 3000, color: 60 });
+  read('25-0001', '2026-09-01', '2026-08', 4400, 100);
+  const dh = plain(Records.placeUsage(DH));
+  assert.deepEqual(dh.map(p => [p.month, p.months, p.bw, p.color, p.total]), [
+    ['2026-03', 1, 2000, 200, 2200],
+    ['2026-04', 1, 2000, 200, 2200],
+    ['2026-06', 2, 4000, 400, 4400],
+    ['2026-07', 1, 2000, 50, 2050],
+    ['2026-08', 1, 2200, 50, 2250],
+  ]);
+  // 卡片：最近一期、和前一期比每月平均
+  const s = Records.usageSummary(Records.placeUsage(DH));
+  assert.equal(s.label, '8 月');
+  assert.equal(s.total, 2250);
+  assert.equal(Math.round(s.change * 100), 10); // 2250 比 2050
+  // 一季抄一次：寫幾月到幾月、每月平均；跟前一季比每月平均
+  add('moves', { device: '24-0001', date: '2026-07-02', type: '安裝', from: WH, to: AX });
+  read('24-0001', '2026-07-02', '2026-06', 9000, 900);
+  read('24-0001', '2026-10-01', '2026-09', 18000, 900);
+  const ax = Records.usageSummary(Records.placeUsage(AX));
+  assert.deepEqual(plain(ax), { label: '7–9 月', months: 3, total: 9000, perMonth: 3000, bw: 9000, color: 0, change: null });
+  assert.equal(Records.usageSummary([]), null);
+  assert.deepEqual(plain(Records.placeUsage('L0099')), []);
+  // 合約：已到期、剩幾天、到哪天、提前結束、沒有到期日
+  const short = c => plain(Records.contractShort(c));
+  assert.deepEqual(short({ endDate: '2026-09-30' }), { text: '已到期', sub: '2026/09/30', warn: true });
+  assert.deepEqual(short({ endDate: '2026-11-05' }), { text: '剩 25 天', sub: '2026/11/05', warn: true });
+  assert.deepEqual(short({ endDate: '2027-12-31' }), { text: '到 2027/12/31', sub: '', warn: false });
+  assert.deepEqual(short({ endDate: '2027-12-31', earlyEnd: '2026-12-31' }), { text: '提前結束', sub: '2026/12/31', warn: false });
+  assert.deepEqual(short({}), { text: '沒有到期日', sub: '', warn: false });
+  assert.equal(Records.contractShort(null), null);
+  // 每個位置目前的合約（一次算好）：和 currentContract 一樣
+  const old = add('contracts', { locations: DH, signDate: '2024-01-01', endDate: '2025-12-31' });
+  const now = add('contracts', { locations: `${DH}、${AX}`, signDate: '2026-01-01', endDate: '2028-12-31' });
+  add('contracts', { locations: WH, signDate: '2026-01-01', earlyEnd: '2026-02-01' });
+  const map = Records.currentContracts(); // 位置編號（大小寫、全形半形不同也認得）→ 合約
+  const at = code => map.get(Refs.norm(code));
+  assert.equal(at(DH).id, now.id);
+  assert.equal(at(AX).id, now.id);
+  assert.equal(at(WH), undefined);
+  assert.notEqual(at(DH).id, old.id);
+});
+
 test('要處理：合約到期、快到期（重新簽約、提前結束、位置停用了就不算），保固 30 天內到期（報廢的不算），空著的位置', () => {
   const { Store, Records, add, d1, d2 } = withDevices(); // 今天 2026-10-11
   const ids = list => plain(list.map(r => r.id));

@@ -1,11 +1,16 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、清單、Google 雲端硬碟同步、提醒、資料備份
-//   底部 3 格：總覽｜設備｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜抄表｜合約｜異動（所有設備的放在一起看）
+//   底部 4 格：總覽｜位置｜設備｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜抄表｜合約｜異動（所有設備的放在一起看）
 (() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
   Records.upgrade();
   const TAB_KEY = `${Store.PREFIX}tab`;
   const LOGOUT_KEY = `${Store.PREFIX}loggedOut`; // 登出後重新載入頁面時顯示「已登出」（sessionStorage，登出清資料時不會被清掉）
   const $ = id => document.getElementById(id);
+
+  // 用手指、滑鼠操作時不畫焦點外框：小視窗打開、關掉時，瀏覽器會把焦點放到裡面的按鈕或剛才點的卡片上，
+  //   畫出外框（顏色是系統的強調色，例如橘色），看起來像被選中；按 Tab 用鍵盤時照常畫（見 style.css 的 .pointer）
+  document.addEventListener('pointerdown', () => document.documentElement.classList.add('pointer'), true);
+  document.addEventListener('keydown', e => { if (e.key === 'Tab') document.documentElement.classList.remove('pointer'); }, true);
 
   // ---------- 提示訊息（有開啟的 sheet 時顯示在最上面那一層） ----------
   const toastEl = $('toast');
@@ -23,6 +28,7 @@
   const RECORD_PAGES = [['maintenance', '保養', '保養'], ['refurbs', '翻新', '翻新'], ['readings', '抄表', '抄表'], ['contracts', '合約', '合約'], ['moves', '異動', '異動']];
   const PAGES = {
     overview: { title: '總覽' },
+    locations: { title: '位置' },
     devices: SCHEMAS.devices,
     ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, SCHEMAS[k]])),
   };
@@ -34,7 +40,15 @@
         lists.devices.show({ filter: status, keyword: model });
         window.scrollTo(0, 0);
       },
+      // 要處理的「空著的位置」：到位置頁，篩好空著的
+      onPlaces(filter) {
+        showTab('locations');
+        lists.locations.show({ filter });
+        window.scrollTo(0, 0);
+      },
     }),
+    // 位置：每個位置一張卡片（見 places.js），點了打開位置詳情
+    locations: createPlaces(),
     // 點設備卡片打開詳情（見 detail.js）
     devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id) }),
     // 紀錄：卡片最上面那一排寫位置、機型、名稱，和設備卡片一樣小標題在上，下面才是內容（依紀錄的種類，見 records.js 的 recordCells）
@@ -65,12 +79,13 @@
   // 底部的每一格（key）和裡面的頁（pages：[頁面, 上方切換的名稱]）；只有一頁的不顯示上方切換
   const GROUPS = [
     { key: 'overview', label: '總覽', pages: [['overview', '總覽']] },
+    { key: 'locations', label: '位置', pages: [['locations', '位置']] },
     { key: 'devices', label: '設備', pages: [['devices', '設備']] },
     { key: 'records', label: '紀錄', pages: RECORD_PAGES.map(([k, label]) => [k, label]) },
   ];
   const groupOf = key => GROUPS.find(g => g.key === key || g.pages.some(([k]) => k === key));
-  // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽（還沒做好）沒有新增按鈕
-  const ADD = { devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.map(([k, , what]) => [k, [k, what]])) };
+  // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽沒有新增按鈕
+  const ADD = { locations: ['locations', '位置'], devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.map(([k, , what]) => [k, [k, what]])) };
   const tabBtns = [...document.querySelectorAll('.tabbar [data-tab]')];
   const subtabsEl = $('subtabs');
   const addBtn = $('btn-add');
@@ -122,7 +137,8 @@
 
   // 每一份清單一列：名稱、幾項；有不在清單裡的值時寫出來
   function renderListsMenu() {
-    listsMenu.innerHTML = Refs.lists().map(l => {
+    // 位置有自己的一頁（底部第二格），這裡不列
+    listsMenu.innerHTML = Refs.lists().filter(l => l.table !== 'locations').map(l => {
       const n = Refs.listItems(l).length;
       const miss = new Set(Lists.missingOf(l).flatMap(x => x.values)).size;
       return `

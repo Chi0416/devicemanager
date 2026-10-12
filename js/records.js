@@ -500,6 +500,86 @@ const Records = (() => {
     return v < prev[k] ? { text: `${last}\n比上次少`, warn: true } : `${last}\n本期 ${fmt(v - prev[k])}`;
   }
 
+  // ---------- 每個位置的用量：以「一期」算（兩次抄表之間），每月抄、一季抄、半年抄的都比得公平 ----------
+  //   一筆抄表的用量＝那台機器這次減上一次抄表（中間保養填的張數不算分段，整期才不會少算）；算在抄表那天機器所在的位置
+  //   一期幾個月：結算月份和上一次抄表的結算月份差幾個月
+  //   同一個位置同一個結算月份有好幾筆（換機那個月、倉庫）加起來；第一次抄表、比上次少的（換主機板）不算
+  //   一次把全部的位置算好（位置頁每張卡片都要，一個一個找太慢）：Map(位置編號 → [{ month, months, bw, color, total }]，舊到新)
+  const monthIndex = m => { const [y, mo] = String(m).split('-').map(Number); return y * 12 + mo - 1; };
+  function usageByPlace() {
+    const at = locator();
+    const lines = new Map();
+    [...Store.list('readings')].filter(r => r.month).sort(byDate('date')).forEach(r => {
+      const k = key(r.device);
+      if (!k) return;
+      if (!lines.has(k)) lines.set(k, []);
+      lines.get(k).push(r);
+    });
+    const out = new Map();
+    lines.forEach(line => {
+      const last = {}; // 每一種張數上一次抄表的那一筆
+      line.forEach(r => {
+        const diffs = COUNTS.map(([c]) => c).filter(c => isNum(r[c]) && last[c] && r[c] >= last[c][c]).map(c => [c, r[c] - last[c][c], last[c]]);
+        if (diffs.length) {
+          const months = monthIndex(r.month) - monthIndex(diffs[0][2].month);
+          const place = key(at(r.device, r.date));
+          if (!out.has(place)) out.set(place, new Map());
+          const byMonth = out.get(place);
+          if (!byMonth.has(r.month)) byMonth.set(r.month, { month: r.month, months: 0, bw: null, color: null });
+          const m = byMonth.get(r.month);
+          m.months = Math.max(m.months, months || 1);
+          diffs.forEach(([c, d]) => { m[c] = (m[c] || 0) + d; });
+        }
+        COUNTS.forEach(([c]) => { if (isNum(r[c])) last[c] = r; });
+      });
+    });
+    const result = new Map();
+    out.forEach((byMonth, place) => result.set(place, [...byMonth.values()]
+      .sort((a, b) => cmp(a.month, b.month))
+      .map(m => ({ ...m, total: (m.bw || 0) + (m.color || 0) }))));
+    return result;
+  }
+  const placeUsage = (code, all = usageByPlace()) => all.get(key(code)) || [];
+
+  // 位置卡片上的用量：最近一期，和前一期比每月平均（漲或跌幾 %）
+  //   { label: '9 月' 或 '7–9 月', months, total, perMonth, bw, color, change }；還沒有用量時是 null
+  function usageSummary(periods) {
+    const p = periods.at(-1);
+    if (!p) return null;
+    const q = periods.at(-2);
+    const per = x => x.total / (x.months || 1);
+    const ym = i => ({ y: Math.floor(i / 12), m: i % 12 + 1 });
+    const end = ym(monthIndex(p.month));
+    const start = ym(monthIndex(p.month) - (p.months || 1) + 1);
+    const thisYear = Number(U.today().slice(0, 4));
+    const label = p.months > 1
+      ? (start.y === end.y ? `${start.y === thisYear ? '' : `${start.y}/`}${start.m}–${end.m} 月` : `${start.y}/${start.m}–${end.y}/${end.m}`)
+      : `${end.y === thisYear ? '' : `${end.y}/`}${end.m} 月`;
+    return {
+      label, months: p.months || 1, total: p.total, perMonth: Math.round(per(p)), bw: p.bw, color: p.color,
+      change: q && per(q) > 0 ? per(p) / per(q) - 1 : null,
+    };
+  }
+
+  // 每個位置目前的合約（一次算好，位置頁用）：Map(位置編號 → 合約)；和 currentContract 一樣
+  function currentContracts() {
+    const by = new Map();
+    [...Store.list('contracts')].sort(byDate('signDate')).forEach(r => placesOf(r).forEach(p => by.set(key(p), r)));
+    by.forEach((r, k) => { if (endedEarly(r)) by.delete(k); });
+    return by;
+  }
+  // 位置卡片上的合約：{ text, sub, warn }（已到期、剩幾天到期標色）；沒有合約時是 null
+  function contractShort(c) {
+    if (!c) return null;
+    const date = c.endDate ? U.fmtDate(c.endDate) : '';
+    if (c.earlyEnd) return { text: '提前結束', sub: U.fmtDate(c.earlyEnd), warn: false };
+    if (!c.endDate) return { text: '沒有到期日', sub: '', warn: false };
+    const days = daysTo(c.endDate);
+    if (days < 0) return { text: '已到期', sub: date, warn: true };
+    if (days <= CONTRACT_SOON) return { text: days ? `剩 ${days} 天` : '今天到期', sub: date, warn: true };
+    return { text: `到 ${date}`, sub: '', warn: false };
+  }
+
   // ---------- 保養、翻新 ----------
   // 保養卡片最下面一行：張數、備註的第一行
   function workNote(r) {
@@ -699,7 +779,7 @@ const Records = (() => {
     moveDateNote, moveToNote, keepPlace, disableCheck, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
-    countsText, usage, usageNote, readingNote, monthNote, countNote,
+    countsText, usage, usageNote, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, currentContracts, contractShort,
     workNote, refurbNote, serialNote,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade,
   };
