@@ -418,6 +418,28 @@ const Records = (() => {
     return gone.map(x => ({ table: 'contractLog', id: x.id }));
   }
 
+  // ---------- 要處理（總覽、提醒的鈴鐺）：依資料算，處理掉就自己不見 ----------
+  // 合約到期、快到期：目前的合約過了到期日，或 30 天內到期；依到期日排
+  //   續約按「重新簽約」、客戶不租了填提前結束日就不算了；位置都停用了的（客戶走了）不算
+  const contractsDue = () => Store.list('contracts')
+    .filter(r => r.endDate && daysTo(r.endDate) <= CONTRACT_SOON && placesOf(r).some(p => !place(p)?.disabled) && isCurrentContract(r))
+    .sort(byDate('endDate'));
+  // 保固 30 天內到期（過了就不列）；報廢這類（狀態勾「不用提醒」）的不算；依到期日排
+  function warrantyDue() {
+    const quiet = quietSet();
+    return Store.list('devices')
+      .filter(d => d.warranty && !quiet.has(key(d.status)) && daysTo(d.warranty) >= 0 && daysTo(d.warranty) <= WARRANTY_SOON)
+      .sort(byDate('warranty'));
+  }
+  // 空著的位置：不是倉庫、沒停用、沒放機器；等安裝，或客戶不租了要停用；依名稱排
+  function emptyPlaces() {
+    const used = new Set(Store.list('devices').map(d => key(d.location)).filter(Boolean));
+    return Store.list('locations').filter(p => !p.stock && !p.disabled && !used.has(key(p.code)))
+      .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-Hant'));
+  }
+  // 進出這個位置的最後一筆異動
+  const lastMoveAt = code => [...movesAt(code)].sort(byDate('date')).at(-1) || null;
+
   // ---------- 抄表 ----------
   const countsText = r => COUNTS.filter(([k]) => isNum(r[k])).map(([k, label]) => `${label} ${fmt(r[k])}`).join('・');
 
@@ -549,6 +571,39 @@ const Records = (() => {
       .sort((a, b) => (!a.model - !b.model) || (orderOf(a.model) - orderOf(b.model)) || a.model.localeCompare(b.model, 'zh-Hant', { numeric: true }));
   }
 
+  // ---------- 機型的世代 ----------
+  // 照 Ricoh 型號的命名猜：IM C 開頭是「IM C」；C 加四位數看最後兩碼（C6004、MP C3504EX 是「C xx04」）；
+  //   MP 直接接數字是「黑白 MP」；猜不到的（借機）空白
+  function guessGen(name) {
+    const n = String(name ?? '').toUpperCase().replace(/\s+/g, '');
+    if (/^IMC\d/.test(n)) return 'IM C';
+    const m = n.match(/^(?:MP)?C\d{2}(\d{2})/);
+    if (m) return `C xx${m[1]}`;
+    return /^MP\d/.test(n) ? '黑白 MP' : '';
+  }
+  // 機型表單上世代下面：空白時會怎麼算
+  function genNote(v) {
+    if (String(v.gen ?? '').trim()) return '';
+    const g = guessGen(v.name);
+    return g ? `空白時照型號算：${g}` : '空白時放在「其他」';
+  }
+  // 總覽的機型依世代分組：[{ gen, count, rows: modelCounts 的列 }]
+  //   世代：機型清單裡填的，沒填的照型號猜，都沒有的（還有沒填機型的）放「其他」，排最後；其他組照機型清單的順序
+  const OTHER_GEN = '其他';
+  function modelGroups(status = '') {
+    const norm = v => key(v).replace(/\s+/g, '');
+    const gens = new Map(Store.list('options').filter(o => o.list === '機型').map(o => [norm(o.name), String(o.gen ?? '').trim()]));
+    const groups = new Map();
+    modelCounts(status).forEach(r => {
+      const gen = (r.model && (gens.get(norm(r.model)) || guessGen(r.model))) || OTHER_GEN;
+      if (!groups.has(gen)) groups.set(gen, { gen, count: 0, rows: [] });
+      const g = groups.get(gen);
+      g.count += r.count;
+      g.rows.push(r);
+    });
+    return [...groups.values()].sort((a, b) => (a.gen === OTHER_GEN) - (b.gen === OTHER_GEN));
+  }
+
   // ---------- 對不上的設備、位置 ----------
   // 找不到設備的紀錄（在試算表裡打錯了設備編號）：[{ table, rec }]
   function orphans() {
@@ -641,11 +696,11 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, keepPlace, disableCheck,
+    moveDateNote, moveToNote, keepPlace, disableCheck, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingNote, monthNote, countNote,
     workNote, refurbNote, serialNote,
-    partOrder, partNote, statusOf, modelCounts, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade,
+    partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade,
   };
 })();

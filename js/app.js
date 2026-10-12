@@ -370,6 +370,13 @@
         }
         showTab(a.table);
         Form.open(a.table, a.id);
+      } else if (a.type === 'device') {
+        // 保固快到期：打開設備詳情
+        if (!Store.get('devices', a.id)) {
+          toast('這台設備已經不在了');
+          return;
+        }
+        Detail.open(a.id);
       } else if (a.type === 'tab') {
         showTab(a.tab);
         window.scrollTo(0, 0);
@@ -421,6 +428,25 @@
   checkLists();
   Store.onChange(checkLists);
 
+  // 合約到期、快到期，保固 30 天內到期：一份合約、一台設備各一則（計算見 records.js，總覽的「要處理」也是這些）
+  //   處理掉（重新簽約、填提前結束日、保固過了）就變成「已解決」；內容只寫日期，天數每天變不會每天重新標成未讀
+  function checkDue() {
+    Inbox.reconcile('contract:', Records.contractsDue().map(c => ({
+      key: `contract:${c.id}`,
+      title: `${String(c.endDate) < U.today() ? '合約已到期' : '合約快到期'}：${Records.contractPlaces(c).join('、') || '沒有填位置'}`,
+      body: `到期日 ${U.fmtDate(c.endDate)}`,
+      action: { type: 'record', table: 'contracts', id: c.id },
+    })));
+    Inbox.reconcile('warranty:', Records.warrantyDue().map(d => ({
+      key: `warranty:${d.id}`,
+      title: `保固快到期：${Records.label(d)}`,
+      body: `保固到 ${U.fmtDate(d.warranty)}${d.location ? `（${Records.placeName(d.location)}）` : ''}`,
+      action: { type: 'device', id: d.id },
+    })));
+  }
+  checkDue();
+  Store.onChange(checkDue);
+
   // 試算表的資料讀回來之後，全部重畫
   Sync.init({
     toast,
@@ -429,6 +455,7 @@
       refreshAll();
       Lists.refresh();
       checkLists();
+      checkDue();
       if (menu.open) {
         renderListsMenu();
         renderBackupInfo();

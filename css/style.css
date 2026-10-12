@@ -499,7 +499,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 /* 用鍵盤移動時的外框：用主色，不用瀏覽器預設的顏色 */
 .text-btn:focus-visible, .wide-btn:focus-visible, .chip:focus-visible, .icon-btn:focus-visible, .add-btn:focus-visible,
 .list-item:focus-visible, .model-cell:focus-visible, .combo-opt:focus-visible, .combo-add:focus-visible, .msg:focus-visible, .msg-btn:focus-visible,
-.detail-link:focus-visible {
+.detail-link:focus-visible, .stat-tile:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -878,21 +878,19 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 /* 一份清單：像一頁一樣高，項目少時也不會只剩一小塊 */
 #lists-sheet .sheet-body { min-height: min(560px, 75vh); }
 
-/* ---------- 總覽（見 overview.js）：上面選狀態，下面一格一個機型（由上往下、再往右排） ---------- */
-.overview .filter-chips { margin-top: 0; }
-.overview-total { display: flex; align-items: baseline; gap: 6px; margin: 6px 4px 12px; font-size: 14px; color: var(--text-2); }
-.overview-total b { font-size: 28px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-.overview-total span { margin-left: 6px; font-size: 13px; color: var(--muted); }
-.model-grid { margin: 0; padding: 0; list-style: none; columns: 150px; column-gap: 8px; }
-.model-grid li { break-inside: avoid; margin-bottom: 8px; }
-.model-cell {
+/* ---------- 總覽（見 overview.js）：共幾台、狀態方塊、要處理、機型（一列一個，長條是台數） ---------- */
+.overview-total { margin: 2px 4px 12px; font-size: 13px; color: var(--muted); }
+.overview-total b { font-size: 15px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+.stat-tile {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  padding: 11px 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px 9px;
   border: .5px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--surface);
   box-shadow: var(--shadow);
   color: var(--text);
@@ -900,10 +898,48 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
   text-align: left;
   cursor: pointer;
 }
-button.model-cell:active { background: var(--chip-bg); }
+.stat-label { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-label .dot { width: 8px; height: 8px; }
+.stat-tile b { font-size: 26px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stat-tile.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.stat-tile.on .stat-label { color: var(--accent-text); }
+.stat-tile:active { background: var(--chip-bg); }
+.overview .section-head { margin: 22px 4px 8px; }
+.section-head.split { display: flex; justify-content: space-between; gap: 12px; }
+.section-head.split span:last-child { font-weight: 500; }
+.todo-none { margin: 0; padding: 14px 16px; border: .5px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--muted); font-size: 14px; }
+.todo-item { gap: 12px; }
+.todo-icon { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; }
+.todo-icon svg { width: 18px; height: 18px; }
+.todo-icon.warn { color: var(--warn); background: var(--warn-bg); }
+.todo-icon.blue { color: var(--accent-text); background: var(--accent-soft); }
+.todo-count { flex-shrink: 0; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.todo-count.warn { color: var(--warn); }
+#todo-sheet .sheet-body { min-height: min(420px, 60vh); }
+.model-list { padding: 0 14px 6px; border: .5px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
+.gen-head { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0 3px; border-top: .5px solid var(--border); font-size: 13px; font-weight: 600; color: var(--muted); }
+.gen-head:first-child { border-top: 0; }
+.gen-head span:last-child { font-weight: 500; font-variant-numeric: tabular-nums; }
+.gen-rows { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; margin: 0; padding: 0; list-style: none; }
+.model-cell {
+  display: block;
+  width: 100%;
+  padding: 6px 0 7px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.model-cell:active .model-name { color: var(--accent-text); }
 .model-cell.empty-model { cursor: default; color: var(--muted); }
-.model-name { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-.model-count { flex-shrink: 0; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.model-line { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 14px; }
+.model-name { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.model-count { flex-shrink: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.model-bar { display: block; height: 3px; margin-top: 4px; border-radius: 2px; background: var(--chip-bg); overflow: hidden; }
+.model-bar i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.empty-model .model-bar i { background: var(--border-strong); }
 
 /* ---------- 設備詳情（見 detail.js） ---------- */
 #detail-sheet .sheet-body { padding-top: 14px; }
@@ -1119,7 +1155,8 @@ dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 
 /* ---------- 滑鼠移過去的回饋（只在電腦上） ---------- */
 @media (hover: hover) {
-  .card:hover, button.model-cell:hover { border-color: var(--border-strong); box-shadow: var(--shadow-lg); }
+  .card:hover, .stat-tile:hover { border-color: var(--border-strong); box-shadow: var(--shadow-lg); }
+  button.model-cell:hover .model-name { color: var(--accent-text); }
   .icon-btn:hover,
   .text-btn:not(.strong):hover,
   .chip:not(.on):hover { background: var(--chip-bg); }

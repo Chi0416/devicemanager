@@ -38,6 +38,7 @@
 //   shown:       畫面上寫的字依其他欄位算的：shown(values)（異動的原位置寫那天機器在哪裡）；回傳空字串時照平常的寫法
 //                從清單選的欄位選好後、不能改的欄位都照它寫
 //   check:       存檔時和其他欄位一起檢查：check(values) 回傳錯誤（寫在這一格下面、不存），沒問題時回傳空字串
+//   showIf:      依其他欄位才出現：showIf(values) 為 false 時藏起來（選項的世代只有機型有）
 //   caps:        手機鍵盤預設大寫（編號、序號常有英文字母）
 //   suggest:     表單下方的快選按鈕（預設值 + 最近輸入過的值），只是提示，不限制；有預設值時試算表也有下拉選單
 //   toggle:      表單上改成左右切換的按鈕（有 toggle 時不顯示 suggest 的快選按鈕）：[{ value, label, tone, match }]
@@ -99,6 +100,8 @@ const DEFAULT_STATUSES = [
 
 // 只有名字的清單，都放在「選項」表，用「清單」欄分（位置以前也在這裡，2026-10-11 搬到自己的「位置」表）
 const OPTION_LISTS = ['類別', '品牌', '機型', '保養項目', '選配件'];
+// 機型的世代（快選按鈕）：總覽依世代分組；空白時照型號猜（見 records.js 的 guessGen）
+const GENERATIONS = ['IM C', 'C xx04', 'C xx03', 'C xx01', 'C xx00', '黑白 MP', '其他'];
 // 可以自己排順序的清單（設定 → 清單 →「排序」，↑ ↓ 移動）；其他的依名字排（品牌）
 const SORTED_LISTS = ['類別', '機型', '保養項目', '選配件'];
 // 預設項目（沒改過時不算這台裝置的資料），照寫的順序排；id 的開頭：類別是 seed-1…，其他加上清單的代號
@@ -479,6 +482,7 @@ const SCHEMAS = {
   options: {
     title: '選項',
     noList: true,
+    formOrder: ['list', 'name', 'gen'],
     target: { name: 'name', group: 'list', order: 'order', active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
     unique: [['list', 'name']],
     uniqueMsg: dup => `${dup.list}清單裡已經有「${dup.name}」了`,
@@ -489,6 +493,10 @@ const SCHEMAS = {
       { key: 'name',     label: '名稱', type: 'text', full: true },
       { key: 'order',    label: '順序', type: 'number', optional: true, hidden: true },
       { key: 'disabled', label: '停用', type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示' },
+      // 只有機型有：總覽依世代分組，汰舊換新時看得出舊的還有幾台；空白時照型號猜，猜不到的放「其他」
+      //   試算表上排在最後（後來加的欄），表單上在名稱下面（formOrder）
+      { key: 'gen',      label: '世代', type: 'text', optional: true, full: true, suggest: GENERATIONS,
+        showIf: v => v.list === '機型', note: v => Records.genNote(v) },
     ],
   },
 

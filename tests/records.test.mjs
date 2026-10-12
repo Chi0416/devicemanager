@@ -631,6 +631,71 @@ test('總覽：各機型有幾台，先篩狀態；機型的大小寫、空格�
   assert.deepEqual(plain(Records.modelCounts('報廢')), []);
 });
 
+test('機型的世代：照型號猜（IM C、C xx04…、黑白 MP），清單裡填的優先；總覽依世代分組、寫小計，猜不到的放「其他」排最後', () => {
+  const { Records, add, field } = withDevices();
+  const guess = Records.guessGen;
+  assert.deepEqual(['IMC6000', 'IM C4500', 'IMC300', 'C6004EX', 'MP C3504', 'C3503', 'C2503', 'MPC4501', 'C5501', 'C3300', 'C5000', 'MP5055', 'MP4000B', '借機']
+    .map(guess), ['IM C', 'IM C', 'IM C', 'C xx04', 'C xx04', 'C xx03', 'C xx03', 'C xx01', 'C xx01', 'C xx00', 'C xx00', '黑白 MP', '黑白 MP', '']);
+  // 機型表單：世代只有機型有；空白時寫會怎麼算
+  const gen = field('options', 'gen');
+  assert.equal(gen.showIf({ list: '機型' }), true);
+  assert.equal(gen.showIf({ list: '品牌' }), false);
+  assert.equal(Records.genNote({ name: 'IMC6000', gen: '' }), '空白時照型號算：IM C');
+  assert.equal(Records.genNote({ name: '借機', gen: '' }), '空白時放在「其他」');
+  assert.equal(Records.genNote({ name: '借機', gen: '其他' }), '');
+  // 分組：照機型清單的順序；清單裡填了世代的照填的
+  ['IMC6000', 'C4501', '借機', 'C3504', 'IMC4500'].forEach((name, i) => add('options', { list: '機型', name, order: i + 1 }));
+  add('options', { list: '機型', name: 'C3503', order: 6, gen: 'C xx04' }); // 自己歸到 xx04
+  const dev = (code, model) => add('devices', { code, name: code, status: '出租中', model });
+  dev('26-0001', 'IMC6000'); dev('26-0002', 'IMC6000'); dev('26-0003', 'C4501'); dev('26-0004', '借機');
+  dev('26-0005', 'C3504'); dev('26-0006', 'IMC4500'); dev('26-0007', 'C3503');
+  const groups = Records.modelGroups('出租中');
+  assert.deepEqual(plain(groups.map(g => [g.gen, g.count, g.rows.map(r => r.model || '未填')])), [
+    ['IM C', 3, ['IMC6000', 'IMC4500']],
+    ['C xx01', 1, ['C4501']],
+    ['C xx04', 2, ['C3504', 'C3503']],
+    ['其他', 2, ['借機', '未填']], // withDevices 的 24-0001 出租中、沒填機型
+  ]);
+});
+
+test('要處理：合約到期、快到期（重新簽約、提前結束、位置停用了就不算），保固 30 天內到期（報廢的不算），空著的位置', () => {
+  const { Store, Records, add, d1, d2 } = withDevices(); // 今天 2026-10-11
+  const ids = list => plain(list.map(r => r.id));
+  // 合約：已到期、30 天內、還早、沒有到期日
+  const late = add('contracts', { locations: DH, signDate: '2024-01-01', endDate: '2026-09-30' });
+  const soon = add('contracts', { locations: AX, signDate: '2025-01-01', endDate: '2026-11-05' });
+  add('contracts', { locations: 'L0009', signDate: '2025-01-01', endDate: '2027-12-31' });
+  add('contracts', { locations: 'L0010', signDate: '2025-01-01' });
+  assert.deepEqual(ids(Records.contractsDue()), [late.id, soon.id]); // 依到期日
+  // 大華重新簽約：舊的不是目前的合約了
+  add('contracts', { locations: DH, signDate: '2026-10-01', endDate: '2029-09-30' });
+  assert.deepEqual(ids(Records.contractsDue()), [soon.id]);
+  // 安心填了提前結束日（已經過了）：沒有目前的合約
+  Store.update('contracts', soon.id, { earlyEnd: '2026-10-01' });
+  assert.deepEqual(ids(Records.contractsDue()), []);
+  // 位置都停用了（客戶走了）的不算
+  const gone = add('locations', { code: 'L0011', name: '舊客戶', disabled: true });
+  add('contracts', { locations: gone.code, signDate: '2024-01-01', endDate: '2026-01-31' });
+  assert.deepEqual(ids(Records.contractsDue()), []);
+  // 保固：30 天內（今天到期也算）、過了不列、報廢不列；依到期日
+  Store.update('devices', d1.id, { warranty: '2026-11-10' });
+  Store.update('devices', d2.id, { warranty: '2026-10-11' });
+  const d3 = add('devices', { code: '26-0001', name: '#1003', status: '報廢', warranty: '2026-10-20' });
+  add('devices', { code: '26-0002', name: '#1004', status: '出租中', warranty: '2026-10-10' });
+  add('devices', { code: '26-0003', name: '#1005', status: '出租中', warranty: '2026-11-11' });
+  assert.deepEqual(ids(Records.warrantyDue()), [d2.id, d1.id]);
+  assert.ok(!Records.warrantyDue().some(d => d.id === d3.id));
+  // 空著的位置：不是倉庫、沒停用、沒放機器（24-0001 在公司倉庫，25-0001 沒有位置）
+  assert.deepEqual(plain(Records.emptyPlaces().map(p => p.code)).sort(), [AX, DH].sort());
+  Store.update('devices', d2.id, { location: AX });
+  assert.deepEqual(plain(Records.emptyPlaces().map(p => p.code)), [DH]);
+  // 進出這個位置的最後一筆異動
+  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: DH });
+  const out = add('moves', { device: '24-0001', date: '2026-06-30', type: '撤機', from: DH, to: WH });
+  assert.equal(Records.lastMoveAt(DH).id, out.id);
+  assert.equal(Records.lastMoveAt(AX), null);
+});
+
 test('設備：編號不顯示，認機器看機型＋名稱；名稱下面寫序號；同機型同名稱時提醒；列表照機型清單的順序', () => {
   const { Store, SCHEMAS, Records, field, add } = withDevices();
   const s = SCHEMAS.devices;

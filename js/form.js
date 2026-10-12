@@ -558,6 +558,11 @@ const Form = (() => {
   // 欄位下方的提醒，依目前填的內容重新產生；自動填的欄位先填好
   function renderNotes() {
     recalc();
+    // 依其他欄位才出現的欄位（機型的世代）
+    if (ctx.fields.some(f => f.showIf)) {
+      const v = formValues();
+      ctx.fields.forEach((f, i) => { if (f.showIf) inputs[i].closest('.field').hidden = !f.showIf(v); });
+    }
     // 顯示的字依其他欄位算的（異動的原位置依日期）：沒有在打字時跟著換
     combos.forEach((c, i) => { if (c && ctx.fields[i].shown && !c.open) syncText(i); });
     renderAutos();

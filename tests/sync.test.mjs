@@ -716,7 +716,7 @@ test('連結：只有預設的項目（類別、保養項目、選配件）時�
   assert.deepEqual(d.asked.messages, []);
   assert.equal(d.Sync.state().linked, true);
   const id = d.Sync.state().url.split('/').pop();
-  assert.deepEqual(fake.values(id, '選項')[0], ['清單', '名稱', '順序', '停用', 'id']);
+  assert.deepEqual(fake.values(id, '選項')[0], ['清單', '名稱', '順序', '停用', '世代', 'id']);
   assert.equal(fake.values(id, '選項').length, 19); // 類別 7、保養項目 7、選配件 4
   assert.deepEqual(fake.values(id, '選項')[1].slice(0, 4), ['類別', '筆電', 1, false]);
 });

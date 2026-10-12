@@ -246,7 +246,7 @@ const Place = (() => {
   // 機器：現在放著哪台、最近一次進出
   function machineRow(p) {
     const on = Records.machinesAt(p.code);
-    const m = [...Records.movesAt(p.code)].sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')) || String(a.id).localeCompare(String(b.id))).at(-1);
+    const m = Records.lastMoveAt(p.code);
     return {
       main: on.length > 1 ? `${on.length} 台` : on.length ? Records.label(on[0]) : '現在沒有機器',
       sub: m ? `${U.fmtDate(m.date)} ${m.type} ${Records.label(Records.device(m.device))}`.trim() : '',
