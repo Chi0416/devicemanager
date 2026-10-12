@@ -42,10 +42,15 @@ const Refs = (() => {
   }
 
   // 下拉選單要列的：範圍內、沒停用的（all 為 true 時連停用的也列）
-  function items(f, { all = false } = {}) {
+  //   欄位有 rank 的（異動的新位置：空的位置在最上面）先依它排，同一級再照平常的排法
+  //   values 是表單目前填的內容：欄位有 only 的依它只列一部分（異動依類型）；all 為 true 時不篩
+  function items(f, { all = false, values = null } = {}) {
+    const rank = f.rank ? f.rank() : () => 0;
+    const only = !all && values && f.only ? f.only(values) : null;
+    const cmp = compare(f.ref);
     return Store.list(f.ref)
-      .filter(r => inScope(f, r) && (all || active(f.ref, r)) && nameOf(f.ref, r))
-      .sort(compare(f.ref));
+      .filter(r => inScope(f, r) && (all || active(f.ref, r)) && nameOf(f.ref, r) && (!only || only(r)))
+      .sort((a, b) => rank(a) - rank(b) || cmp(a, b));
   }
 
   // 依名字找（停用的也找得到：舊資料照常認得）

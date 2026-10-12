@@ -3,6 +3,8 @@
 //   位置：存位置編號（L0001），畫面上寫名稱；改名時舊名字記在「以前的名字」（見 PLAN.md 第 4-3 節）
 //   位置歷程：設備目前的位置＝最新一筆異動（依日期，同一天依新增的先後）的新位置；設備那一列的「位置」欄由這裡算好填上
 //     保養、抄表、翻新那時候在哪裡不另外存，照日期往回找那天之前的最後一筆異動
+//     搬機器那天的紀錄算客戶那邊（不算倉庫）：撤機那天抄的最後一次表算原客戶，安裝那天抄的算新客戶
+//   異動帶的狀態：撤機先帶庫存、安裝先帶出租中，存了最新一筆時設備的狀態跟著改
 //   目前的合約：合約綁位置；一個位置目前的合約是包含它的合約裡簽約日最新的那一份，機器目前的合約是它所在位置的
 //   抄表用量：這次減上一次；保養填的張數一起排
 const Records = (() => {
@@ -103,11 +105,16 @@ const Records = (() => {
     return (code, date) => placeOn(moves.get(key(code)) || [], here.get(key(code)), date);
   }
 
-  // 某一天設備在哪裡：那天（含）之前最後一筆異動的新位置；那天之前還沒有異動時是第一筆異動的原位置；沒有異動時是設備現在的位置
+  // 某一天設備在哪裡：那天之前最後一筆異動的新位置；那天之前還沒有異動時是第一筆異動的原位置；沒有異動時是設備現在的位置
+  //   那天有異動（搬機器那天）：那天待過的位置裡，算客戶那邊（不是倉庫）的最後一個；都是倉庫時算那天最後的位置
+  //     撤機那天抄的最後一次表算原客戶、安裝那天抄的算新客戶；客戶搬家（兩邊都是客戶）算新位置
+  //     失火、故障抄不到表時就沒有這一筆，不影響
   function placeOn(moves, now, date) {
     if (!moves.length || !date) return now || '';
-    const last = moves.filter(m => String(m.date ?? '') <= String(date)).at(-1);
-    return last ? last.to : moves[0].from || '';
+    const d = String(date);
+    const before = moves.filter(m => String(m.date ?? '') < d).at(-1);
+    const day = [before ? before.to : moves[0].from || '', ...moves.filter(m => String(m.date ?? '') === d).map(m => m.to)];
+    return day.filter(p => key(p) && !place(p)?.stock).at(-1) ?? day.at(-1);
   }
   const locationAt = (code, date) => placeOn(of('moves', code).sort(byDate('date')), device(code)?.location, date);
 
@@ -167,17 +174,30 @@ const Records = (() => {
   const hasMoves = code => of('moves', code).length > 0;
   const moveTitle = r => `${r.from ? `${placeName(r.from)} → ` : '→ '}${placeName(r.to)}`;
 
-  // 依異動重新填設備的位置；回傳改到的設備 [{ table, id }]
+  // 依異動重新填設備的位置，順便把每一筆的原位置接上前一筆的新位置；回傳改到的 [{ table, id }]
+  //   原位置：第一筆照原本的（開始記異動前在哪裡），之後每一筆＝前一筆的新位置
+  //     改了舊異動的新位置、日期，刪掉中間一筆，補登以前的，前後都接得起來
   //   lost：剛刪掉（或改到別台設備）的異動；那台設備沒有異動了的話，位置回到那一筆的原位置
   //   還沒有異動的設備不動（表單上填的位置是起點）
   function syncLocations(lost = []) {
-    const last = new Map();
-    [...Store.list('moves')].sort(byDate('date')).forEach(m => last.set(key(m.device), m));
+    const byDevice = new Map();
+    [...Store.list('moves')].sort(byDate('date')).forEach(m => {
+      const k = key(m.device);
+      if (!k) return;
+      if (!byDevice.has(k)) byDevice.set(k, []);
+      byDevice.get(k).push(m);
+    });
     const out = [];
+    byDevice.forEach(list => list.forEach((m, i) => {
+      const from = i ? String(list[i - 1].to ?? '') : null;
+      if (from === null || from === String(m.from ?? '')) return;
+      Store.update('moves', m.id, { from });
+      out.push({ table: 'moves', id: m.id });
+    }));
     Store.list('devices').forEach(d => {
       const k = key(d.code);
       if (!k) return;
-      const m = last.get(k);
+      const m = byDevice.get(k)?.at(-1);
       const back = !m && lost.find(x => key(x.device) === k);
       if (!m && !back) return;
       const loc = String((m ? m.to : back.from) ?? '');
@@ -186,6 +206,151 @@ const Records = (() => {
       out.push({ table: 'devices', id: d.id });
     });
     return out;
+  }
+
+  // 新位置的下拉選單：沒有機器的位置在最上面（安裝時找空的那一格），再來是倉庫（撤機），最後是已經放著機器的
+  //   回傳 (位置) → 數字，數字小的在前；每次列選單時先算好哪些位置有機器
+  function freeFirst() {
+    const used = new Set(Store.list('devices').map(d => key(d.location)).filter(Boolean));
+    return p => (p.stock ? 1 : used.has(key(p.code)) ? 2 : 0);
+  }
+
+  // 異動的狀態先帶什麼：撤機帶庫存、安裝帶出租中（狀態清單裡沒有這個名字時不帶）；其他類型不帶（設備的狀態不改）
+  const MOVE_STATUS = { 撤機: '庫存', 安裝: '出租中' };
+  function moveStatus(values) {
+    const name = MOVE_STATUS[String(values.type ?? '').trim()];
+    return name && Store.list('statuses').some(s => key(s.name) === key(name)) ? name : '';
+  }
+
+  // 存了異動之後，設備的狀態改成這一筆的狀態；回傳改到的設備 [{ table, id }]
+  //   只有這台設備最新的一筆才改（補登以前的異動不會改）
+  //   新增、改了狀態或設備時才改：只改備註時不會蓋掉後來自己改的狀態
+  //   刪掉異動時不會改回去（位置會），要自己改
+  function applyMoveStatus(before, after) {
+    const s = String(after?.status ?? '').trim();
+    if (!s) return [];
+    if (before && before.status === after.status && key(before.device) === key(after.device)) return [];
+    if (of('moves', after.device).sort(byDate('date')).at(-1)?.id !== after.id) return [];
+    const d = device(after.device);
+    if (!d || d.status === s) return [];
+    Store.update('devices', d.id, { status: s });
+    return [{ table: 'devices', id: d.id }];
+  }
+
+  // 新增異動時的原位置：這一筆之前（日期較早；同一天先新增的）最後一筆的新位置
+  //   補登在所有異動之前的：開始記異動前在哪裡（第一筆的原位置）；還沒有異動：設備現在的位置
+  //   編輯時（id）不算自己；它是第一筆時照原本的
+  function placeBefore(code, date, id = null) {
+    if (!key(code)) return '';
+    const list = of('moves', code).filter(m => m.id !== id).sort(byDate('date'));
+    const at = [String(date ?? ''), id ? String(id) : '￿'];
+    const prev = list.filter(m => (cmp(String(m.date ?? ''), at[0]) || cmp(String(m.id), at[1])) < 0).at(-1);
+    if (prev) return String(prev.to ?? '');
+    if (id) return String(Store.get('moves', id)?.from ?? '');
+    return String((list.length ? list[0].from : device(code)?.location) ?? '');
+  }
+
+  // ---------- 異動的類型：安裝 倉庫 → 客戶、撤機 客戶 → 倉庫、移機 客戶 → 客戶，其他不限 ----------
+  //   還沒有位置的機器（剛買的）算在倉庫；報廢這類（狀態勾「不用提醒」）的機器不能安裝
+  const MOVE_RULES = { 安裝: ['stock', 'site'], 撤機: ['site', 'stock'], 移機: ['site', 'site'] };
+  const ruleOf = values => MOVE_RULES[String(values.type ?? '').trim()] || null;
+  const stockSet = () => new Set(Store.list('locations').filter(p => p.stock).map(p => key(p.code)));
+  const quietSet = () => new Set(Store.list('statuses').filter(s => s.quiet).map(s => key(s.name)));
+  const isStock = code => !!place(code)?.stock;
+
+  // 原位置（選機器）的選單：安裝只列倉庫裡的機器（報廢的不列）、撤機和移機只列放在客戶那裡的
+  function moveDevices(values) {
+    const rule = ruleOf(values);
+    if (!rule) return null;
+    const stock = stockSet();
+    const quiet = quietSet();
+    const inStock = d => !key(d.location) || stock.has(key(d.location));
+    return rule[0] === 'stock' ? d => inStock(d) && !quiet.has(key(d.status)) : d => !inStock(d);
+  }
+  // 新位置的選單：撤機只列倉庫，安裝和移機只列客戶的位置
+  function movePlaces(values) {
+    const rule = ruleOf(values);
+    return rule ? p => !!p.stock === (rule[1] === 'stock') : null;
+  }
+  // 打了一個選單裡沒列的：為什麼沒列
+  const moveDevicesNote = values => (values.type === '安裝' ? '安裝只列倉庫裡的機器（報廢的不列）' : `${values.type}只列放在客戶那裡的機器`);
+  const movePlacesNote = values => (values.type === '撤機' ? '撤機只列倉庫' : `${values.type}只列客戶的位置`);
+
+  // 存檔時檢查（寫在那一格下面）；舊資料類型、位置都沒改的不擋
+  const unchangedMove = v => {
+    const old = v.id && Store.get('moves', v.id);
+    return !!old && ['type', 'from', 'to'].every(k => String(old[k] ?? '') === String(v[k] ?? ''));
+  };
+  // 類型：原位置（這台機器那時候在哪裡）和類型對不上
+  function moveTypeCheck(values) {
+    const rule = ruleOf(values);
+    if (!rule || !values.device || unchangedMove(values)) return '';
+    const from = values.from;
+    if (rule[0] === 'stock') return key(from) && !isStock(from) ? '這台不在倉庫' : '';
+    return !key(from) ? '這台還沒有位置' : isStock(from) ? '這台在倉庫' : '';
+  }
+  // 新位置和類型對不上
+  function moveToCheck(values) {
+    const rule = ruleOf(values);
+    if (!rule || !key(values.to) || unchangedMove(values)) return '';
+    if (rule[1] === 'stock') return isStock(values.to) ? '' : '撤機要選倉庫';
+    return isStock(values.to) ? `${values.type}要選客戶的位置，不是倉庫` : '';
+  }
+  // 原位置：報廢的機器不能安裝
+  function moveDeviceCheck(values) {
+    if (values.type !== '安裝' || unchangedMove(values)) return '';
+    const s = device(values.device)?.status;
+    return s && quietSet().has(key(s)) ? `這台是「${s}」，不能安裝` : '';
+  }
+
+  // 從詳情頁新增異動時先選好的類型：機器在倉庫（或還沒有位置）先選安裝，在客戶那裡先選撤機；報廢的不選
+  //   位置詳情：倉庫先選撤機，其他先選安裝
+  function moveTypeFor(d) {
+    if (!d || quietSet().has(key(d.status))) return '';
+    return !key(d.location) || isStock(d.location) ? '安裝' : '撤機';
+  }
+  const moveTypeAt = p => (p?.stock ? '撤機' : '安裝');
+
+  // 日期下面：在今天之後；比這台機器最近一筆異動早（這筆不會改到現在的位置）
+  //   編輯時只看最新的那一筆（改舊的不用提醒）
+  function moveDateNote(values) {
+    const date = String(values.date ?? '');
+    if (!date) return '';
+    if (date > U.today()) return { text: '在今天之後', warn: true };
+    const list = of('moves', values.device).sort(byDate('date'));
+    if (values.id && list.at(-1)?.id !== values.id) return '';
+    const last = list.filter(m => m.id !== values.id).at(-1);
+    return last && date < String(last.date ?? '') ? { text: `比 ${shortDate(last.date)} 那筆早\n不會改到現在的位置`, warn: true } : '';
+  }
+
+  // 新位置下面（兩行）：那裡已經放著別台機器（一格一台）；撤機時提醒原來那一格的合約、停用；安裝到還沒有合約的位置
+  function moveToNote(values) {
+    const lines = [];
+    let warn = false;
+    const slot = slotNote(values.to, values.device);
+    if (slot) { lines.push(slot.text); warn = true; }
+    const from = values.from;
+    if (values.type === '撤機' && key(from) && !isStock(from)) {
+      const c = currentContract(from);
+      if (c) lines.push(`${placeName(from)} 還有合約${c.endDate ? `（到 ${U.fmtDate(c.endDate)}）` : ''}`, '客戶不租了：合約填提前結束日、位置勾停用');
+      else lines.push(`客戶不租了的話，${placeName(from)} 可以勾停用`);
+    }
+    if (['安裝', '移機'].includes(values.type) && key(values.to) && !isStock(values.to) && !currentContract(values.to)) {
+      lines.push('這個位置還沒有合約');
+      warn = true;
+    }
+    return lines.length ? { text: lines.slice(0, 2).join('\n'), warn } : '';
+  }
+
+  // 「連續新增」時新位置留不留：倉庫留著（客戶一次退好幾台），客戶的位置不留（免得裝到同一格）
+  const keepPlace = values => isStock(values.to);
+
+  // 位置勾停用時：還放著機器的不能停用（先撤機）；本來就停用的不擋
+  function disableCheck(values) {
+    if (values.disabled !== 'true') return '';
+    if (values.id && Store.get('locations', values.id)?.disabled) return '';
+    const on = machinesAt(values.code);
+    return on.length ? `這裡還放著 ${on.length > 1 ? `${on.length} 台` : label(on[0])}，先撤機` : '';
   }
 
   // ---------- 合約 ----------
@@ -474,7 +639,9 @@ const Records = (() => {
   return {
     TABLES, DEVICE_TABLES, firstLine, noteLine, device, of, latest, label, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, recordsAt,
-    hasMoves, moveTitle, syncLocations,
+    hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, applyMoveStatus, placeBefore,
+    moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
+    moveDateNote, moveToNote, keepPlace, disableCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingNote, monthNote, countNote,

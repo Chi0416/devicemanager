@@ -56,7 +56,7 @@ const sample = () => ({
     }),
     device('d2', { code: '007', name: '印表機', status: '維修中' }),
   ],
-  moves: [{ id: 'm1', device: 'NB-001', date: '2026-01-05', type: '安裝', from: '', to: 'L0001', note: '' }],
+  moves: [{ id: 'm1', device: 'NB-001', date: '2026-01-05', type: '安裝', from: '', to: 'L0001', status: '出租中', note: '' }],
   // 合約綁位置：一份合約可以寫好幾個位置
   contracts: [{
     id: 'c1', locations: 'L0001、L0002', signDate: '2026-01-01', endDate: '2027-12-31', earlyEnd: null,
@@ -343,7 +343,7 @@ test('改名前的標題（was）讀得到，同步時改成新的標題', () =>
 
 test('紀錄：設備欄寫設備編號（純文字）；保養一筆一個項目，翻新項目是自由輸入的文字', () => {
   const v = plain(Sheet.toValues(sample()));
-  assert.deepEqual(v['異動'][0], ['設備', '日期', '類型', '原位置', '新位置', '備註', 'id']);
+  assert.deepEqual(v['異動'][0], ['設備', '日期', '類型', '原位置', '新位置', '狀態', '備註', 'id']);
   assert.deepEqual(v['合約'][0], ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期', 'id']);
   assert.equal(v['合約'][1][0], 'L0001、L0002'); // 位置存編號，好幾個用「、」分開
   assert.deepEqual(v['合約修改紀錄'][0], ['合約', '日期', '欄位', '改之前', '改之後', 'id']);

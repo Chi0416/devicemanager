@@ -322,7 +322,7 @@ const Sync = (() => {
     fixCodes(snap, skip);
     // 試算表裡打的位置名字換成編號（異動改了的話，下面設備的位置跟著算）
     if (!skip.includes('locations')) addToSnap(Records.fixPlaceRefs(), snap);
-    // 設備的位置＝最新一筆異動的新位置（在試算表或其他裝置上改了異動）
+    // 設備的位置＝最新一筆異動的新位置、異動的原位置接上前一筆（在試算表或其他裝置上改了異動）
     if (!skip.includes('devices') && !skip.includes('moves')) addToSnap(Records.syncLocations(), snap);
     hooks.onData();
 

@@ -146,6 +146,8 @@ const Detail = (() => {
   const statusField = SCHEMAS.devices.fields.find(f => f.key === 'status');
   const mine = key => d => Records.of(key, d.code);
   const withDevice = d => ({ device: d.code });
+  // 新增異動：類型先選好（機器在倉庫先選安裝，在客戶那裡先選撤機）
+  const moveOf = d => ({ device: d.code, type: Records.moveTypeFor(d) });
 
   function infoHTML(d) {
     const tone = Refs.tone('statuses', Refs.find(statusField, d.status));
@@ -186,7 +188,7 @@ const Detail = (() => {
       if (link) Place.open(link.dataset.place);
     },
     rows: [
-      { key: 'moves', label: '位置', summary: locationRow, records: mine('moves'), preset: withDevice },
+      { key: 'moves', label: '位置', summary: locationRow, records: mine('moves'), preset: moveOf },
       // 合約綁位置：這台現在所在位置的合約
       { key: 'contracts', label: '合約', summary: d => DetailRows.contract(Records.deviceContract(d.code), Records.contractsAt(d.location)),
         records: d => Records.contractsAt(d.location), preset: d => ({ locations: d.location || '' }) },
@@ -214,6 +216,11 @@ const Place = (() => {
     return on.length === 1 ? { device: on[0].code } : {};
   };
   const at = key => p => Records.recordsAt(key, p.code);
+  // 新增異動：空的位置先選安裝、裝到這裡；放著一台時先選撤機、撤的是那一台；倉庫先選撤機、撤到這裡
+  const moveHere = p => {
+    const on = Records.machinesAt(p.code);
+    return !p.stock && on.length === 1 ? { device: on[0].code, type: '撤機' } : { to: p.code, type: Records.moveTypeAt(p) };
+  };
   // 現在放著的機器：三台以內一台一個按鈕（點了打開設備詳情），多的寫幾台
   const MAX_LINKS = 3;
 
@@ -257,7 +264,7 @@ const Place = (() => {
       if (link) Detail.open(link.dataset.device);
     },
     rows: [
-      { key: 'moves', label: '機器', summary: machineRow, records: p => Records.movesAt(p.code), preset: p => ({ to: p.code }), device: machine },
+      { key: 'moves', label: '機器', summary: machineRow, records: p => Records.movesAt(p.code), preset: moveHere, device: machine },
       { key: 'contracts', label: '合約', summary: p => DetailRows.contract(Records.currentContract(p.code), Records.contractsAt(p.code)),
         records: p => Records.contractsAt(p.code), preset: p => ({ locations: p.code }) },
       { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, device: machine },

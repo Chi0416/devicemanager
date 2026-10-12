@@ -5,6 +5,10 @@
 //                     options 另外寫 list（類別、品牌…）
 //                     紀錄的「設備」欄也是 ref：存設備編號（devices 的 target 見下面）；位置存位置編號（locations）
 //                     many：可以選好幾個，存成「L0001、L0002」（合約的位置）
+//                     rank：下拉選單先依它排（數字小的在前），同一級再照平常的排法；rank() 回傳 (一項) → 數字
+//                           每次列選單時呼叫一次，先算好要用的（異動的新位置：空的位置在最上面）
+//                     only：下拉選單依表單填的內容只列一部分：only(values) 回傳 (一項) → true/false，不用篩時回傳 null（異動依類型）
+//                     onlyNote：打了一項沒列出來的名字時，選單裡寫為什麼：onlyNote(values) 回傳文字
 //                multi（可以複選）：choices 是選項，存成「甲、乙」
 //                flag（勾選）：存 true／false，試算表上是核取方塊
 //   optional:    可以空白
@@ -13,13 +17,14 @@
 //   full:        表單中佔滿整列（預設半列）
 //   tight:       表單上字距縮一點（主機板號碼 15 碼在半格裡放得下）
 //   section:     表單裡從這個欄位開始的一段的小標題（基本資料、機器識別…）
-//   formLabel:   表單上的名稱和試算表的標題不一樣時（紀錄的設備欄：試算表寫「設備」，表單上寫「位置」）
+//   formLabel:   表單上的名稱和試算表的標題不一樣時（紀錄的設備欄：試算表寫「設備」，表單上寫「位置」，異動寫「原位置」）
 //   placeholder: 從清單選的欄位裡的灰字，沒有時寫「選擇或搜尋」
 //   hidden:      表單上不顯示，由 calc 填好（異動的原位置）
 //   multiline:   表單上是可以換行的大格子（備註）
 //   upper:       存檔時英文字母轉大寫（員工編號）
 //   auto:        系統自己產生、不能改（設備的編號）：auto(這一筆) 回傳新的值；新增時存檔才給，給了就不會變
 //   keep:        連續新增時保留該欄的值（一次買好幾台時，類別、品牌、購買日期不用重填）
+//                可以是函式：keep(values) 為 true 時才留（異動的新位置：倉庫才留）
 //   default:     新增時預先填入的值；可以是函式（第一個狀態）
 //   hint:        顯示在表單欄位下方的說明
 //   note:        依表單目前填的內容，顯示在欄位下方的提醒：note(values) 回傳文字或 { text, warn }，不用提醒時回傳空字串
@@ -30,6 +35,9 @@
 //   calc:        依表單目前填的內容先填好：calc(values) 回傳要填的值，沒有時回傳空字串
 //                只在依的欄位改了、算出來的值跟著變時才填；欄位空白、或還是上次填的值時才換，自己改過的不蓋掉（見 form.js）
 //   lock:        舊資料不能在表單上改的原因：lock(這一筆) 回傳說明（有異動的設備，位置要新增異動），可以改時回傳空字串
+//   shown:       畫面上寫的字依其他欄位算的：shown(values)（異動的原位置寫那天機器在哪裡）；回傳空字串時照平常的寫法
+//                從清單選的欄位選好後、不能改的欄位都照它寫
+//   check:       存檔時和其他欄位一起檢查：check(values) 回傳錯誤（寫在這一格下面、不存），沒問題時回傳空字串
 //   caps:        手機鍵盤預設大寫（編號、序號常有英文字母）
 //   suggest:     表單下方的快選按鈕（預設值 + 最近輸入過的值），只是提示，不限制；有預設值時試算表也有下拉選單
 //   toggle:      表單上改成左右切換的按鈕（有 toggle 時不顯示 suggest 的快選按鈕）：[{ value, label, tone, match }]
@@ -37,6 +45,7 @@
 //   was:         這個欄位以前在試算表上的標題（改名前），讀得到舊標題的試算表，同步時改成新標題
 //   （資料表）title:     頁面標題，也是試算表的分頁名稱
 //   （資料表）formTitle: 表單標題用的名稱，沒有時用 title
+//   （資料表）formOrder: 表單上先排的欄位（其他照 fields 的順序）；試算表照 fields 的順序（異動：表單上類型在最上面）
 //   （資料表）describe:  一筆資料的簡短說明（儲存後的提示、提醒裡用）：describe(列)；沒有時用 card 的編號、名稱、標籤
 //   （資料表）unit:      筆數的單位（「3 台設備」），被清單引用時的說明用
 //   （資料表）card:      列表卡片：code 灰色小字、title 名稱（可以是函式：title(列)）、sub(列) 名稱下面一行小字、badge 標籤、primary 右上角、
@@ -188,9 +197,9 @@ const stillHere = r => !r.leaveDate || r.leaveDate > U.today();
 
 // 紀錄（異動、合約、抄表、保養、翻新、選配件）共用的欄位；計算見 records.js
 //   設備：存設備編號（24-0001）；表單上寫「位置」，打位置找設備（一個位置放一台），下面寫編號和名稱
-const deviceField = () => ({
+const deviceField = (more = {}) => ({
   key: 'device', label: '設備', formLabel: '位置', placeholder: '打位置找設備', type: 'ref', ref: 'devices', full: true,
-  note: v => Records.deviceNote(v.device),
+  note: v => Records.deviceNote(v.device), ...more,
 });
 const dateField = (key, label, more = {}) => ({ key, label, type: 'date', default: () => U.today(), ...more });
 const noteField = () => ({ key: 'note', label: '備註', type: 'text', optional: true, full: true, multiline: true });
@@ -269,15 +278,24 @@ const SCHEMAS = {
       { key: 'name',     label: '名稱',       type: 'text', full: true, hint: '寫到分得出是哪一格，例如「大華公司 3F」' },
       { key: 'oldNames', label: '以前的名字', type: 'text', optional: true, full: true, multiline: true, hint: '改名時自動記下來' },
       { key: 'stock',    label: '倉庫',       type: 'flag', optional: true, hint: '倉庫、維修中心這類，可以放好幾台' },
-      { key: 'disabled', label: '停用',       type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的資料照常顯示' },
+      // 還放著機器的不能停用（先撤機）
+      { key: 'disabled', label: '停用',       type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的資料照常顯示',
+        check: v => Records.disableCheck(v) },
       { key: 'note',     label: '備註',       type: 'text', optional: true, full: true, multiline: true },
     ],
   },
 
   // ---------- 紀錄：每一筆的「設備」欄寫設備編號（計算見 records.js） ----------
-  // 異動：位置歷程，設備目前的位置＝最新一筆的新位置；原位置是選的那台設備當時的位置（表單上不顯示）
+  // 異動：位置歷程，設備目前的位置＝最新一筆的新位置
+  //   類型在最上面（一整列），先選類型，下面的選單只列合得上的：安裝 倉庫 → 客戶、撤機 客戶 → 倉庫、移機 客戶 → 客戶，其他不限
+  //   表單上的「原位置」是打位置找設備（存設備編號），選好後寫那天機器在哪裡；編輯時鎖住（選錯機器就刪掉重新新增）
+  //     存的原位置（藏起來的 from）＝前一筆的新位置，存檔、刪除後自動接上（見 records.js 的 syncLocations）
+  //   新位置的選單：空的位置在最上面，再來是倉庫，最後是已經放著機器的
+  //   狀態：撤機先帶庫存、安裝先帶出租中，可以改（失火選報廢、故障選維修中）；存了最新一筆時設備的狀態跟著改
   moves: {
     title: '異動',
+    // 表單上：類型一整列（手機上四個按鈕才不擠），下面日期和狀態一列（狀態跟著類型帶）；試算表照下面欄位的順序
+    formOrder: ['type', 'date', 'status'],
     period: recordMonth('date'),
     card: { title: r => Records.moveTitle(r), badge: 'type', grid: [] },
     note: r => Records.noteLine(r.note),
@@ -285,15 +303,22 @@ const SCHEMAS = {
     search: ['device', 'note'],
     searchText: r => [Records.placeText(r.from), Records.placeText(r.to), Records.deviceText(r.device)].join(' '),
     searchHint: '搜尋位置',
-    afterSave: (before, after) => Records.syncLocations(before ? [before] : []),
+    afterSave: (before, after) => [...Records.syncLocations(before ? [before] : []), ...Records.applyMoveStatus(before, after)],
     afterRemove: r => Records.syncLocations([r]),
     fields: [
-      deviceField(),
-      dateField('date', '日期', { keep: true }),
-      { key: 'type', label: '類型', type: 'text', keep: true, toggle: toggleOf(MOVE_TYPES) },
-      placeField('from', '原位置', { optional: true, hidden: true, calc: v => Records.device(v.device)?.location || '' }),
-      // 一格一台：那裡已經有別台機器時提醒（換機時兩筆異動先輸入哪一筆都可以，所以只提醒）
-      placeField('to', '新位置', { full: true, note: v => Records.slotNote(v.to, v.device) }),
+      deviceField({ formLabel: '原位置', only: v => Records.moveDevices(v), onlyNote: v => Records.moveDevicesNote(v),
+        check: v => Records.moveDeviceCheck(v), lock: () => '選錯機器的話，刪掉這筆重新新增',
+        shown: v => Records.placeName(Records.placeBefore(v.device, v.date, v.id)) }),
+      // 日期打錯（比最近一筆早、在今天之後）時提醒
+      dateField('date', '日期', { keep: true, note: v => Records.moveDateNote(v), noteLines: 2 }),
+      { key: 'type', label: '類型', type: 'text', full: true, keep: true, toggle: toggleOf(MOVE_TYPES), check: v => Records.moveTypeCheck(v) },
+      placeField('from', '原位置', { optional: true, hidden: true, calc: v => Records.placeBefore(v.device, v.date, v.id) }),
+      // 一格一台：那裡已經有別台機器時提醒（換機時兩筆異動先輸入哪一筆都可以，所以只提醒）；撤機、安裝時提醒合約
+      placeField('to', '新位置', { full: true, rank: () => Records.freeFirst(), only: v => Records.movePlaces(v),
+        onlyNote: v => Records.movePlacesNote(v), check: v => Records.moveToCheck(v), keep: v => Records.keepPlace(v),
+        note: v => Records.moveToNote(v), noteLines: 2 }),
+      { key: 'status', label: '狀態', type: 'ref', ref: 'statuses', optional: true, keep: true,
+        calc: v => Records.moveStatus(v), hint: '存檔後設備改成這個狀態' },
       noteField(),
     ],
   },

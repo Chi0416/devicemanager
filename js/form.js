@@ -65,7 +65,10 @@ const Form = (() => {
     const schema = SCHEMAS[tableKey];
     const rec = id ? Store.get(tableKey, id) : null;
     if (id && !rec) return;
-    ctx = { tableKey, schema, id, count: 0, fields: schema.fields, preset };
+    // 表單上的順序（schema 的 formOrder 寫的先排，異動的類型在最上面）；試算表照 fields 的順序
+    const first = schema.formOrder || [];
+    const fields = [...first.map(k => schema.fields.find(f => f.key === k)), ...schema.fields.filter(f => !first.includes(f.key))];
+    ctx = { tableKey, schema, id, count: 0, fields, preset };
     titleEl.textContent = `${id ? '編輯' : '新增'}${schema.formTitle || schema.title}`;
     setCloseLabel('取消');
     resetDelete();
@@ -242,11 +245,14 @@ const Form = (() => {
 
   // 系統產生的欄位：已經有值就顯示；新增（或舊資料沒有值）時寫存檔後會是什麼（購買日期改了跟著變）
   //   不能改的欄位（lock）：只顯示現在的值
+  //   顯示的字：位置寫名稱（不是編號）；有 shown 的照它寫（異動的原位置寫當時的位置，不是機器現在的）
   function renderAutos() {
     autos.forEach((el, i) => {
       if (!el) return;
+      const f = ctx.fields[i];
       const v = inputs[i].value.trim();
-      el.innerHTML = v || locked[i] ? `<b>${U.esc(v || '—')}</b>`
+      const shown = locked[i] && f.shown ? f.shown(formValues()) : v && U.display(f, v);
+      el.innerHTML = v || locked[i] ? `<b>${U.esc(shown || '—')}</b>`
         : `<b>${U.esc(ctx.fields[i].auto(formValues()))}</b><small>存檔後產生</small>`;
       el.classList.toggle('pending', !v);
     });
@@ -279,10 +285,13 @@ const Form = (() => {
   //   顯示的字和存的值不一樣時（設備：顯示位置、存編號），另外一格給人看、打字搜尋，存的值放在藏起來的 inputs[i]
   const labelOf = f => Refs.targetOf(f.ref).label || null;
   // 存的值 → 顯示的字（設備編號 → 位置）；找不到時照原本的字
+  //   有 shown 的照它寫（異動的原位置：那天機器在哪裡，不是現在在哪裡）
   function shownText(i, v) {
-    const label = labelOf(ctx.fields[i]);
-    const hit = label && v ? Refs.find(ctx.fields[i], v) : null;
-    return hit ? label(hit) : v;
+    const f = ctx.fields[i];
+    const label = labelOf(f);
+    const hit = label && v ? Refs.find(f, v) : null;
+    if (!hit) return v;
+    return (f.shown && f.shown({ ...formValues(), [f.key]: v })) || label(hit);
   }
   // 存的值改了之後，給人看的那一格跟著換
   function syncText(i) {
@@ -466,7 +475,9 @@ const Form = (() => {
     const c = combos[i];
     const inp = c.text;
     const q = inp.value.trim();
-    const all = Refs.items(f);
+    // 有 only 的欄位依表單填的內容只列一部分（異動：安裝只列倉庫裡的機器、撤機的新位置只列倉庫）
+    const values = f.only ? formValues() : null;
+    const all = Refs.items(f, { values });
     const value = inputs[i].value.trim();
     const hit = value ? Refs.find(f, value) : null;
     const n = Refs.norm(q);
@@ -479,6 +490,10 @@ const Form = (() => {
     // 空白、或已經選好還沒打字時列出全部；打字時列出名字或小字（以前的名字）裡有這些字的
     const listed = !q || (hit && !c.typed) ? all : all.filter(r =>
       [name(r), label(r), Refs.sub(f.ref, r), also(r)].some(x => Refs.norm(x).includes(n)));
+    // 打的剛好是一項、但沒列出來：停用了，或這個類型不能選；寫在選單最下面
+    const off = Refs.targetOf(f.ref).off || '停用';
+    const why = exact && !listed.includes(exact) && c.typed
+      ? (!Refs.active(f.ref, exact) ? `「${q}」已經${off.replace(/^已/, '')}` : f.onlyNote?.(values) || '') : '';
     c.list.innerHTML = listed.slice(0, 60).map(r => {
       const on = hit && r.id === hit.id;
       const sub = Refs.sub(f.ref, r);
@@ -487,7 +502,8 @@ const Form = (() => {
         `${tone ? `<i class="dot ${U.esc(tone)}" aria-hidden="true"></i>` : ''}<span>${U.esc(label(r) || name(r))}</span>${sub ? `<small>${U.esc(sub)}</small>` : ''}</button>`;
     }).join('') +
       (q && !exact && canAdd(f) ? `<button type="button" class="combo-add" data-add>＋ 新增${U.esc(Refs.scopeName(f))}「${U.esc(q)}」</button>` : '') +
-      (q && !listed.length && !canAdd(f) ? `<p class="combo-empty">找不到「${U.esc(q)}」</p>` : '') +
+      (why ? `<p class="combo-empty">${U.esc(why)}</p>` : '') +
+      (q && !listed.length && !canAdd(f) && !why ? `<p class="combo-empty">找不到「${U.esc(q)}」</p>` : '') +
       (!q && !all.length ? `<p class="combo-empty">${canAdd(f) ? `${U.esc(listName(f))}還是空的，打字後點「＋ 新增」` : `還沒有${U.esc(listName(f))}`}</p>` : '');
     c.list.hidden = !c.open || !c.list.innerHTML;
     inp.setAttribute('aria-expanded', String(!c.list.hidden));
@@ -542,6 +558,8 @@ const Form = (() => {
   // 欄位下方的提醒，依目前填的內容重新產生；自動填的欄位先填好
   function renderNotes() {
     recalc();
+    // 顯示的字依其他欄位算的（異動的原位置依日期）：沒有在打字時跟著換
+    combos.forEach((c, i) => { if (c && ctx.fields[i].shown && !c.open) syncText(i); });
     renderAutos();
     renderCopyNote();
     if (!noteEls.some(Boolean)) return;
@@ -595,6 +613,7 @@ const Form = (() => {
 
   function collect() {
     const rec = {};
+    const values = formValues();
     let firstBad = null;
     ctx.fields.forEach((f, i) => {
       const raw = String(getVal(i)).trim();
@@ -630,6 +649,8 @@ const Form = (() => {
         else if (raw !== original[i]) msg = canAdd(f) ? `${listName(f)}裡沒有「${raw}」，請從選單選，或點「＋ 新增」` : `找不到${listName(f)}「${raw}」，請從選單選`;
       } else if (f.clean) v = f.clean(raw);
       else if (f.upper) v = U.toHalf(raw).toUpperCase();
+      // 和其他欄位一起看才知道對不對的（異動的類型和位置、還放著機器的位置不能停用）
+      if (!msg && f.check) msg = f.check(values) || '';
       setError(i, msg);
       if (msg && !firstBad) {
         firstBad = f.toggle || f.type === 'multi' ? inputs[i].parentElement.querySelector('[data-toggle], [data-multi]') : combos[i]?.text || manys[i] || inputs[i];
@@ -662,13 +683,18 @@ const Form = (() => {
   }
 
   // ---------- 動作 ----------
+  // 存不了時捲到那一格；從清單選的欄位不放游標（下拉選單會打開，蓋住下面寫的原因）
+  function showBad(el) {
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (el.getAttribute('role') !== 'combobox') el.focus({ preventScroll: true });
+  }
+
   // again：新增後留在表單，接著填下一筆
   function save(again = false) {
     combos.forEach((c, i) => { if (c?.open) { c.open = false; renderCombo(i); } });
     const { rec, firstBad } = collect();
     if (firstBad) {
-      firstBad.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      firstBad.focus({ preventScroll: true });
+      showBad(firstBad);
       return;
     }
     // 已經有了（編號、名稱重複）：寫在那一格下面，不存
@@ -677,8 +703,7 @@ const Form = (() => {
       const i = fieldIndex(found.keys[found.keys.length - 1]);
       setError(i, ctx.schema.uniqueMsg?.(found.dup, found.keys) || `${ctx.schema.title}裡已經有一樣的了`);
       const el = combos[i]?.text || inputs[i];
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      el.focus({ preventScroll: true });
+      showBad(el);
       return;
     }
 
@@ -705,7 +730,9 @@ const Form = (() => {
       return;
     }
     // 連續新增：保留 keep 欄位，其他換回預設值（編號跳下一號）；設備詳情裡帶入的設備照樣帶
-    ctx.fields.forEach((f, i) => { if (!f.keep) setVal(i, f.key in ctx.preset ? editValue(ctx.preset[f.key]) : defaultValue(f)); });
+    const values = formValues();
+    const kept = ctx.fields.map(f => (typeof f.keep === 'function' ? !!f.keep(values) : !!f.keep));
+    ctx.fields.forEach((f, i) => { if (!kept[i]) setVal(i, f.key in ctx.preset ? editValue(ctx.preset[f.key]) : defaultValue(f)); });
     syncTexts();
     calcked = ctx.fields.map(() => null);
     renderAllChips();
@@ -720,7 +747,7 @@ const Form = (() => {
     bodyEl.scrollTop = 0;
     // 手機上收起鍵盤；電腦上直接跳到下一筆的第一個要填的欄位
     if (matchMedia('(pointer: fine)').matches) {
-      focusField(Math.max(ctx.fields.findIndex(f => !f.keep), 0));
+      focusField(Math.max(kept.indexOf(false), 0));
     } else if (document.activeElement) {
       document.activeElement.blur();
     }
