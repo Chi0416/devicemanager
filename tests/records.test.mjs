@@ -715,6 +715,33 @@ test('位置的用量：以一期算（兩次抄表之間），每月抄、一�
   assert.notEqual(at(DH).id, old.id);
 });
 
+test('位置詳情的用量：最近 12 個月一個月一條（一季抄的三個月一樣高、沒抄到的空著）；比去年同期', () => {
+  const { Records } = withDevices();
+  const P = (month, months, bw, color) => ({ month, months, bw, color, total: (bw || 0) + (color || 0) });
+  // 2025/10–2026/09：每月抄，2026/04–06 改成一季抄（6 月那期 3 個月），2025/12 漏抄（2026/01 那期 2 個月）
+  const periods = [
+    P('2025-09', 1, 1000, 100), P('2025-10', 1, 1100, 100), P('2025-11', 1, 1200, 100),
+    P('2026-01', 2, 2000, 200), P('2026-02', 1, 900, 100), P('2026-03', 1, 1000, 100),
+    P('2026-06', 3, 3600, 300), P('2026-07', 1, 1300, 100), P('2026-09', 2, 2200, 200),
+  ];
+  const m = Records.monthlyUsage(periods);
+  assert.equal(m.length, 12);
+  assert.equal(m[0].month, '2025-10');
+  assert.equal(m.at(-1).month, '2026-09');
+  const at = k => m.find(x => x.month === k);
+  assert.deepEqual(plain(at('2026-04')), { month: '2026-04', bw: 1200, color: 100, total: 1300 }); // 一季的每月平均
+  assert.deepEqual(plain(at('2026-05')), plain({ ...at('2026-04'), month: '2026-05' }));
+  assert.equal(at('2025-12').total, 1100); // 漏抄：和 1 月平分
+  assert.equal(at('2026-08').total, 1200); // 9 月那期 2 個月
+  assert.deepEqual(plain(Records.monthlyUsage([])), []);
+  // 比去年同期：9 月那期（8、9 月）每月 1,200，去年 8、9 月沒有完整的抄表 → 不比
+  assert.equal(Records.yearOverYear(periods), null);
+  // 去年 8 月也有：每月 1,100 → 漲 9%
+  const withAgo = [P('2025-08', 1, 1000, 100), ...periods];
+  assert.equal(Math.round(Records.yearOverYear(withAgo) * 100), 9);
+  assert.equal(Records.yearOverYear([]), null);
+});
+
 test('要處理：合約到期、快到期（重新簽約、提前結束、位置停用了就不算），保固 30 天內到期（報廢的不算），空著的位置', () => {
   const { Store, Records, add, d1, d2 } = withDevices(); // 今天 2026-10-11
   const ids = list => plain(list.map(r => r.id));

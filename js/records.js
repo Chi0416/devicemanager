@@ -561,6 +561,38 @@ const Records = (() => {
     };
   }
 
+  // 位置詳情的長條圖：最近 12 個月（到最近一期的結算月份），一個月一條；一期好幾個月的，每個月放那一期的每月平均
+  //   （一季抄一次的，同一季三個月一樣高）；[{ month: '2026-09', bw, color, total }]，那個月沒有抄表的是 null，舊到新
+  const monthKey = i => `${Math.floor(i / 12)}-${String(i % 12 + 1).padStart(2, '0')}`;
+  function perMonth(periods) {
+    const by = new Map();
+    periods.forEach(p => {
+      const k = p.months || 1;
+      for (let i = 0; i < k; i++) {
+        by.set(monthIndex(p.month) - i, { bw: p.bw === null ? null : p.bw / k, color: p.color === null ? null : p.color / k, total: p.total / k });
+      }
+    });
+    return by;
+  }
+  function monthlyUsage(periods, n = 12) {
+    if (!periods.length) return [];
+    const by = perMonth(periods);
+    const end = monthIndex(periods.at(-1).month);
+    return Array.from({ length: n }, (_, i) => end - n + 1 + i)
+      .map(i => ({ month: monthKey(i), ...(by.get(i) || { bw: null, color: null, total: null }) }));
+  }
+  // 比去年同期：最近一期的每月平均，和去年同樣那幾個月的每月平均比（漲跌的比例）；去年那幾個月有沒抄到的是 null
+  function yearOverYear(periods) {
+    const p = periods.at(-1);
+    if (!p) return null;
+    const by = perMonth(periods);
+    const k = p.months || 1;
+    const ago = Array.from({ length: k }, (_, i) => by.get(monthIndex(p.month) - i - 12));
+    if (ago.some(x => !x)) return null;
+    const before = ago.reduce((n, x) => n + x.total, 0) / k;
+    return before > 0 ? p.total / k / before - 1 : null;
+  }
+
   // 每個位置目前的合約（一次算好，位置頁用）：Map(位置編號 → 合約)；和 currentContract 一樣
   function currentContracts() {
     const by = new Map();
@@ -779,7 +811,7 @@ const Records = (() => {
     moveDateNote, moveToNote, keepPlace, disableCheck, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
-    countsText, usage, usageNote, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, currentContracts, contractShort,
+    countsText, usage, usageNote, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, refurbNote, serialNote,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade,
   };

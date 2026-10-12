@@ -237,6 +237,55 @@ const Place = (() => {
         ${olds.length ? `<span class="card-sub">以前叫：${U.esc(olds.join('、'))}</span>` : ''}
         ${p.note ? `<span class="card-sub">${U.esc(Records.firstLine(p.note))}</span>` : ''}
         ${on.length ? links : '<span class="card-note">現在沒有機器</span>'}
+      </div>
+      ${p.stock ? '' : usageHTML(p)}`;
+  }
+
+  // 用量：最近 12 個月的長條圖（下面黑白、上面彩色，一季抄的同一季三個月一樣高，見 records.js 的 monthlyUsage）
+  //   點一條，下面那一行寫那個月的張數；打開時寫最近一個月；最下面寫最近一期跟上一期、去年同期比
+  const num = v => U.fmtNum(Math.round(v));
+  const monthText = m => `${m.slice(0, 4)}/${m.slice(5)}`;
+  // 點了的那個月：大字寫總張數，下面小字寫黑白、彩色
+  function pickHTML(m) {
+    if (!m) return '';
+    if (m.total === null) return `<b>${monthText(m.month)} 沒有抄表</b>`;
+    const parts = [m.bw !== null && `黑白 ${num(m.bw)}`, m.color !== null && `彩色 ${num(m.color)}`].filter(Boolean);
+    return `<b>${monthText(m.month)}　${num(m.total)} 張</b><small>${parts.join('・')}</small>`;
+  }
+  const pickText = m => pickHTML(m).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  // 刻度取整數（1,000、2,000、5,000…）
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    const p = 10 ** Math.floor(Math.log10(v));
+    return [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map(x => x * p).find(x => x >= v);
+  }
+  function usageHTML(p) {
+    const periods = Records.placeUsage(p.code);
+    const months = Records.monthlyUsage(periods);
+    if (!months.length) {
+      return '<div class="detail-card usage-card"><span class="uc-head"><b>用量</b></span><span class="card-note">還沒有用量：要抄過兩次表才算得出來</span></div>';
+    }
+    const top = niceMax(Math.max(...months.map(m => m.total || 0)));
+    const last = [...months].reverse().find(m => m.total !== null);
+    const s = Records.usageSummary(periods);
+    const yoy = Records.yearOverYear(periods);
+    const pct = r => `${r >= 0 ? '↑' : '↓'}${Math.abs(Math.round(r * 100))}%`;
+    const sum = [`最近一期 ${s.label} ${num(s.total)} 張`, s.change !== null && `比上一期 ${pct(s.change)}`, yoy !== null && `比去年同期 ${pct(yoy)}`]
+      .filter(Boolean).join('・');
+    const cols = months.map(m => {
+      const h = m.total ? Math.max(2, m.total / top * 100) : 0;
+      const seg = (cls, v) => (v ? `<i class="${cls}" style="flex-grow:${v}"></i>` : '');
+      return `<button type="button" class="uc-col${m === last ? ' on' : ''}" data-um="${m.month}" data-pick="${U.esc(pickHTML(m))}" aria-label="${U.esc(pickText(m))}">
+        <span class="uc-plot"><span class="uc-bar" style="height:${h.toFixed(1)}%">${seg('uc-c', m.color)}${seg('uc-b', m.bw)}</span></span>
+        <small>${Number(m.month.slice(5))}</small></button>`;
+    }).join('');
+    return `
+      <div class="detail-card usage-card">
+        <span class="uc-head"><b>用量</b><span>${monthText(months[0].month)}–${monthText(months.at(-1).month)}・每月</span></span>
+        <div class="uc-chart"><span class="uc-tick">${num(top)}</span>${cols}</div>
+        <span class="uc-legend"><span><i class="uc-b"></i>黑白</span><span><i class="uc-c"></i>彩色</span></span>
+        <span class="uc-pick">${pickHTML(last)}</span>
+        <span class="card-note">${U.esc(sum)}</span>
       </div>`;
   }
 
@@ -259,6 +308,14 @@ const Place = (() => {
     onInfoClick(e) {
       const link = e.target.closest('[data-device]');
       if (link) Detail.open(link.dataset.device);
+      // 用量的長條：點一條，下面寫那個月的張數
+      const col = e.target.closest('[data-um]');
+      if (col) {
+        const card = col.closest('.usage-card');
+        card.querySelectorAll('.uc-col.on').forEach(c => c.classList.remove('on'));
+        col.classList.add('on');
+        card.querySelector('.uc-pick').innerHTML = col.dataset.pick;
+      }
     },
     rows: [
       { key: 'moves', label: '機器', summary: machineRow, records: p => Records.movesAt(p.code), preset: moveHere, device: machine },
