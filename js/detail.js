@@ -255,6 +255,12 @@ const Place = (() => {
       const head = [life, times].filter(Boolean).join('・');
       const start = x.start ? `${x.start.install ? '安裝' : '上次換'} ${U.fmtDate(x.start.date)}` : '';
       const tone = x.over ? 'danger' : x.soon ? 'warn' : '';
+      // 起點那天沒有張數（安裝當天沒抄表、換的那天前後都沒有抄表）：算不出用了多少，不畫長條
+      if (x.used === null) {
+        return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
+          <span class="cons-sub"><span>${U.esc(start)}</span></span>
+          <small>${x.start?.install ? '安裝那天' : '換的那天'}沒有張數，算不出用了多少</small></li>`;
+      }
       if (!x.life) {
         return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
           <span class="cons-sub">${U.esc([start, x.used !== null && `到現在${x.approx ? '約 ' : ' '}${n(x.used)} 張`].filter(Boolean).join('・'))}</span>
