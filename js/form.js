@@ -61,7 +61,8 @@ const Form = (() => {
 
   // preset：新增時先帶入的值（{ 欄位: 值 }，例如在位置清單裡新增時，清單先選好位置）
   //   在設備詳情裡新增紀錄時，設備先帶好（「儲存，再新增一筆」也照樣帶）
-  function open(tableKey, id, preset = {}) {
+  // message：打開時寫在最上面的一行（安裝、撤機後接著抄表時說要填什麼）
+  function open(tableKey, id, preset = {}, { message = '' } = {}) {
     const schema = SCHEMAS[tableKey];
     const rec = id ? Store.get(tableKey, id) : null;
     if (id && !rec) return;
@@ -80,7 +81,8 @@ const Form = (() => {
       copyNote.textContent = schema.copy.note || '';
     }
     renderHistory(rec);
-    statusEl.hidden = true;
+    statusEl.textContent = message;
+    statusEl.hidden = !message;
     buildFields(rec, preset);
     dlg.style.height = '';
     dlg.showModal();
@@ -732,6 +734,9 @@ const Form = (() => {
     if (!again) {
       dlg.close();
       hooks.toast(ctx.count > 1 ? `已新增 ${ctx.count} 筆` : `已新增：${summary(saved)}`);
+      // 接著打開下一張表單（安裝、撤機後抄表，見 schema 的 next）；連續新增的不打開
+      const next = ctx.count === 1 ? ctx.schema.next?.(saved) : null;
+      if (next) setTimeout(() => open(next.table, null, next.preset, next), 0);
       return;
     }
     // 連續新增：保留 keep 欄位，其他換回預設值（編號跳下一號）；設備詳情裡帶入的設備照樣帶

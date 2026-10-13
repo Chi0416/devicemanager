@@ -54,6 +54,7 @@
 //   （資料表）status:    沒有 badge 時的標籤：status(列) 回傳 { label, cls } 或 null（目前的合約、已拆除）
 //   （資料表）note:      卡片最下面的一行：note(列) 回傳 { text, warn } 或 null
 //   （資料表）period:    依日期篩選與分組：{ key, unit: 'month' | 'day', label }，新到舊；沒有時依 order 或 sort 排序
+//                       fallback：key 空白時照哪個欄位排（抄表：結算月份空白的照抄表日期）；emptyHead：空白的那一組的標題
 //   （資料表）order:     沒有 period 時的排序：order(a, b)，和陣列的 sort 一樣
 //   （資料表）sort:      沒有 period、order 時的排序欄位（由小到大）
 //   （資料表）filter:    列表上方的篩選按鈕（依這個欄位：toggle 的選項，或從清單選的欄位的清單，例如狀態）
@@ -78,6 +79,7 @@
 //   （資料表）copy:      編輯時表單下面的「以這筆為底新增」按鈕（合約的「重新簽約」）：
 //                       { label 按鈕上的字, keys 帶過去的欄位, watch 改了這些欄位時 note 變橘色, note 按鈕下面的說明 }
 //   （資料表）history:   編輯時表單最下面的修改紀錄：history(這一筆) 回傳 [{ date, text }]
+//   （資料表）next:      新增好按「儲存」後接著打開的表單：next(存好的那一筆) 回傳 { table, preset, message } 或 null（安裝、撤機後抄表）
 //   （資料表）afterSave、afterRemove: 新增、修改、刪除之後要跟著改的（異動改了，設備的位置跟著算）：
 //                       afterSave(改之前（新增時是 null）, 改之後)、afterRemove(刪掉的那一筆)
 //   （資料表）seed:      全新的裝置上預先放的資料（id 用 seed- 開頭，沒改過時不算這台裝置的資料，見 storage.js）
@@ -200,9 +202,10 @@ const stillHere = r => !r.leaveDate || r.leaveDate > U.today();
 
 // 紀錄（異動、合約、抄表、保養、翻新、選配件）共用的欄位；計算見 records.js
 //   設備：存設備編號（24-0001）；表單上寫「位置」，打位置找設備（一個位置放一台），下面寫編號和名稱
+//   選好後寫那天機器在哪裡（撤機那天的抄表寫原來的客戶，不是剛撤回的倉庫）
 const deviceField = (more = {}) => ({
   key: 'device', label: '設備', formLabel: '位置', placeholder: '打位置找設備', type: 'ref', ref: 'devices', full: true,
-  note: v => Records.deviceNote(v.device), ...more,
+  note: v => Records.deviceNote(v.device), shown: v => (v.date ? Records.placeName(Records.locationAt(v.device, v.date)) : ''), ...more,
 });
 const dateField = (key, label, more = {}) => ({ key, label, type: 'date', default: () => U.today(), ...more });
 const noteField = () => ({ key: 'note', label: '備註', type: 'text', optional: true, full: true, multiline: true });
@@ -307,6 +310,8 @@ const SCHEMAS = {
     searchText: r => [Records.placeText(r.from), Records.placeText(r.to), Records.deviceText(r.device)].join(' '),
     searchHint: '搜尋位置',
     afterSave: (before, after) => [...Records.syncLocations(before ? [before] : []), ...Records.applyMoveStatus(before, after)],
+    // 安裝、撤機存好後接著打開抄表（按「儲存」時；連續新增時不打開）
+    next: r => Records.readingAfterMove(r),
     afterRemove: r => Records.syncLocations([r]),
     fields: [
       deviceField({ formLabel: '原位置', only: v => Records.moveDevices(v), onlyNote: v => Records.moveDevicesNote(v),
@@ -376,9 +381,11 @@ const SCHEMAS = {
 
   // 抄表：本期用量＝這次減上一次（保養、翻新填的張數一起排，依抄表日期）
   //   結算月份：是幾月的帳款，自己選（請假、放假、臨時去抄都有，不預設）；列表依結算月份分組
+  //     安裝當天抄的是起點，結算月份可以空白（不算帳，只當下一次的上一次）
   readings: {
     title: '抄表',
-    period: { key: 'month', unit: 'month', label: '結算月份', then: 'date' },
+    // 結算月份空白的（安裝當天的起點）：照抄表日期排，標題寫「起點（不算帳）」
+    period: { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '起點（不算帳）' },
     card: { title: r => Records.countsText(r) || '抄表', grid: [] },
     note: r => Records.readingNote(r),
     describe: r => Records.describe('readings', r),
@@ -388,7 +395,7 @@ const SCHEMAS = {
     fields: [
       deviceField(),
       dateField('date', '抄表日期', { keep: true }),
-      { key: 'month', label: '結算月份', type: 'month', note: v => Records.monthNote(v) },
+      { key: 'month', label: '結算月份', type: 'month', optional: true, note: v => Records.monthNote(v) },
       countField('bw', '黑白張數', { optional: false }),
       countField('color', '彩色張數'),
       noteField(),

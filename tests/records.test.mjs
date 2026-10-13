@@ -467,11 +467,11 @@ test('抄表：表單上寫上次的張數和本期用量；新增時同一天�
   assert.equal(Records.countNote({ device: '25-0001', date: '2026-01-25', bw: '', id: null }, 'bw'), '上次 900（2025/12/25）');
 });
 
-test('抄表的結算月份：自己選、不預設；同一台同一個月抄兩次時提醒（還是可以存）；列表依結算月份分組、卡片寫哪天抄的', () => {
+test('抄表的結算月份：自己選、不預設，空白是安裝當天的起點（不算帳）；同一台同一個月抄兩次時提醒（還是可以存）；列表依結算月份分組、卡片寫哪天抄的', () => {
   const { Records, SCHEMAS, add, field } = withDevices();
   const f = field('readings', 'month');
   assert.equal(f.type, 'month');
-  assert.equal(f.optional, undefined); // 必填
+  assert.equal(f.optional, true); // 安裝當天的起點可以空白
   assert.equal(f.default, undefined);  // 不預設
   assert.equal(f.keep, undefined);
   const r1 = add('readings', { device: '24-0001', date: '2026-10-03', month: '2026-09', bw: 1000 });
@@ -479,8 +479,9 @@ test('抄表的結算月份：自己選、不預設；同一台同一個月抄�
   assert.deepEqual(plain(f.note({ device: '24-0001', month: '2026-09', id: null })), { text: '這個月已經抄過了（10/03）', warn: true });
   assert.equal(f.note({ device: '24-0001', month: '2026-09', id: r1.id }), ''); // 編輯自己那筆
   assert.equal(f.note({ device: '25-0001', month: '2026-09', id: null }), '');  // 別台
-  assert.equal(f.note({ device: '24-0001', month: '', id: null }), '');
-  assert.deepEqual(plain(SCHEMAS.readings.period), { key: 'month', unit: 'month', label: '結算月份', then: 'date' });
+  assert.equal(f.note({ device: '24-0001', month: '', id: null }), '空白＝起點，不算帳');
+  assert.deepEqual(plain(SCHEMAS.readings.period),
+    { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '起點（不算帳）' });
   assert.deepEqual(plain(Records.readingNote(r2)), { text: '2026/10/28 抄・本期 黑白 500', warn: false });
   assert.equal(Records.describe('readings', r1), '#1001 2026/09 抄表');
 });
@@ -740,6 +741,31 @@ test('位置詳情的用量：最近 12 個月一個月一條（一季抄的三�
   const withAgo = [P('2025-08', 1, 1000, 100), ...periods];
   assert.equal(Math.round(Records.yearOverYear(withAgo) * 100), 9);
   assert.equal(Records.yearOverYear([]), null);
+});
+
+test('安裝、撤機存好後接著抄表：機器和日期帶好；安裝那筆的結算月份空白只當起點；位置寫那天在哪裡', () => {
+  const { Records, SCHEMAS, field, add } = withDevices();
+  const next = SCHEMAS.moves.next;
+  assert.deepEqual(plain(next({ type: '安裝', device: '24-0001', date: '2026-10-06' })), {
+    table: 'readings', preset: { device: '24-0001', date: '2026-10-06' },
+    message: '已存好安裝。接著抄表：這天的張數是起點，結算月份可以空白',
+  });
+  assert.equal(next({ type: '撤機', device: '24-0001', date: '2026-10-06' }).message, '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份');
+  assert.equal(next({ type: '移機', device: '24-0001', date: '2026-10-06' }), null);
+  assert.equal(next({ type: '其他', device: '24-0001', date: '2026-10-06' }), null);
+  // 安裝當天的起點（沒有結算月份）不算一期，下一次抄表的用量從它算起
+  add('moves', { device: '24-0001', date: '2026-10-06', type: '安裝', from: WH, to: DH });
+  Records.syncLocations();
+  add('readings', { device: '24-0001', date: '2026-10-06', month: '', bw: 1000, color: 100 });
+  add('readings', { device: '24-0001', date: '2026-11-05', month: '2026-10', bw: 3000, color: 400 });
+  assert.deepEqual(plain(Records.placeUsage(DH)).map(p => [p.month, p.months, p.bw, p.color]), [['2026-10', 1, 2000, 300]]);
+  // 抄表表單的位置寫那天機器在哪裡：撤機那天抄的是原來的客戶
+  add('moves', { device: '24-0001', date: '2026-12-01', type: '撤機', from: DH, to: WH });
+  Records.syncLocations();
+  const shown = field('readings', 'device').shown;
+  assert.equal(shown({ device: '24-0001', date: '2026-12-01' }), '大華貿易 3F');
+  assert.equal(shown({ device: '24-0001', date: '2026-12-02' }), '公司倉庫');
+  assert.equal(shown({ device: '24-0001', date: '' }), '');
 });
 
 test('要處理：合約到期、快到期（重新簽約、提前結束、位置停用了就不算），保固 30 天內到期（報廢的不算），空著的位置', () => {

@@ -28,8 +28,9 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   try { savedGroup = localStorage.getItem(GROUP_KEY) || ''; } catch (_) {}
   const state = { period: null, keyword: '', flashId: null, filter: '', group: groups.some(([k]) => k === savedGroup) ? savedGroup : '' };
 
+  // key 空白時照 fallback 的欄位（抄表：結算月份空白的照抄表日期）
   const periodOf = r => {
-    const d = String(r[period.key] ?? '');
+    const d = String(r[period.key] || (period.fallback && r[period.fallback]) || '');
     return period.unit === 'month' ? d.slice(0, 7) : d;
   };
   // 篩選值可以是年（2025）、年月（2025-08）或單日（2025-06-30）
@@ -184,7 +185,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   const compare = schema.order || ((a, b) => {
     const k = period ? period.key : schema.sort;
     if (!k) return 0;
-    const x = String(a[k] ?? ''), y = String(b[k] ?? '');
+    const x = period ? periodOf(a) : String(a[k] ?? ''), y = period ? periodOf(b) : String(b[k] ?? '');
     // 日期新到舊，同一天新增的在前（id 前段是新增的時間）；其他（編號）由小到大，數字照大小排（NB-2 在 NB-10 前面）
     const then = period?.then ? desc(String(a[period.then] ?? ''), String(b[period.then] ?? '')) : 0;
     return period ? desc(x, y) || then || desc(String(a.id), String(b.id)) : byText(x, y);
@@ -209,8 +210,9 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     if (period) {
       const out = [];
       rows.forEach(r => {
-        const g = String(r[period.key] ?? '');
-        const head = !g ? '沒有日期' : byKey[period.key].type === 'month' ? U.fmtMonth(g) : `${U.fmtDate(g)} ${U.weekday(g)}`;
+        const raw = String(r[period.key] ?? '');
+        const g = raw || `empty:${periodOf(r)}`;
+        const head = !raw ? period.emptyHead || '沒有日期' : byKey[period.key].type === 'month' ? U.fmtMonth(raw) : `${U.fmtDate(raw)} ${U.weekday(raw)}`;
         if (out.at(-1)?.key !== g) out.push({ key: g, head, rows: [] });
         out.at(-1).rows.push(r);
       });

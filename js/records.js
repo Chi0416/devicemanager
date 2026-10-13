@@ -303,6 +303,17 @@ const Records = (() => {
     return s && quietSet().has(key(s)) ? `這台是「${s}」，不能安裝` : '';
   }
 
+  // 存了安裝、撤機之後接著抄表（見 form.js 的 schema.next）：機器和日期帶好
+  //   安裝當天的張數是起點（結算月份可以空白）；撤機前最後一次抄表要結帳（填結算月份）
+  function readingAfterMove(r) {
+    if (!['安裝', '撤機'].includes(r.type) || !key(r.device)) return null;
+    return {
+      table: 'readings',
+      preset: { device: r.device, date: r.date },
+      message: r.type === '安裝' ? '已存好安裝。接著抄表：這天的張數是起點，結算月份可以空白' : '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份',
+    };
+  }
+
   // 從詳情頁新增異動時先選好的類型：機器在倉庫（或還沒有位置）先選安裝，在客戶那裡先選撤機；報廢的不選
   //   位置詳情：倉庫先選撤機，其他先選安裝
   function moveTypeFor(d) {
@@ -483,8 +494,10 @@ const Records = (() => {
   }
 
   // 表單上結算月份下面：這台設備這個月已經抄過了（重抄、換機時還是可以存）
+  //   空白時：只當起點、不算帳（安裝當天抄的）
   function monthNote(values) {
-    if (!values.month || !values.device) return '';
+    if (!values.month) return '空白＝起點，不算帳';
+    if (!values.device) return '';
     const dup = of('readings', values.device).find(r => r.id !== values.id && r.month === values.month);
     return dup ? { text: `這個月已經抄過了（${shortDate(dup.date)}）`, warn: true } : '';
   }
@@ -502,14 +515,14 @@ const Records = (() => {
 
   // ---------- 每個位置的用量：以「一期」算（兩次抄表之間），每月抄、一季抄、半年抄的都比得公平 ----------
   //   一筆抄表的用量＝那台機器這次減上一次抄表（中間保養填的張數不算分段，整期才不會少算）；算在抄表那天機器所在的位置
-  //   一期幾個月：結算月份和上一次抄表的結算月份差幾個月
+  //   一期幾個月：結算月份和上一次抄表的結算月份差幾個月；結算月份空白的（安裝當天的起點）只當上一次，不算一期
   //   同一個位置同一個結算月份有好幾筆（換機那個月、倉庫）加起來；第一次抄表、比上次少的（換主機板）不算
   //   一次把全部的位置算好（位置頁每張卡片都要，一個一個找太慢）：Map(位置編號 → [{ month, months, bw, color, total }]，舊到新)
   const monthIndex = m => { const [y, mo] = String(m).split('-').map(Number); return y * 12 + mo - 1; };
   function usageByPlace() {
     const at = locator();
     const lines = new Map();
-    [...Store.list('readings')].filter(r => r.month).sort(byDate('date')).forEach(r => {
+    [...Store.list('readings')].sort(byDate('date')).forEach(r => {
       const k = key(r.device);
       if (!k) return;
       if (!lines.has(k)) lines.set(k, []);
@@ -519,9 +532,12 @@ const Records = (() => {
     lines.forEach(line => {
       const last = {}; // 每一種張數上一次抄表的那一筆
       line.forEach(r => {
-        const diffs = COUNTS.map(([c]) => c).filter(c => isNum(r[c]) && last[c] && r[c] >= last[c][c]).map(c => [c, r[c] - last[c][c], last[c]]);
+        const diffs = r.month ? COUNTS.map(([c]) => c).filter(c => isNum(r[c]) && last[c] && r[c] >= last[c][c]).map(c => [c, r[c] - last[c][c], last[c]]) : [];
         if (diffs.length) {
-          const months = monthIndex(r.month) - monthIndex(diffs[0][2].month);
+          // 上一次是安裝當天的起點（沒有結算月份）：照日期換算幾個月
+          const prev = diffs[0][2];
+          const months = prev.month ? monthIndex(r.month) - monthIndex(prev.month)
+            : Math.round((Date.parse(r.date) - Date.parse(prev.date)) / (30.44 * 86400000));
           const place = key(at(r.device, r.date));
           if (!out.has(place)) out.set(place, new Map());
           const byMonth = out.get(place);
@@ -808,7 +824,7 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, keepPlace, disableCheck, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, keepPlace, disableCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
