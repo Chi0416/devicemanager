@@ -238,7 +238,40 @@ const Place = (() => {
         ${p.note ? `<span class="card-sub">${U.esc(Records.firstLine(p.note))}</span>` : ''}
         ${on.length ? links : '<span class="card-note">現在沒有機器</span>'}
       </div>
-      ${p.stock ? '' : usageHTML(p)}`;
+      ${p.stock ? '' : usageHTML(p)}
+      ${p.stock ? '' : consumablesHTML(p)}`;
+  }
+
+  // 耗材：這裡現在那台機器的碳粉、感光鼓…（見 records.js 的 consumablesAt）
+  //   一項一列：壽命（設定的，或這裡換過的平均）、已用幾 %（細長條，快到了橘色、超過紅色）、上次換哪天、預估什麼時候到
+  //   還算不出平均的：寫換過幾次、上次換到現在印了幾張
+  function consumablesHTML(p) {
+    const list = Records.consumablesAt(p.code);
+    if (!list.length) return '';
+    const n = v => U.fmtNum(v);
+    const rows = list.map(x => {
+      const life = x.lifeSet ? `壽命 ${n(x.life)} 張（設定）` : x.avg ? `平均每支 ${n(x.avg)} 張` : '';
+      const times = x.count ? `換過 ${x.count} 次` : '';
+      const head = [life, times].filter(Boolean).join('・');
+      const start = x.start ? `${x.start.install ? '安裝' : '上次換'} ${U.fmtDate(x.start.date)}` : '';
+      const tone = x.over ? 'danger' : x.soon ? 'warn' : '';
+      if (!x.life) {
+        return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
+          <span class="cons-sub">${U.esc([start, x.used !== null && `到現在${x.approx ? '約 ' : ' '}${n(x.used)} 張`].filter(Boolean).join('・'))}</span>
+          <small>再換一次才算得出平均</small></li>`;
+      }
+      const pct = Math.round((x.pct || 0) * 100);
+      const when = x.over ? '已經超過了' : x.eta ? `預估 ${Records.etaText(x.eta)}${x.kind === 'color' || /碳粉/.test(x.item) ? '用完' : '到'}` : '';
+      return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
+        <span class="meter ${tone}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(pct, 100)}" aria-label="${U.esc(x.item)}已用 ${pct}%"><i style="width:${Math.min(pct, 100)}%"></i></span>
+        <span class="cons-sub"><span>已用 ${pct}%${x.used !== null ? `（${x.approx ? '約 ' : ''}${n(x.used)} 張）` : ''}</span><span class="${tone}">${U.esc(when)}</span></span>
+        <small>${U.esc(start)}</small></li>`;
+    }).join('');
+    return `
+      <div class="detail-card cons-card">
+        <span class="uc-head"><b>耗材</b><span>${U.esc(Records.label(list[0].device))}</span></span>
+        <ul class="cons-list">${rows}</ul>
+      </div>`;
   }
 
   // 用量：最近 12 個月的長條圖（下面黑白、上面彩色，一季抄的同一季三個月一樣高，見 records.js 的 monthlyUsage）

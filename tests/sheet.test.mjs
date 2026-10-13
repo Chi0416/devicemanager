@@ -34,9 +34,9 @@ const sample = () => ({
     { id: 's2', name: '報廢', order: 4, color: '灰', quiet: true, disabled: false },
   ],
   options: [
-    { id: 'o1', list: '類別', name: '筆電', order: 1, disabled: false, gen: '' },
-    { id: 'o2', list: '品牌', name: 'ASUS', order: null, disabled: false, gen: '' },
-    { id: 'o3', list: '品牌', name: '舊品牌', order: null, disabled: true, gen: '' },
+    { id: 'o1', list: '類別', name: '筆電', order: 1, disabled: false, gen: '', life: null, pages: '' },
+    { id: 'o2', list: '品牌', name: 'ASUS', order: null, disabled: false, gen: '', life: null, pages: '' },
+    { id: 'o3', list: '品牌', name: '舊品牌', order: null, disabled: true, gen: '', life: null, pages: '' },
   ],
   // 位置：編號系統給的，設備、異動、合約存編號；以前的名字可以好幾行
   locations: [
@@ -186,8 +186,10 @@ test('缺了 id 欄又缺選填的欄：id 補在最後一個標題右邊，選�
     { table: 'options', tab: '選項', key: 'order', col: 3 },
     { table: 'options', tab: '選項', key: 'disabled', col: 4 },
     { table: 'options', tab: '選項', key: 'gen', col: 5 },
+    { table: 'options', tab: '選項', key: 'life', col: 6 },
+    { table: 'options', tab: '選項', key: 'pages', col: 7 },
   ]);
-  assert.deepEqual(r.headers['選項'], ['清單', '名稱', 'id', '順序', '停用', '世代']);
+  assert.deepEqual(r.headers['選項'], ['清單', '名稱', 'id', '順序', '停用', '世代', '壽命（張）', '算哪種張數']);
   assert.equal(r.data.options[0].name, '2F');
   assert.ok(!('disabled' in r.data.options[0]));
 });

@@ -628,6 +628,164 @@ const Records = (() => {
     return { text: `到 ${date}`, sub: '', warn: false };
   }
 
+  // ---------- 耗材（保養項目）：一支能印多少、已用幾 %、預估什麼時候到 ----------
+  //   壽命：保養項目有設定的用設定的（感光鼓 10 萬，提前回收保養）；沒設定的用這台機器在這個位置換過的平均（碳粉）
+  //   算哪種張數：保養項目設定的；空白時照名稱，碳粉 C、M、Y 只算彩色，其他算黑白加彩色
+  //   一段：這次換到下次換之間印了幾張；安裝那天的耗材當新的（安裝當天會抄表），安裝到第一次換也算一段
+  //   換的那天的張數：保養填的；沒填時照那天的抄表，沒有就用前後兩次推算（約）
+  //   預估：從上次換（或安裝）到最近一次抄表，平均一天印幾張，算還能印幾天
+  const TONER_COLOR = /碳粉\s*[CMY]$/i;
+  const SOON_DAYS = 14; // 預估這麼多天內到，算「耗材快到了」
+  const itemOption = name => Store.list('options').find(o => o.list === '保養項目' && key(o.name) === key(name)) || null;
+  function itemKind(name, opt = itemOption(name)) {
+    const v = String(opt?.pages ?? '').trim();
+    if (v) return v === '彩色' ? 'color' : 'total';
+    return TONER_COLOR.test(String(name ?? '').trim()) ? 'color' : 'total';
+  }
+  // 保養項目表單上算哪種張數下面：空白時會怎麼算
+  function pagesNote(v) {
+    if (String(v.pages ?? '').trim()) return '';
+    return itemKind(v.name, {}) === 'color' ? '空白時照名稱：只算彩色' : '空白時照名稱：黑白加彩色';
+  }
+  const pagesBy = (kind, p) => {
+    if (!p) return null;
+    if (kind === 'color') return isNum(p.color) ? p.color : null;
+    return isNum(p.bw) || isNum(p.color) ? (p.bw || 0) + (p.color || 0) : null;
+  };
+  // 那天的張數：那天抄的（或保養填的）；沒有時照前後兩次推算；只有之前的用之前的；approx 是推算的
+  function counterAt(points, date) {
+    const d = String(date ?? '');
+    const same = points.filter(p => String(p.date) === d).at(-1);
+    if (same) return { bw: same.bw, color: same.color, approx: false };
+    const before = points.filter(p => String(p.date) < d).at(-1);
+    const after = points.find(p => String(p.date) > d);
+    if (before && after) {
+      const t = (Date.parse(d) - Date.parse(before.date)) / (Date.parse(after.date) - Date.parse(before.date));
+      const mix = c => (isNum(before[c]) && isNum(after[c]) ? Math.round(before[c] + (after[c] - before[c]) * t) : null);
+      return { bw: mix('bw'), color: mix('color'), approx: true };
+    }
+    return before ? { bw: before.bw, color: before.color, approx: true } : null;
+  }
+
+  // 一次準備好每台機器的張數、保養、異動（總覽每個位置都要算）
+  function consumeContext() {
+    const byDevice = rows => {
+      const m = new Map();
+      rows.forEach(r => {
+        const k = key(r.device);
+        if (!k) return;
+        if (!m.has(k)) m.set(k, []);
+        m.get(k).push(r);
+      });
+      m.forEach(l => l.sort(byDate('date')));
+      return m;
+    };
+    const devicesAt = new Map();
+    Store.list('devices').forEach(d => {
+      const k = key(d.location);
+      if (!k) return;
+      if (!devicesAt.has(k)) devicesAt.set(k, []);
+      devicesAt.get(k).push(d);
+    });
+    return {
+      points: byDevice([...Store.list('readings'), ...WORKS.flatMap(t => Store.list(t)).filter(r => COUNTS.some(([c]) => isNum(r[c])))]),
+      works: byDevice(Store.list('maintenance')),
+      moves: byDevice(Store.list('moves')),
+      devicesAt,
+      items: Store.list('options').filter(o => o.list === '保養項目'),
+    };
+  }
+
+  // 這個位置現在那台機器的耗材：[{ item, kind, life, lifeSet, avg, count, start, used, pct, eta, over, soon, approx }]
+  //   只列換過的、或有設定壽命的；倉庫、空著的位置、一格放好幾台的不算
+  //   start：上次換（或安裝）{ date, install }；used：到最近一次抄表印了幾張；eta：預估哪天到（ISO），算不出來是 null
+  function consumablesAt(placeCode, c = consumeContext()) {
+    const pk = key(placeCode);
+    const here = c.devicesAt.get(pk) || [];
+    if (here.length !== 1 || place(placeCode)?.stock) return [];
+    const d = here[0];
+    const dk = key(d.code);
+    const points = c.points.get(dk) || [];
+    const latest = points.at(-1) || null;
+    // 裝進這個位置那天（最後一次搬進來）；之前在別的地方換的不算
+    const inAt = (c.moves.get(dk) || []).filter(m => key(m.to) === pk).at(-1) || null;
+    const since = inAt ? String(inAt.date) : '';
+    const works = (c.works.get(dk) || []).filter(r => String(r.date) >= since);
+    const names = [...new Map([...c.items.map(o => [key(o.name), o.name]), ...works.map(r => [key(r.item), r.item])]).values()].filter(Boolean);
+    return names.map(item => {
+      const opt = c.items.find(o => key(o.name) === key(item)) || null;
+      const kind = itemKind(item, opt || {});
+      const reps = works.filter(r => key(r.item) === key(item));
+      const lifeSet = isNum(opt?.life) && opt.life > 0;
+      if (!reps.length && !lifeSet) return null;
+      // 每一次換（安裝那天當新的）的張數
+      const marks = [...(inAt ? [{ date: inAt.date, install: true }] : []), ...reps.map(r => ({ date: r.date, install: false, rec: r }))]
+        .map(m => {
+          const own = m.rec && COUNTS.some(([k]) => isNum(m.rec[k])) ? { bw: m.rec.bw, color: m.rec.color, approx: false } : counterAt(points, m.date);
+          return { ...m, pages: pagesBy(kind, own), approx: !!own?.approx };
+        });
+      const gaps = marks.slice(1).map((m, i) => (m.pages !== null && marks[i].pages !== null ? m.pages - marks[i].pages : null)).filter(g => g > 0);
+      const avg = gaps.length ? Math.round(gaps.reduce((n, g) => n + g, 0) / gaps.length) : null;
+      const life = lifeSet ? opt.life : avg;
+      const start = marks.at(-1) || null;
+      const now = latest && start && String(latest.date) >= String(start.date) ? pagesBy(kind, latest) : null;
+      const used = start && start.pages !== null && now !== null ? Math.max(0, now - start.pages) : null;
+      const days = start && latest ? (Date.parse(latest.date) - Date.parse(start.date)) / 86400000 : 0;
+      let eta = null;
+      if (life && used !== null && used < life && days >= 7 && used > 0) {
+        const left = (life - used) / (used / days);
+        eta = new Date(Date.parse(latest.date) + left * 86400000).toISOString().slice(0, 10);
+      }
+      const over = !!(life && used !== null && used >= life);
+      return {
+        item, kind, life, lifeSet, avg, count: reps.length,
+        start: start && { date: start.date, install: start.install }, used,
+        pct: life && used !== null ? used / life : null, eta, over,
+        soon: over || (eta !== null && daysTo(eta) <= SOON_DAYS), approx: !!start?.approx,
+        device: d,
+      };
+    }).filter(Boolean);
+  }
+
+  // 要處理的「耗材快到了」：預估 14 天內到、或已經超過的，每個位置每一項一筆；依預估的日子排（超過的在前）
+  function consumablesDue() {
+    const c = consumeContext();
+    return Store.list('locations').filter(p => !p.stock && !p.disabled)
+      .flatMap(p => consumablesAt(p.code, c).filter(x => x.soon).map(x => ({ ...x, place: p, id: `${p.id}:${x.item}` })))
+      .sort((a, b) => (b.over - a.over) || cmp(String(a.eta ?? ''), String(b.eta ?? '')));
+  }
+
+  // 預估的日子寫成「2027/01 中旬」（1–10 上旬、11–20 中旬、21 以後下旬）
+  function etaText(iso) {
+    if (!iso) return '';
+    const day = Number(iso.slice(8, 10));
+    return `${iso.slice(0, 4)}/${iso.slice(5, 7)} ${day <= 10 ? '上旬' : day <= 20 ? '中旬' : '下旬'}`;
+  }
+
+  // 保養表單上項目下面（兩行）：這台上次換這一項是哪天、到現在印了幾張（填了張數用填的）、這個位置的平均
+  //   比平均少很多（不到七成）時提醒：換得太快，可能機器有問題或耗材被拿走
+  function itemNote(values) {
+    if (!values.device || !values.item || !values.date) return '';
+    const c = consumeContext();
+    const dk = key(values.device);
+    const kind = itemKind(values.item);
+    const prev = (c.works.get(dk) || []).filter(r => key(r.item) === key(values.item) && r.id !== values.id && String(r.date) < String(values.date)).at(-1);
+    if (!prev) return '';
+    const points = c.points.get(dk) || [];
+    const at = r => (COUNTS.some(([k]) => isNum(r[k])) ? r : counterAt(points, r.date));
+    const typed = { bw: U.parseNum(String(values.bw ?? '')), color: U.parseNum(String(values.color ?? '')) };
+    const nowPages = isNum(typed.bw) || isNum(typed.color) ? pagesBy(kind, typed) : pagesBy(kind, counterAt(points, values.date));
+    const prevPages = pagesBy(kind, at(prev));
+    const avg = consumablesAt(locationAt(values.device, values.date), c).find(x => key(x.item) === key(values.item))?.avg ?? null;
+    const head = `上次換 ${shortDate(prev.date)}`;
+    if (nowPages === null || prevPages === null || nowPages < prevPages) return head;
+    const pages = nowPages - prevPages;
+    // 項目是半格：平常兩行寫上次換、到現在幾張；比平均少很多時第二行寫平均
+    return avg && pages < avg * 0.7
+      ? { text: `${head}，約 ${fmt(pages)} 張\n比平均 ${fmt(avg)} 少很多`, warn: true }
+      : `${head}\n到現在約 ${fmt(pages)} 張`;
+  }
+
   // ---------- 保養、翻新 ----------
   // 保養卡片最下面一行：張數、備註的第一行
   function workNote(r) {
@@ -828,7 +986,7 @@ const Records = (() => {
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
-    workNote, refurbNote, serialNote,
+    workNote, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade,
   };
 })();

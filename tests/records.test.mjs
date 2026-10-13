@@ -768,6 +768,60 @@ test('安裝、撤機存好後接著抄表：機器和日期帶好；安裝那�
   assert.equal(shown({ device: '24-0001', date: '' }), '');
 });
 
+test('耗材：安裝那天當新的、每次換之間印幾張的平均、已用幾 %、預估哪天到；有設定壽命的用設定的；快到了列在要處理', () => {
+  const { Store, Records, add } = withDevices(); // 今天 2026-10-11
+  add('moves', { device: '24-0001', date: '2026-06-01', type: '安裝', from: WH, to: DH });
+  Records.syncLocations();
+  const read = (date, month, bw) => add('readings', { device: '24-0001', date, month, bw, color: 0 });
+  read('2026-06-01', '', 100000); // 安裝當天的起點
+  read('2026-07-01', '2026-06', 104000);
+  read('2026-08-01', '2026-07', 108000);
+  read('2026-09-01', '2026-08', 112000);
+  read('2026-10-01', '2026-09', 116000);
+  add('maintenance', { device: '24-0001', date: '2026-07-16', item: '碳粉 K', bw: 106000, color: 0 }); // 安裝到這次：6,000 張
+  add('maintenance', { device: '24-0001', date: '2026-09-16', item: '碳粉 K' }); // 沒填張數：前後兩次抄表推算 114,000
+  const k = Records.consumablesAt(DH).find(x => x.item === '碳粉 K');
+  assert.equal(k.kind, 'total');
+  assert.equal(k.avg, 7000); // (6,000 + 8,000) / 2
+  assert.equal(k.life, 7000);
+  assert.equal(k.lifeSet, false);
+  assert.equal(k.count, 2);
+  assert.deepEqual(plain(k.start), { date: '2026-09-16', install: false });
+  assert.equal(k.used, 2000);
+  assert.equal(k.approx, true);
+  assert.equal(Math.round(k.pct * 100), 29);
+  assert.equal(k.eta, '2026-11-07'); // 15 天印 2,000 張，剩 5,000 張
+  assert.equal(k.soon, false);
+  assert.equal(Records.etaText(k.eta), '2026/11 上旬');
+  // 感光鼓：預設壽命 10 萬（設定的），沒換過，從安裝算起
+  const drum = () => Records.consumablesAt(DH).find(x => x.item === '感光鼓');
+  assert.equal(drum().lifeSet, true);
+  assert.equal(drum().life, 100000);
+  assert.equal(drum().used, 16000);
+  assert.equal(drum().soon, false);
+  // 壽命改成 17,000：一週多就到了，列在要處理；改成 15,000：已經超過
+  const opt = Store.list('options').find(o => o.list === '保養項目' && o.name === '感光鼓');
+  Store.update('options', opt.id, { life: 17000 });
+  assert.equal(drum().soon, true);
+  assert.deepEqual(plain(Records.consumablesDue().map(x => [x.place.code, x.item, x.over])), [[DH, '感光鼓', false]]);
+  Store.update('options', opt.id, { life: 15000 });
+  assert.equal(drum().over, true);
+  // 沒換過、也沒設定壽命的不列；倉庫不算
+  assert.equal(Records.consumablesAt(DH).some(x => x.item === '廢粉盒'), false);
+  assert.deepEqual(plain(Records.consumablesAt(WH)), []);
+  // 算哪種張數：碳粉 C、M、Y 只算彩色，保養項目設定的優先
+  assert.equal(Records.itemKind('碳粉 C', {}), 'color');
+  assert.equal(Records.itemKind('碳粉 K', {}), 'total');
+  assert.equal(Records.itemKind('感光鼓', { pages: '彩色' }), 'color');
+  assert.equal(Records.pagesNote({ name: '碳粉 Y', pages: '' }), '空白時照名稱：只算彩色');
+  // 保養表單：上次換到現在印了幾張，比平均少很多時提醒
+  assert.deepEqual(plain(Records.itemNote({ device: '24-0001', item: '碳粉 K', date: '2026-10-10', bw: '', color: '' })),
+    { text: '上次換 09/16，約 2,000 張\n比平均 7,000 少很多', warn: true });
+  assert.equal(Records.itemNote({ device: '24-0001', item: '碳粉 K', date: '2026-10-10', bw: '120000', color: '0' }),
+    '上次換 09/16\n到現在約 6,000 張');
+  assert.equal(Records.itemNote({ device: '24-0001', item: '碳粉 C', date: '2026-10-10' }), '');
+});
+
 test('要處理：合約到期、快到期（重新簽約、提前結束、位置停用了就不算），保固 30 天內到期（報廢的不算），空著的位置', () => {
   const { Store, Records, add, d1, d2 } = withDevices(); // 今天 2026-10-11
   const ids = list => plain(list.map(r => r.id));

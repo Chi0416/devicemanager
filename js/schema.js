@@ -109,7 +109,8 @@ const SORTED_LISTS = ['類別', '機型', '保養項目', '選配件'];
 // 預設項目（沒改過時不算這台裝置的資料），照寫的順序排；id 的開頭：類別是 seed-1…，其他加上清單的代號
 const DEFAULT_OPTIONS = [
   { list: '類別', id: '', names: ['筆電', '桌機', '螢幕', '印表機', '網路設備', '手機', '平板'] },
-  { list: '保養項目', id: 'mt', names: ['碳粉 K', '碳粉 C', '碳粉 M', '碳粉 Y', '感光鼓', '廢粉盒', '清潔保養'] },
+  // 感光鼓預設壽命 10 萬張（提前回收保養，不等故障）；碳粉空白，用這個客戶的平均
+  { list: '保養項目', id: 'mt', names: ['碳粉 K', '碳粉 C', '碳粉 M', '碳粉 Y', '感光鼓', '廢粉盒', '清潔保養'], extra: { 感光鼓: { life: 100000 } } },
   { list: '選配件', id: 'part', names: ['送紙匣', '裝訂器', '傳真卡', '底座'] },
 ];
 
@@ -117,6 +118,7 @@ const DEFAULT_OPTIONS = [
 const toggleOf = list => list.map(o => ({ value: o.value, label: o.value, tone: o.tone, match: new RegExp(`^${o.value}$`) }));
 const MOVE_TYPES = [{ value: '安裝', tone: 'blue' }, { value: '撤機', tone: 'gray' }, { value: '移機', tone: 'purple' }, { value: '其他', tone: '' }];
 const COUNTRIES = [{ value: '美', tone: '' }, { value: '日', tone: '' }]; // 翻新的國別
+const PAGE_KINDS = [{ value: '全部', tone: '' }, { value: '彩色', tone: '' }]; // 保養項目算哪種張數（全部＝黑白加彩色）
 
 // 設備的編號：年份兩位數＋流水號四位數（26-0001），年份照購買日期，沒填購買日期用今年
 //   同一年的取最大的號碼往下編；舊的、自己打的編號（NB-001）不影響
@@ -415,7 +417,8 @@ const SCHEMAS = {
     fields: [
       deviceField(),
       dateField('date', '日期', { keep: true }),
-      { key: 'item', label: '項目', type: 'ref', ref: 'options', list: '保養項目' },
+      // 下面寫這台上次換這一項是哪天、到現在印了幾張（換得太快時提醒）
+      { key: 'item', label: '項目', type: 'ref', ref: 'options', list: '保養項目', note: v => Records.itemNote(v), noteLines: 2 },
       countField('bw', '黑白張數'),
       countField('color', '彩色張數'),
       noteField(),
@@ -489,11 +492,13 @@ const SCHEMAS = {
   options: {
     title: '選項',
     noList: true,
-    formOrder: ['list', 'name', 'gen'],
+    formOrder: ['list', 'name', 'gen', 'life', 'pages'],
     target: { name: 'name', group: 'list', order: 'order', active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
     unique: [['list', 'name']],
     uniqueMsg: dup => `${dup.list}清單裡已經有「${dup.name}」了`,
-    seed: () => DEFAULT_OPTIONS.flatMap(o => o.names.map((name, i) => ({ id: `seed-${o.id}${i + 1}`, list: o.list, name, order: i + 1, disabled: false }))),
+    seed: () => DEFAULT_OPTIONS.flatMap(o => o.names.map((name, i) => ({
+      id: `seed-${o.id}${i + 1}`, list: o.list, name, order: i + 1, disabled: false, ...(o.extra?.[name] || {}),
+    }))),
     fields: [
       { key: 'list',     label: '清單', type: 'text', full: true, suggest: OPTION_LISTS,
         toggle: OPTION_LISTS.map(v => ({ value: v, label: v, tone: '', match: new RegExp(`^${v}$`) })) },
@@ -504,6 +509,11 @@ const SCHEMAS = {
       //   試算表上排在最後（後來加的欄），表單上在名稱下面（formOrder）
       { key: 'gen',      label: '世代', type: 'text', optional: true, full: true, suggest: GENERATIONS,
         showIf: v => v.list === '機型', note: v => Records.genNote(v) },
+      // 只有保養項目有：壽命幾張（有設定用設定的，空白時用這個客戶的平均）、算哪種張數（空白時照名稱，碳粉 C、M、Y 只算彩色）
+      { key: 'life',     label: '壽命（張）', type: 'number', optional: true,
+        showIf: v => v.list === '保養項目', hint: '空白時用這個客戶的平均' },
+      { key: 'pages',    label: '算哪種張數', type: 'text', optional: true, toggle: toggleOf(PAGE_KINDS),
+        showIf: v => v.list === '保養項目', note: v => Records.pagesNote(v) },
     ],
   },
 

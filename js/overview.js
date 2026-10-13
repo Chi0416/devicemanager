@@ -1,6 +1,6 @@
 // 總覽：最上面寫共幾台、幾種機型；下面是狀態方塊、要處理、各機型有幾台（計算見 records.js）
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
-//   要處理：合約到期、快到期，保固 30 天內到期，空著的位置；依資料算，處理掉就自己不見，沒有的那一列不列
+//   要處理：合約到期、快到期，保固 30 天內到期，耗材快到了（預估 14 天內），空著的位置；依資料算，處理掉就自己不見，沒有的那一列不列
 //     合約、保固：點一列打開那份清單（#todo-sheet），點一項打開那份合約、那台設備；空著的位置：到位置頁、篩好空著的（onPlaces）
 //   機型：依世代分組（機型清單的「世代」，空白時照型號猜），每組寫小計；組裡兩欄、照機型清單的順序，細長條是台數
 //     點一個到設備頁，篩好狀態和機型（onPick，見 app.js）
@@ -26,6 +26,7 @@ function createOverview({ onPick, onPlaces }) {
     doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
     shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/>',
     pin: '<path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.4"/>',
+    drop: '<path d="M12 3.5s6 6.4 6 10.8a6 6 0 0 1-12 0C6 9.9 12 3.5 12 3.5z"/>',
   };
   const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
@@ -47,6 +48,17 @@ function createOverview({ onPick, onPlaces }) {
       summary: list => `最近一台 ${U.fmtDate(list[0].warranty)}`,
       row: d => ({ title: Records.label(d), sub: [Records.placeName(d.location), warrantyNote(d)?.text].filter(Boolean).join('・') }),
       open: d => Detail.open(d.id),
+    },
+    {
+      key: 'consumables', title: '耗材快到了', icon: 'drop', tone: 'warn',
+      list: () => Records.consumablesDue(),
+      summary: list => {
+        const by = new Map();
+        list.forEach(x => by.set(x.item, (by.get(x.item) || 0) + 1));
+        return `預估 14 天內・${[...by].map(([k, v]) => `${k} ${v}`).join('、')}`;
+      },
+      row: x => ({ title: `${x.place.name} · ${x.item}`, sub: [Records.label(x.device), x.over ? '已經超過了' : `預估 ${Records.etaText(x.eta)}`].join('・') }),
+      open: x => Place.open(x.place.id),
     },
     {
       key: 'places', title: '空著的位置', icon: 'pin', tone: 'blue',
