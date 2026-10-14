@@ -527,7 +527,7 @@ test('翻新：翻新日期、入庫日、工程師（人員）、序號、國�
 test('保養項目：預設碳粉、感光鼓…，一筆選一個；幾筆在用、不能刪、改名一起改；不在清單裡的提醒', () => {
   const { Store, Refs, field, add } = withDevices();
   const f = field('maintenance', 'item');
-  assert.deepEqual(plain(Refs.items(f).map(r => r.name)).sort(), ['廢粉盒', '感光鼓', '清潔保養', '碳粉 C', '碳粉 K', '碳粉 M', '碳粉 Y'].sort());
+  assert.deepEqual(plain(Refs.items(f).map(r => r.name)).sort(), ['加熱組', '廢粉盒', '感光鼓', '清潔保養', '碳粉 C', '碳粉 K', '碳粉 M', '碳粉 Y'].sort());
   assert.deepEqual(plain(Refs.items(field('parts', 'name')).map(r => r.name)).sort(), ['傳真卡', '底座', '裝訂器', '送紙匣'].sort());
   assert.equal(Store.ownCount(), 5); // 只有自己加的位置和設備，預設項目不算
   const s = add('maintenance', { device: '24-0001', date: '2026-09-10', item: '碳粉 K' });

@@ -70,7 +70,6 @@ const data = {
   statuses: SCHEMAS.statuses.seed(),
   options: [
     ...SCHEMAS.options.seed(),
-    { id: uid(), list: '類別', name: '多功能事務機', order: 0, disabled: false },
     { id: uid(), list: '品牌', name: 'Ricoh', order: null, disabled: false },
     ...MODELS.map((name, i) => ({ id: uid(), list: '機型', name, order: i + 1, disabled: false })),
   ],
@@ -113,7 +112,7 @@ STATUSES.forEach((status, n) => {
   // 保固：買來 1 年；有 3 台在 30 天內到期
   const warranty = n === 1 || n === 7 || n === 23 ? addDays(TODAY, int(5, 28)) : addMonths(buy, 12);
   const d = rec('devices', {
-    code, name: `#${1001 + n * 37}`, status, category: '多功能事務機', brand: 'Ricoh', model,
+    code, name: `#${1001 + n * 37}`, status, category: '事務機', brand: 'Ricoh', model,
     serial: `3${int(100, 999)}R${int(100000, 999999)}`, board: `RNP${hex(12)}`, location: place(STOCK), keeper: pick(KEEPERS),
     buyDate: buy, price: int(4, 12) * 10000, vendor: pick(VENDORS).name, warranty, link: '', note: '',
   });

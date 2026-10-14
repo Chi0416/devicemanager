@@ -49,19 +49,21 @@ function withData() {
 
 test('全新的裝置：類別先放預設項目（照寫的順序），沒改過時不算這台裝置的資料', () => {
   const { Store, Refs, field } = app();
-  assert.deepEqual(names(Refs.items(field('devices', 'category'))), ['筆電', '桌機', '螢幕', '印表機', '網路設備', '手機', '平板']);
-  assert.deepEqual(names(Refs.items(field('maintenance', 'item'))), ['碳粉 K', '碳粉 C', '碳粉 M', '碳粉 Y', '感光鼓', '廢粉盒', '清潔保養']);
+  assert.deepEqual(names(Refs.items(field('devices', 'category'))), ['事務機', '打卡鐘', '碎紙機']);
+  assert.deepEqual(names(Refs.items(field('maintenance', 'item'))), ['碳粉 K', '碳粉 C', '碳粉 M', '碳粉 Y', '感光鼓', '加熱組', '廢粉盒', '清潔保養']);
+  // 感光鼓、加熱組預設壽命 10 萬張
+  assert.deepEqual(plain(Store.list('options').filter(o => o.life).map(o => [o.name, o.life])), [['感光鼓', 100000], ['加熱組', 100000]]);
   assert.equal(Store.ownCount(), 0);
   // 改過一項就算
   const seed = Store.list('options')[0];
-  Store.update('options', seed.id, { name: '筆記型電腦' });
+  Store.update('options', seed.id, { name: '多功能事務機' });
   assert.equal(Store.ownCount(), 1);
 });
 
 test('清單功能做好之前的資料（沒有選項表）：讀進來時補上預設的類別', () => {
   const { Store } = app({ 'devmgr.v1': JSON.stringify({ devices: [{ id: 'd1', code: 'NB-001', name: '筆電' }] }) });
   assert.equal(Store.list('devices').length, 1);
-  assert.equal(Store.list('options').filter(o => o.list === '類別').length, 7);
+  assert.equal(Store.list('options').filter(o => o.list === '類別').length, 3);
 });
 
 test('下拉選單：選項依清單分；人員（保管人、工程師）、廠商整張表都列；停用、已離職的不列；依名字排（位置依名稱，不是編號）', () => {

@@ -220,7 +220,7 @@ const blankDevice = {
   buyDate: null, price: null, vendor: '', warranty: null, link: '', note: '',
 };
 // 位置寫的是名字（舊資料、試算表手打的）：同步時建一個位置、換成編號（見 records.js 的 fixPlaceRefs）
-const DEVICE = { ...blankDevice, code: 'NB-001', name: '會議室筆電', category: '筆電', location: '3F 會議室', buyDate: '2025-03-15', price: 32000 };
+const DEVICE = { ...blankDevice, code: 'NB-001', name: '會議室筆電', category: '事務機', location: '3F 會議室', buyDate: '2025-03-15', price: 32000 };
 const PRINTER = { ...blankDevice, code: 'PR-001', name: '印表機', category: '印表機' };
 const COL = { code: 0, name: 1, status: 2, board: 7, location: 8, keeper: 9, buyDate: 10, price: 11, id: 16 };
 // 在試算表裡手打的一列（沒有 id）
@@ -246,7 +246,7 @@ test('連結：雲端沒有試算表時建立一份「設備管理」，寫入�
   assert.ok(d.toasts.includes('已連結 Google 帳號'));
   assert.equal(fake.files[id].title, '設備管理');
   assert.deepEqual(fake.files[id].appProperties, { devicemanager: '1' });
-  assert.deepEqual(fake.values(id, '設備')[1].slice(0, 4), ['NB-001', '會議室筆電', '使用中', '筆電']);
+  assert.deepEqual(fake.values(id, '設備')[1].slice(0, 4), ['NB-001', '會議室筆電', '使用中', '事務機']);
   assert.equal(fake.values(id, '設備')[1][COL.buyDate], d.Sheet.toSerial('2025-03-15'));
   assert.deepEqual(fake.values(id, '_meta'), [['version', 1]]);
   assert.equal(fake.sheet(id, '_meta').hidden, true);
@@ -717,8 +717,8 @@ test('連結：只有預設的項目（類別、保養項目、選配件）時�
   assert.equal(d.Sync.state().linked, true);
   const id = d.Sync.state().url.split('/').pop();
   assert.deepEqual(fake.values(id, '選項')[0], ['清單', '名稱', '順序', '停用', '世代', '壽命（張）', '算哪種張數', 'id']);
-  assert.equal(fake.values(id, '選項').length, 19); // 類別 7、保養項目 7、選配件 4
-  assert.deepEqual(fake.values(id, '選項')[1].slice(0, 4), ['類別', '筆電', 1, false]);
+  assert.equal(fake.values(id, '選項').length, 16); // 類別 3、保養項目 8、選配件 4
+  assert.deepEqual(fake.values(id, '選項')[1].slice(0, 4), ['類別', '事務機', 1, false]);
 });
 
 test('連結：試算表上只有預設的類別時，當作雲端還沒有資料，這台裝置的資料存過去', async () => {
@@ -782,11 +782,11 @@ test('試算表少了選填的欄，同一次也有新增的設備：新的那�
 test('在試算表裡改了清單的名字：用到舊名字的設備一起改，同一次寫回試算表', async () => {
   const { fake, d, id } = await linked();
   const opts = fake.values(id, '選項');
-  const row = opts.findIndex(r => r[1] === '筆電') + 1;
-  fake.setCell(id, '選項', row, 1, '筆記型電腦');
+  const row = opts.findIndex(r => r[1] === '事務機') + 1;
+  fake.setCell(id, '選項', row, 1, '多功能事務機');
   await d.Sync.syncNow();
-  assert.equal(d.Store.list('devices')[0].category, '筆記型電腦');
-  assert.equal(fake.values(id, '設備')[1][3], '筆記型電腦');
+  assert.equal(d.Store.list('devices')[0].category, '多功能事務機');
+  assert.equal(fake.values(id, '設備')[1][3], '多功能事務機');
   assert.equal(d.Sync.state().pending, 0);
   // 再同步一次不會再改
   const calls = fake.calls.length;
@@ -796,24 +796,24 @@ test('在試算表裡改了清單的名字：用到舊名字的設備一起改�
 
 test('在這台裝置改了清單的名字（還沒同步），試算表也改了別的名字：以這台的為準', async () => {
   const { fake, d, id } = await linked();
-  const opt = d.Store.list('options').find(o => o.name === '筆電');
+  const opt = d.Store.list('options').find(o => o.name === '事務機');
   const before = { ...opt };
-  d.Store.update('options', opt.id, { name: 'Notebook' });
+  d.Store.update('options', opt.id, { name: '影印機' });
   d.Refs?.renameRefs?.('options', before, d.Store.get('options', opt.id));
-  const row = fake.values(id, '選項').findIndex(r => r[1] === '筆電') + 1;
-  fake.setCell(id, '選項', row, 1, '筆記型電腦');
+  const row = fake.values(id, '選項').findIndex(r => r[1] === '事務機') + 1;
+  fake.setCell(id, '選項', row, 1, '多功能事務機');
   await d.Sync.syncNow();
-  assert.equal(d.Store.get('options', opt.id).name, 'Notebook');
-  assert.equal(fake.values(id, '選項')[row - 1][1], 'Notebook');
+  assert.equal(d.Store.get('options', opt.id).name, '影印機');
+  assert.equal(fake.values(id, '選項')[row - 1][1], '影印機');
 });
 
 test('在試算表裡勾「停用」、新增人員（沒有 id），同步後 App 也有', async () => {
   const { fake, d, id } = await linked();
-  const row = fake.values(id, '選項').findIndex(r => r[1] === '平板') + 1;
+  const row = fake.values(id, '選項').findIndex(r => r[1] === '碎紙機') + 1;
   fake.setCell(id, '選項', row, 3, true);
   fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '2020/2/1', '', '備註']);
   await d.Sync.syncNow();
-  assert.equal(d.Store.list('options').find(o => o.name === '平板').disabled, true);
+  assert.equal(d.Store.list('options').find(o => o.name === '碎紙機').disabled, true);
   const p = d.Store.list('people')[0];
   assert.equal(p.name, '王小明');
   assert.equal(p.joinDate, '2020-02-01');
@@ -824,10 +824,10 @@ test('在試算表裡勾「停用」、新增人員（沒有 id），同步後 A
 
 test('試算表刪掉選項：提醒寫出是哪一份清單的哪一項', async () => {
   const { fake, d, id } = await linked();
-  const row = fake.values(id, '選項').findIndex(r => r[1] === '手機');
+  const row = fake.values(id, '選項').findIndex(r => r[1] === '打卡鐘');
   fake.sheet(id, '選項').grid.splice(row, 1);
   await d.Sync.syncNow();
-  assert.match(d.inbox.at(-1).body, /選項：類別 手機/);
+  assert.match(d.inbox.at(-1).body, /選項：類別 打卡鐘/);
 });
 
 test('舊版建立的試算表沒有人員、廠商分頁：補建回來，不算看不懂的地方', async () => {
