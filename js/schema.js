@@ -45,7 +45,7 @@
 //                value 是存的值；tone 是顏色（列表上的標籤也用這個顏色）；match 是認得的寫法（試算表手打的字）
 //   was:         這個欄位以前在試算表上的標題（改名前），讀得到舊標題的試算表，同步時改成新標題
 //   （資料表）title:     頁面標題，也是試算表的分頁名稱
-//   （資料表）formTitle: 表單標題用的名稱，沒有時用 title
+//   （資料表）formTitle: 表單標題用的名稱，沒有時用 title；可以是函式：formTitle(這一筆或新增時帶入的值)（選項寫清單的名稱）
 //   （資料表）formOrder: 表單上先排的欄位（其他照 fields 的順序）；試算表照 fields 的順序（異動：表單上類型在最上面）
 //   （資料表）describe:  一筆資料的簡短說明（儲存後的提示、提醒裡用）：describe(列)；沒有時用 card 的編號、名稱、標籤
 //   （資料表）unit:      筆數的單位（「3 台設備」），被清單引用時的說明用
@@ -491,6 +491,7 @@ const SCHEMAS = {
   //   順序：可以排序的清單在清單頁用 ↑ ↓ 排（存 1、2、3…），表單上不顯示；沒有順序的排在後面、依名字排
   options: {
     title: '選項',
+    formTitle: r => r?.list || '選項', // 「編輯保養項目」「新增機型」
     noList: true,
     formOrder: ['list', 'name', 'gen', 'life', 'pages'],
     target: { name: 'name', group: 'list', order: 'order', active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
@@ -500,7 +501,8 @@ const SCHEMAS = {
       id: `seed-${o.id}${i + 1}`, list: o.list, name, order: i + 1, disabled: false, ...(o.extra?.[name] || {}),
     }))),
     fields: [
-      { key: 'list',     label: '清單', type: 'text', full: true, suggest: OPTION_LISTS,
+      // 屬於哪一份清單：都是從那份清單裡新增、編輯（或下拉選單的「＋ 新增」），表單上不顯示，免得以為是要選什麼
+      { key: 'list',     label: '清單', type: 'text', full: true, hidden: true, suggest: OPTION_LISTS,
         toggle: OPTION_LISTS.map(v => ({ value: v, label: v, tone: '', match: new RegExp(`^${v}$`) })) },
       { key: 'name',     label: '名稱', type: 'text', full: true },
       { key: 'order',    label: '順序', type: 'number', optional: true, hidden: true },

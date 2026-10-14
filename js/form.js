@@ -70,7 +70,10 @@ const Form = (() => {
     const first = schema.formOrder || [];
     const fields = [...first.map(k => schema.fields.find(f => f.key === k)), ...schema.fields.filter(f => !first.includes(f.key))];
     ctx = { tableKey, schema, id, count: 0, fields, preset };
-    titleEl.textContent = `${id ? '編輯' : '新增'}${schema.formTitle || schema.title}`;
+    // 標題：選項寫它屬於哪一份清單（「編輯保養項目」），其他寫表的名稱
+    const name = typeof schema.formTitle === 'function' ? schema.formTitle(rec || preset) : schema.formTitle || schema.title;
+    ctx.name = name;
+    titleEl.textContent = `${id ? '編輯' : '新增'}${name}`;
     setCloseLabel('取消');
     resetDelete();
     delBtn.hidden = !id;
@@ -326,7 +329,7 @@ const Form = (() => {
       renderMany(i);
       setError(i, '');
       renderNotes();
-    }, `${ctx.schema.formTitle || ctx.schema.title}的${f.label}`));
+    }, `${ctx.name}的${f.label}`));
     manys[i] = btn;
     const box = document.createElement('div');
     box.append(inp, btn);
