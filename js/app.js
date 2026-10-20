@@ -314,6 +314,44 @@
     }
   });
 
+  // ---------- 自動抄表：機器把張數寄到 Gmail，試算表上的小程式（apps-script/meter.gs）讀信寫進「抄表」 ----------
+  //   每個人貼在自己的試算表上：App 只能碰自己建立的檔案，沒辦法替使用者裝；按鈕直接複製程式，不會貼到舊版
+  const meterEl = $('meter');
+  let meterCode = null;
+  // 先抓好程式：iPhone 只在點擊的當下准許寫入剪貼簿，按了才去抓會被擋
+  const loadMeterCode = () => meterCode ||= fetch('apps-script/meter.gs')
+    .then(r => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
+    .catch(e => { meterCode = null; throw e; });
+
+  function renderMeter(st) {
+    if (!st.linked) {
+      meterEl.innerHTML = '<p class="note muted cloud-intro">連結 Google 帳號後才能設定。</p>';
+      return;
+    }
+    loadMeterCode().catch(() => {});
+    meterEl.innerHTML = `
+      <p class="note muted cloud-intro">機器每月把張數寄到你的 Gmail，試算表上的小程式每小時看一次信箱，寫進「抄表」。下面要用電腦做。</p>
+      <ol class="steps muted">
+        <li>機器：設好寄信（SMTP、管理員電子郵件地址）；服務模式 5-866 的 110、114、115 設 1，121 填 ${U.esc(st.email)}，改完重新開機</li>
+        <li>按「打開試算表」，選「擴充功能」→「Apps Script」</li>
+        <li>刪掉裡面原本的內容，按「複製程式」貼上，存檔</li>
+        <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
+      </ol>
+      <button type="button" class="wide-btn primary" data-act="copy-meter">複製程式</button>
+      ${st.url ? `<a class="wide-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : ''}
+      <p class="note muted">5-866-112 寄測試信（結算月份空白，不算帳）；急著看時在試算表選「自動抄表」→「現在讀信」，再回來按同步。</p>`;
+  }
+
+  meterEl.addEventListener('click', async e => {
+    if (e.target.closest('[data-act]')?.dataset.act !== 'copy-meter') return;
+    try {
+      await navigator.clipboard.writeText(await loadMeterCode());
+      toast('已複製，到 Apps Script 貼上');
+    } catch (_) {
+      toast('複製失敗，請改用電腦的瀏覽器', 'error');
+    }
+  });
+
   // 畫面上方的提示列：只在需要使用者處理時出現；自動同步進行中不出現，免得一直閃
   function renderSyncBar(st) {
     let text = '';
@@ -480,6 +518,7 @@
     onStatus(st) {
       renderSyncBar(st);
       renderCloud(st);
+      renderMeter(st);
       Inbox.syncStatus(st);
     },
     // 登出：這台裝置的資料已經清掉，重新載入頁面，畫面和記在記憶體裡的東西全部從空白開始
