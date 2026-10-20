@@ -1,5 +1,5 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、清單、Google 雲端硬碟同步、提醒、資料備份
-//   底部 4 格：總覽｜位置｜設備｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜抄表｜合約｜異動（所有設備的放在一起看）
+//   底部 4 格：總覽｜位置｜設備｜紀錄（見 GROUPS），另有「抄表」捷徑（測試自動抄表用）；紀錄裡切換保養｜翻新｜抄表｜合約｜異動（所有設備的放在一起看）
 (() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
   Records.upgrade();
@@ -361,9 +361,12 @@
   }
 
   // 叫試算表上的程式讀一次信（它只回寫了幾筆、補了幾筆之前對不到的設備），有改就同步；登入過期時不跳 Google 視窗（已經不是點擊的當下），請使用者按「同步」
+  //   btn：設定裡的「現在讀信」或底部的「抄表」（字寫在 span 裡，圖示不動）
   async function readMeterNow(btn) {
+    const label = btn.querySelector('span') || btn;
+    const text = label.textContent;
     btn.disabled = true;
-    btn.textContent = '讀信中…';
+    label.textContent = '讀信中…';
     try {
       const res = await fetch(Sync.state().meterUrl);
       const { count, fixed } = await res.json();
@@ -378,9 +381,17 @@
       toast('讀信失敗：確認網址對、部署時「誰可以存取」選了「任何人」', 'error');
     } finally {
       btn.disabled = false;
-      btn.textContent = '現在讀信';
+      label.textContent = text;
     }
   }
+
+  // 底部的「抄表」：測試自動抄表用的捷徑，到「紀錄 → 抄表」；有讀信網址時順便讀一次信
+  const meterTab = document.querySelector('.tabbar [data-act="meter-tab"]');
+  meterTab.addEventListener('click', () => {
+    if (current !== 'readings') showTab('readings');
+    window.scrollTo(0, 0);
+    if (Sync.state().meterUrl) readMeterNow(meterTab);
+  });
 
   async function saveMeterUrl() {
     const url = $('meter-url').value.trim();
