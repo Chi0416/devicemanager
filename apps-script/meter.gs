@@ -7,7 +7,8 @@
 //     Date: Tue Oct 20 09:50:53 2026
 //     Total_Color:2862
 //     Total_BW:122957
-//   設備：用序號到「設備」分頁找設備編號；找不到的空白、備註寫序號
+//   設備：用序號到「設備」分頁找設備編號；找不到的空白、備註寫序號，之後 App 登記了這個序號，下次讀信時自動補上
+//   照信裡的時間由舊到新寫（Gmail 搜尋是新的在前），試算表上的順序就是機器寄信的順序
 //   結算月份：抄表日期的上一個月（11/1 寄來的算 10 月的帳）；測試寄的空白（App 當作起點，不算帳）
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 
@@ -31,17 +32,22 @@ function onOpen() {
 }
 
 function readNow() {
-  const n = checkMail();
-  SpreadsheetApp.getActive().toast(n ? `寫進 ${n} 筆` : '沒有新的信');
+  SpreadsheetApp.getActive().toast(resultText_(checkMail()));
+}
+
+// 「寫進 2 筆、補上 1 筆的設備」
+function resultText_({ count, fixed }) {
+  const parts = [count && `寫進 ${count} 筆`, fixed && `補上 ${fixed} 筆的設備`].filter(Boolean);
+  return parts.length ? parts.join('、') : '沒有新的信';
 }
 
 // App 的「現在讀信」：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
-//   只回寫了幾筆，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
+//   只回 { count: 寫了幾筆, fixed: 補了幾筆的設備 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ count: checkMail() })).setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(checkMail())).setMimeType(ContentService.MimeType.JSON);
 }
 
-// 找最近 7 天的張數信，沒寫過的加在「抄表」最下面；回傳寫了幾筆
+// 先補上之前對不到的設備，再找最近 7 天的張數信，沒寫過的加在「抄表」最下面；回傳 { count, fixed }
 function checkMail() {
   // 每小時那次和按鈕剛好同時跑時，等前一個跑完，同一封信不會寫兩次
   const lock = LockService.getScriptLock();
@@ -64,47 +70,74 @@ function readMail_() {
   const done = JSON.parse(props.getProperty('done') || '{}');
   const now = Date.now();
   for (const id of Object.keys(done)) if (now - done[id] > KEEP_DAYS * 864e5) delete done[id];
-  let count = 0;
+  const fixed = fillDevices_(readings, col, codeOf);
 
+  // 這次要寫的信，照信裡的時間由舊到新排好；內文沒有時間的用收信的時間
+  const mails = [];
   for (const thread of GmailApp.search(QUERY)) {
     for (const msg of thread.getMessages()) {
-      const id = msg.getId();
-      if (done[id]) continue;
+      if (done[msg.getId()]) continue;
       const r = parse_(msg.getPlainBody());
-      if (!r) continue;
-      // 內文沒有日期時用收信的日期
-      const [y, m, d] = r.ymd || Utilities.formatDate(msg.getDate(), Session.getScriptTimeZone(), 'yyyy-M-d').split('-').map(Number);
-      const test = msg.getSubject().includes('[TEST]');
-      const code = codeOf[r.serial.toUpperCase()] || '';
-      const row = new Array(readings.getLastColumn()).fill('');
-      row[col['設備']] = code;
-      row[col['抄表日期']] = serial_(y, m, d);
-      row[col['結算月份']] = test ? '' : lastMonth_(y, m);
-      row[col['黑白張數']] = r.bw;
-      row[col['彩色張數']] = r.color;
-      row[col['備註']] = [test ? '自動抄表（測試）' : '自動抄表', code ? '' : `序號 ${r.serial} 對不到設備`].filter(Boolean).join('；');
-      readings.appendRow(row);
-      readings.getRange(readings.getLastRow(), col['抄表日期'] + 1).setNumberFormat('yyyy/mm/dd');
-      // 每寫一封就記下來：中途出錯時，下次不會重複寫
-      done[id] = now;
-      props.setProperty('done', JSON.stringify(done));
-      count++;
+      if (r) mails.push({ msg, r, when: r.when || received_(msg) });
     }
   }
+  const at = t => Date.UTC(t[0], t[1] - 1, t[2], t[3], t[4], t[5]);
+  mails.sort((a, b) => at(a.when) - at(b.when));
+
+  for (const { msg, r, when } of mails) {
+    const [y, m, d] = when;
+    const test = msg.getSubject().includes('[TEST]');
+    const code = codeOf[r.serial.toUpperCase()] || '';
+    const row = new Array(readings.getLastColumn()).fill('');
+    row[col['設備']] = code;
+    row[col['抄表日期']] = serial_(y, m, d);
+    row[col['結算月份']] = test ? '' : lastMonth_(y, m);
+    row[col['黑白張數']] = r.bw;
+    row[col['彩色張數']] = r.color;
+    row[col['備註']] = [test ? '自動抄表（測試）' : '自動抄表', code ? '' : `序號 ${r.serial} 對不到設備`].filter(Boolean).join('；');
+    readings.appendRow(row);
+    readings.getRange(readings.getLastRow(), col['抄表日期'] + 1).setNumberFormat('yyyy/mm/dd');
+    // 每寫一封就記下來：中途出錯時，下次不會重複寫
+    done[msg.getId()] = now;
+    props.setProperty('done', JSON.stringify(done));
+  }
   props.setProperty('done', JSON.stringify(done));
-  return count;
+  return { count: mails.length, fixed };
 }
 
-// 信的內文 → { serial, ymd: [2026, 10, 20], bw, color }；沒有序號或黑白張數時回傳 null
+// 之前對不到設備的列（設備空白、備註寫「序號 X 對不到設備」）：「設備」分頁現在有這個序號了，就補上設備、拿掉那句；回傳補了幾筆
+function fillDevices_(sheet, col, codeOf) {
+  const last = sheet.getLastRow();
+  if (last < 2) return 0;
+  let n = 0;
+  sheet.getRange(2, 1, last - 1, sheet.getLastColumn()).getValues().forEach((r, i) => {
+    const note = String(r[col['備註']]);
+    const m = note.match(/序號 (\S+) 對不到設備/);
+    const code = m && !String(r[col['設備']]).trim() && codeOf[m[1].toUpperCase()];
+    if (!code) return;
+    sheet.getRange(i + 2, col['設備'] + 1).setValue(code);
+    sheet.getRange(i + 2, col['備註'] + 1).setValue(note.split('；').filter(x => x !== m[0]).join('；'));
+    n++;
+  });
+  return n;
+}
+
+// 收信的時間（這份試算表的時區）：[年, 月, 日, 時, 分, 秒]
+function received_(msg) {
+  return Utilities.formatDate(msg.getDate(), Session.getScriptTimeZone(), 'yyyy-M-d-H-m-s').split('-').map(Number);
+}
+
+// 信的內文 → { serial, when: [2026, 10, 20, 9, 50, 53], bw, color }；沒有序號或黑白張數時回傳 null
 function parse_(body) {
   const get = re => (body.match(re) || [])[1] || '';
   const serial = get(/Serial No\.:\s*(\S+)/);
   const bw = get(/Total_BW:\s*(\d+)/);
   if (!serial || !bw) return null;
   const color = get(/Total_Color:\s*(\d+)/);
-  const d = body.match(/Date:\s*\w{3}\s+(\w{3})\s+(\d{1,2})\s+[\d:]+\s+(\d{4})/);
+  const d = body.match(/Date:\s*\w{3}\s+(\w{3})\s+(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(\d{4})/);
   const m = d ? MONTHS.indexOf(d[1]) + 1 : 0;
-  return { serial, ymd: m ? [Number(d[3]), m, Number(d[2])] : null, bw: Number(bw), color: color === '' ? '' : Number(color) };
+  const when = m ? [Number(d[6]), m, Number(d[2]), Number(d[3]), Number(d[4]), Number(d[5])] : null;
+  return { serial, when, bw: Number(bw), color: color === '' ? '' : Number(color) };
 }
 
 // 日期寫成試算表的日期序號（從 1899-12-30 起算的天數），和 App 寫的一樣，不帶時間、不受時區影響

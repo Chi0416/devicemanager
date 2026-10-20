@@ -25,6 +25,10 @@ const Records = (() => {
 
   // 依日期由舊到新；同一天依新增的先後（id 前段是新增的時間）
   const byDate = k => (a, b) => cmp(String(a[k] ?? ''), String(b[k] ?? '')) || cmp(String(a.id), String(b.id));
+  // 張數的紀錄（抄表、有填張數的保養）：依日期；同一天照張數由少到多（張數只會變多）
+  //   自動抄表一天寄好幾封時，同一次同步補上的 id 先後是亂的，不能照新增的先後排；張數一樣才照 id
+  const meterTotal = r => (isNum(r.bw) ? r.bw : 0) + (isNum(r.color) ? r.color : 0);
+  const byMeter = (a, b) => cmp(String(a.date ?? ''), String(b.date ?? '')) || (meterTotal(a) - meterTotal(b)) || cmp(String(a.id), String(b.id));
 
   const device = code => (key(code) ? Store.list('devices').find(d => key(d.code) === key(code)) || null : null);
   // 這台設備的紀錄（還沒有編號的設備沒有紀錄）
@@ -454,18 +458,16 @@ const Records = (() => {
   // ---------- 抄表 ----------
   const countsText = r => COUNTS.filter(([k]) => isNum(r[k])).map(([k, label]) => `${label} ${fmt(r[k])}`).join('・');
 
-  // 這台設備的張數：抄表和有填張數的保養，由舊到新
+  // 這台設備的張數：抄表和有填張數的保養，由舊到新（同一天照張數，見 byMeter）
   const meterLine = code => [...of('readings', code), ...WORKS.flatMap(t => of(t, code)).filter(r => COUNTS.some(([k]) => isNum(r[k])))]
-    .sort(byDate('date'));
+    .sort(byMeter);
 
-  // 這一筆之前（日期較早；同一天較早新增的）最後一次有填這個張數的
-  //   rec 還沒存（新增中，沒有 id）時，同一天的都算之前
+  // 這一筆之前（日期較早；同一天張數較少的）最後一次有填這個張數的
+  //   rec 還沒存（新增中，沒有 id）時，同一天的都算之前：同一天打了比較少的張數會提醒
   function previous(rec, k) {
     const date = String(rec.date ?? '');
-    const id = rec.id ? String(rec.id) : '￿';
-    return meterLine(rec.device)
-      .filter(r => r.id !== rec.id && isNum(r[k]) && (cmp(String(r.date ?? ''), date) || cmp(String(r.id), id)) < 0)
-      .at(-1) || null;
+    const before = rec.id ? r => byMeter(r, rec) < 0 : r => cmp(String(r.date ?? ''), date) <= 0;
+    return meterLine(rec.device).filter(r => r.id !== rec.id && isNum(r[k]) && before(r)).at(-1) || null;
   }
 
   // 本期用量：這一筆有填的張數 [{ k, label, prev, diff }]；第一次抄表時 prev、diff 是 null
@@ -522,7 +524,7 @@ const Records = (() => {
   function usageByPlace() {
     const at = locator();
     const lines = new Map();
-    [...Store.list('readings')].sort(byDate('date')).forEach(r => {
+    [...Store.list('readings')].sort(byMeter).forEach(r => {
       const k = key(r.device);
       if (!k) return;
       if (!lines.has(k)) lines.set(k, []);
@@ -669,7 +671,7 @@ const Records = (() => {
 
   // 一次準備好每台機器的張數、保養、異動（總覽每個位置都要算）
   function consumeContext() {
-    const byDevice = rows => {
+    const byDevice = (rows, order = byDate('date')) => {
       const m = new Map();
       rows.forEach(r => {
         const k = key(r.device);
@@ -677,7 +679,7 @@ const Records = (() => {
         if (!m.has(k)) m.set(k, []);
         m.get(k).push(r);
       });
-      m.forEach(l => l.sort(byDate('date')));
+      m.forEach(l => l.sort(order));
       return m;
     };
     const devicesAt = new Map();
@@ -688,7 +690,7 @@ const Records = (() => {
       devicesAt.get(k).push(d);
     });
     return {
-      points: byDevice([...Store.list('readings'), ...WORKS.flatMap(t => Store.list(t)).filter(r => COUNTS.some(([c]) => isNum(r[c])))]),
+      points: byDevice([...Store.list('readings'), ...WORKS.flatMap(t => Store.list(t)).filter(r => COUNTS.some(([c]) => isNum(r[c])))], byMeter),
       works: byDevice(Store.list('maintenance')),
       moves: byDevice(Store.list('moves')),
       devicesAt,

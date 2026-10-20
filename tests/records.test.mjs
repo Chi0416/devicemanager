@@ -452,6 +452,22 @@ test('抄表：本期用量＝這次減上一次，保養、翻新填的張數�
   assert.equal(Records.latest('readings', '24-0001', 'date').id, r3.id);
 });
 
+test('抄表：同一天好幾筆（自動抄表一天寄好幾封）照張數排，不照 id 的先後；表單新增時同一天的還是都算之前', () => {
+  const { Records, add } = withDevices();
+  add('readings', { device: '24-0001', date: '2026-10-01', bw: 122000, color: 2800, month: '2026-09' });
+  // 同一次同步補上的 id：先後和寄的先後相反
+  const c = add('readings', { id: 'm1', device: '24-0001', date: '2026-10-20', bw: 122962, color: 2862 });
+  const b = add('readings', { id: 'm2', device: '24-0001', date: '2026-10-20', bw: 122961, color: 2862 });
+  const a = add('readings', { id: 'm3', device: '24-0001', date: '2026-10-20', bw: 122957, color: 2862 });
+  assert.deepEqual(plain(Records.usageNote(a)), { text: '本期 黑白 957・彩色 62', warn: false });
+  assert.deepEqual(plain(Records.usageNote(b)), { text: '本期 黑白 4・彩色 0', warn: false });
+  assert.deepEqual(plain(Records.usageNote(c)), { text: '本期 黑白 1・彩色 0', warn: false });
+  assert.equal(Records.countNote({ ...b, bw: '122961' }, 'bw'), '上次 122,957（10/20）\n本期 4');
+  // 新增：同一天的都算之前，打得比較少就提醒
+  assert.deepEqual(plain(Records.countNote({ device: '24-0001', date: '2026-10-20', bw: '122950', id: null }, 'bw')),
+    { text: '上次 122,962（10/20）\n比上次少', warn: true });
+});
+
 test('抄表：表單上寫上次的張數和本期用量；新增時同一天的都算之前，編輯時不跟自己比', () => {
   const { Records, add } = withDevices();
   const r1 = add('readings', { device: '24-0001', date: '2026-08-25', bw: 11500, color: 620 });

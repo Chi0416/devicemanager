@@ -360,17 +360,18 @@
       <p class="note muted">5-866-112 寄測試信（結算月份空白，不算帳）。</p>`;
   }
 
-  // 叫試算表上的程式讀一次信（它只回寫了幾筆），寫了就同步；登入過期時不跳 Google 視窗（已經不是點擊的當下），請使用者按「同步」
+  // 叫試算表上的程式讀一次信（它只回寫了幾筆、補了幾筆之前對不到的設備），有改就同步；登入過期時不跳 Google 視窗（已經不是點擊的當下），請使用者按「同步」
   async function readMeterNow(btn) {
     btn.disabled = true;
     btn.textContent = '讀信中…';
     try {
       const res = await fetch(Sync.state().meterUrl);
-      const { count } = await res.json();
-      if (!count) toast('沒有新的信');
-      else if (Sync.state().needLogin) toast(`寫進 ${count} 筆，按「同步」就看得到`);
+      const { count, fixed } = await res.json();
+      const done = [count && `寫進 ${count} 筆`, fixed && `補上 ${fixed} 筆的設備`].filter(Boolean).join('、');
+      if (!done) toast('沒有新的信');
+      else if (Sync.state().needLogin) toast(`${done}，按「同步」就看得到`);
       else {
-        toast(`寫進 ${count} 筆，同步中…`);
+        toast(`${done}，同步中…`);
         Sync.syncNow();
       }
     } catch (_) {
