@@ -344,21 +344,18 @@
       <details class="steps-box" ${ready ? '' : 'open'}>
         <summary>設定步驟（用電腦做）</summary>
         <ol class="steps muted">
-          <li>機器：按「機器設定」照著設</li>
-          <li>按「打開試算表」，選「擴充功能」→「Apps Script」</li>
-          <li>刪掉裡面原本的內容，按「複製程式」貼上，存檔</li>
+          <li>機器：按「<button type="button" class="link-btn" data-act="machine">機器設定</button>」照著設</li>
+          <li>「${st.url ? `<a class="link-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : '打開試算表'}」（右上角頭像要是 ${U.esc(st.email)}），選「擴充功能」→「Apps Script」</li>
+          <li>刪掉裡面原本的內容，按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」貼上，存檔</li>
           <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
           <li>要用「現在讀信」（第 3 步貼好、存檔後再做，部署會固定當下的程式）：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
         </ol>
-        <button type="button" class="wide-btn" data-act="machine">機器設定</button>
-        <button type="button" class="wide-btn ${ready ? '' : 'primary'}" data-act="copy-meter">複製程式</button>
-        ${st.url ? `<a class="wide-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : ''}
         <div class="field meter-url">
           <label for="meter-url">讀信網址</label>
           <input id="meter-url" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec" value="${U.esc(st.meterUrl)}">
         </div>
         <button type="button" class="wide-btn" data-act="save-meter-url">儲存網址</button>
-        <p class="note muted">之後改了程式：按「複製程式」重貼、存檔，再「部署」→「管理部署作業」→ 鉛筆 → 版本選「新版本」→「部署」，網址不變。</p>
+        <p class="note muted">之後改了程式：按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」重貼、存檔，再「部署」→「管理部署作業」→ 鉛筆 → 版本選「新版本」→「部署」，網址不變。</p>
       </details>
       <p class="note muted">5-866-112 寄測試信（結算月份空白，不算帳）。</p>`;
   }
