@@ -1,5 +1,5 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、清單、Google 雲端硬碟同步、提醒、資料備份
-//   底部 4 格：總覽｜位置｜設備｜紀錄（見 GROUPS），另有「抄表」捷徑（測試自動抄表用）；紀錄裡切換保養｜翻新｜抄表｜合約｜異動（所有設備的放在一起看）
+//   底部 5 格：總覽｜位置｜設備｜抄表｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜合約｜異動（所有設備的放在一起看）
 (() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
   Records.upgrade();
@@ -24,7 +24,7 @@
   }
 
   // ---------- 頁面 ----------
-  // 「紀錄」裡的每一頁：[資料表, 上方切換的名稱, 新增按鈕上寫的]
+  // 各種紀錄的頁：[資料表, 上方切換的名稱, 新增按鈕上寫的]；抄表在底部自己一格，其他在「紀錄」裡
   const RECORD_PAGES = [['maintenance', '保養', '保養'], ['refurbs', '翻新', '翻新'], ['readings', '抄表', '抄表'], ['contracts', '合約', '合約'], ['moves', '異動', '異動']];
   const PAGES = {
     overview: { title: '總覽' },
@@ -81,7 +81,8 @@
     { key: 'overview', label: '總覽', pages: [['overview', '總覽']] },
     { key: 'locations', label: '位置', pages: [['locations', '位置']] },
     { key: 'devices', label: '設備', pages: [['devices', '設備']] },
-    { key: 'records', label: '紀錄', pages: RECORD_PAGES.map(([k, label]) => [k, label]) },
+    { key: 'readings', label: '抄表', pages: [['readings', '抄表']] },
+    { key: 'records', label: '紀錄', pages: RECORD_PAGES.filter(([k]) => k !== 'readings').map(([k, label]) => [k, label]) },
   ];
   const groupOf = key => GROUPS.find(g => g.key === key || g.pages.some(([k]) => k === key));
   // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽沒有新增按鈕
@@ -385,13 +386,9 @@
     }
   }
 
-  // 底部的「抄表」：測試自動抄表用的捷徑，到「紀錄 → 抄表」；有讀信網址時順便讀一次信
-  const meterTab = document.querySelector('.tabbar [data-act="meter-tab"]');
-  meterTab.addEventListener('click', () => {
-    if (current !== 'readings') showTab('readings');
-    window.scrollTo(0, 0);
-    if (Sync.state().meterUrl) readMeterNow(meterTab);
-  });
+  // 底部的「抄表」：有讀信網址時，按了順便讀一次信（切頁在上面的分頁那裡；已經在抄表頁再按也讀，測試方便）
+  const meterTab = document.querySelector('.tabbar [data-tab="readings"]');
+  meterTab.addEventListener('click', () => { if (Sync.state().meterUrl) readMeterNow(meterTab); });
 
   async function saveMeterUrl() {
     const url = $('meter-url').value.trim();
