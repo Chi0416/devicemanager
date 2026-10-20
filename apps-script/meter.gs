@@ -11,6 +11,7 @@
 //   照信裡的時間由舊到新寫（Gmail 搜尋是新的在前），試算表上的順序就是機器寄信的順序
 //   結算月份：抄表日期的上一個月（11/1 寄來的算 10 月的帳）；測試寄的空白（App 當作起點，不算帳）
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
+//   每次看完信箱（每小時那次、選單、App 按的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
@@ -41,13 +42,13 @@ function resultText_({ count, fixed }) {
   return parts.length ? parts.join('、') : '沒有新的信';
 }
 
-// App 的「現在讀信」：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
-//   只回 { count: 寫了幾筆, fixed: 補了幾筆的設備 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
+// App 的「讀信」：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
+//   只回 { count: 寫了幾筆, fixed: 補了幾筆的設備, at: 讀完的時間 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
 function doGet() {
   return ContentService.createTextOutput(JSON.stringify(checkMail())).setMimeType(ContentService.MimeType.JSON);
 }
 
-// 先補上之前對不到的設備，再找最近 7 天的張數信，沒寫過的加在「抄表」最下面；回傳 { count, fixed }
+// 先補上之前對不到的設備，再找最近 7 天的張數信，沒寫過的加在「抄表」最下面；回傳 { count, fixed, at }
 function checkMail() {
   // 每小時那次和按鈕剛好同時跑時，等前一個跑完，同一封信不會寫兩次
   const lock = LockService.getScriptLock();
@@ -102,7 +103,15 @@ function readMail_() {
     props.setProperty('done', JSON.stringify(done));
   }
   props.setProperty('done', JSON.stringify(done));
-  return { count: mails.length, fixed };
+  return { count: mails.length, fixed, at: stamp_(ss) };
+}
+
+// 看完信箱的時間記在 _meta 分頁第 3 列（第 1、2 列是 App 的格式版本、讀信網址）；存成文字，試算表不會改成日期
+function stamp_(ss) {
+  const at = new Date().toISOString();
+  const meta = ss.getSheetByName('_meta');
+  if (meta) meta.getRange('A3:B3').setNumberFormat('@').setValues([['meterReadAt', at]]);
+  return at;
 }
 
 // 之前對不到設備的列（設備空白、備註寫「序號 X 對不到設備」）：「設備」分頁現在有這個序號了，就補上設備、拿掉那句；回傳補了幾筆

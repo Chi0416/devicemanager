@@ -28,8 +28,9 @@ const Sync = (() => {
   // 試算表上有幾筆資料（預先放的類別不算：只有那幾筆時，當作雲端還沒有資料）
   const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
-  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl } ----------
+  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt } ----------
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
+  //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；App 按「讀信」時程式也直接回傳）
   let cloud = null;
   try { cloud = JSON.parse(localStorage.getItem(CLOUD_KEY)); } catch (_) {}
 
@@ -64,6 +65,7 @@ const Sync = (() => {
       email: cloud?.email || '',
       url: cloud?.url || '',
       meterUrl: cloud?.meterUrl || '',
+      meterReadAt: cloud?.meterReadAt || '',
       lastSyncAt: cloud?.lastSyncAt || null,
       running,
       error,
@@ -296,6 +298,7 @@ const Sync = (() => {
     const byTitle = await pull(meta);
     const parsed = Sheet.fromValues(byTitle);
     cloud.meterUrl = parsed.meterUrl;
+    cloud.meterReadAt = parsed.meterReadAt;
     // 手動輸入、沒有 id 的列：剛給的 id 先寫回試算表，寫好了才放進這台裝置
     //   寫的時候斷線就整次停下來：這台裝置不會留著試算表上沒有的 id（下次讀回來會是另一個 id，改過的話同一筆會變兩筆）
     const ids = [
@@ -501,6 +504,7 @@ const Sync = (() => {
       const local = Store.exportPayload();
       let meta = null;
       let meterUrl = '';
+      let meterReadAt = '';
       const found = await findSpreadsheet();
       if (found) meta = await info(found);
 
@@ -515,7 +519,7 @@ const Sync = (() => {
       } else {
         await ensureTabs(meta);
         const parsed = Sheet.fromValues(await pull(meta));
-        meterUrl = parsed.meterUrl;
+        ({ meterUrl, meterReadAt } = parsed);
         const remoteCount = countRecords(parsed.data);
         if (!remoteCount) {
           if (!upload()) return;
@@ -535,7 +539,7 @@ const Sync = (() => {
           hooks.onData();
         }
       }
-      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl };
+      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt };
       saveCloud();
       hooks.toast('已連結 Google 帳號');
     } catch (e) {
@@ -557,6 +561,14 @@ const Sync = (() => {
       body: { valueInputOption: 'RAW', data: [{ range: a1(Sheet.META.title, 'A2'), values: [[Sheet.METER_KEY, url]] }] },
     });
     cloud.meterUrl = url;
+    saveCloud();
+    emit();
+  }
+
+  // App 按「讀信」後程式回傳的時間：先記下來，不用等同步（同步時從 _meta 讀回來的也是這個時間）
+  function setMeterReadAt(at) {
+    if (!cloud || !at) return;
+    cloud.meterReadAt = at;
     saveCloud();
     emit();
   }
@@ -722,5 +734,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, startLink, syncNow, loginByRedirect, logout, setMeterUrl };
+  return { init, state, startLink, syncNow, loginByRedirect, logout, setMeterUrl, setMeterReadAt };
 })();

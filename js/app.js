@@ -341,7 +341,7 @@
     const ready = !!st.meterUrl;
     meterEl.innerHTML = `
       <p class="note muted cloud-intro">機器每月把張數寄到你的 Gmail，試算表上的小程式每小時看一次信箱，寫進「抄表」。</p>
-      ${ready ? '<button type="button" class="wide-btn primary" data-act="read-meter">現在讀信</button>' : ''}
+      ${ready ? `<button type="button" class="wide-btn primary" data-act="read-meter"${meterBusy ? ' disabled' : ''}>${meterBusy ? '讀信中…' : '現在讀信'}</button>` : ''}
       <details class="steps-box" ${ready ? '' : 'open'}>
         <summary>設定步驟（用電腦做）</summary>
         <ol class="steps muted">
@@ -361,16 +361,39 @@
       <p class="note muted">5-866-112 寄測試信（結算月份空白，不算帳）。</p>`;
   }
 
-  // 叫試算表上的程式讀一次信（它只回寫了幾筆、補了幾筆之前對不到的設備），有改就同步；登入過期時不跳 Google 視窗（已經不是點擊的當下），請使用者按「同步」
-  //   btn：設定裡的「現在讀信」或底部的「抄表」（字寫在 span 裡，圖示不動）
-  async function readMeterNow(btn) {
-    const label = btn.querySelector('span') || btn;
-    const text = label.textContent;
-    btn.disabled = true;
-    label.textContent = '讀信中…';
+  // 抄表頁最上面一排小字：上次讀信的時間（試算表上的程式每次看完信箱都記下來，同步時讀回來），有讀信網址時後面可以點「讀信」
+  //   切到抄表頁不會讀信，要點了才讀
+  const meterLine = document.createElement('p');
+  meterLine.className = 'meter-line';
+  lists.readings.el.querySelector('.list').before(meterLine);
+  let meterBusy = false;
+  function renderMeterLine(st) {
+    meterLine.hidden = !st.linked || !(st.meterUrl || st.meterReadAt);
+    if (meterLine.hidden) return;
+    meterLine.innerHTML = `上次讀信 ${st.meterReadAt ? U.fmtDateTime(st.meterReadAt) : '—'}${st.meterUrl
+      ? `<button type="button" class="link-btn" data-act="read-meter"${meterBusy ? ' disabled' : ''}>${meterBusy ? '讀信中…' : '讀信'}</button>` : ''}`;
+  }
+  meterLine.addEventListener('click', e => { if (e.target.closest('[data-act="read-meter"]')) readMeterNow(); });
+
+  // 讀信中：抄表頁的「讀信」和設定裡的「現在讀信」都寫「讀信中…」、不能再按
+  function setMeterBusy(busy) {
+    meterBusy = busy;
+    const btn = meterEl.querySelector('[data-act="read-meter"]');
+    if (btn) {
+      btn.disabled = busy;
+      btn.textContent = busy ? '讀信中…' : '現在讀信';
+    }
+    renderMeterLine(Sync.state());
+  }
+
+  // 叫試算表上的程式讀一次信（它只回寫了幾筆、補了幾筆之前對不到的設備、讀完的時間），有改就同步；登入過期時不跳 Google 視窗（已經不是點擊的當下），請使用者按「同步」
+  async function readMeterNow() {
+    if (meterBusy) return;
+    setMeterBusy(true);
     try {
       const res = await fetch(Sync.state().meterUrl);
-      const { count, fixed } = await res.json();
+      const { count, fixed, at } = await res.json();
+      Sync.setMeterReadAt(at);
       const done = [count && `寫進 ${count} 筆`, fixed && `補上 ${fixed} 筆的設備`].filter(Boolean).join('、');
       if (!done) toast('沒有新的信');
       else if (Sync.state().needLogin) toast(`${done}，按「同步」就看得到`);
@@ -381,14 +404,9 @@
     } catch (_) {
       toast('讀信失敗：確認網址對、部署時「誰可以存取」選了「任何人」', 'error');
     } finally {
-      btn.disabled = false;
-      label.textContent = text;
+      setMeterBusy(false);
     }
   }
-
-  // 底部的「抄表」：有讀信網址時，按了順便讀一次信（切頁在上面的分頁那裡；已經在抄表頁再按也讀，測試方便）
-  const meterTab = document.querySelector('.tabbar [data-tab="readings"]');
-  meterTab.addEventListener('click', () => { if (Sync.state().meterUrl) readMeterNow(meterTab); });
 
   async function saveMeterUrl() {
     const url = $('meter-url').value.trim();
@@ -417,7 +435,7 @@
   meterEl.addEventListener('click', async e => {
     const btn = e.target.closest('[data-act]');
     const act = btn?.dataset.act;
-    if (act === 'read-meter') readMeterNow(btn);
+    if (act === 'read-meter') readMeterNow();
     else if (act === 'save-meter-url') saveMeterUrl();
     else if (act === 'machine') openMachine();
     else if (act === 'copy-meter') {
@@ -597,6 +615,7 @@
       renderSyncBar(st);
       renderCloud(st);
       renderMeter(st);
+      renderMeterLine(st);
       Inbox.syncStatus(st);
     },
     // 登出：這台裝置的資料已經清掉，重新載入頁面，畫面和記在記憶體裡的東西全部從空白開始

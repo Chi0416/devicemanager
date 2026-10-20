@@ -402,3 +402,11 @@ test('_meta 第 2 列的讀信網址（自動抄表）讀得到；沒有這一�
   assert.equal(Sheet.fromValues({ _meta: [['version', 1]] }).meterUrl, '');
   assert.equal(Sheet.fromValues({}).meterUrl, '');
 });
+
+test('_meta 第 3 列上次讀信的時間（試算表上的程式寫的）讀得到；第 2 列空著也讀得到，沒有這一列時是空字串', () => {
+  const at = '2026-10-20T06:05:00.000Z';
+  assert.equal(Sheet.fromValues({ _meta: [['version', 1], [], ['meterReadAt', at]] }).meterReadAt, at);
+  assert.equal(Sheet.fromValues({ _meta: [['version', 1], [], ['meterReadAt', at]] }).meterUrl, '');
+  assert.equal(Sheet.fromValues({ _meta: [['version', 1]] }).meterReadAt, '');
+  assert.equal(Sheet.fromValues({}).meterReadAt, '');
+});

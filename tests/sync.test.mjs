@@ -576,6 +576,28 @@ test('自動抄表的讀信網址：存在 _meta 第 2 列，同步不會蓋掉�
   assert.equal(d.Sync.state().meterUrl, '');
 });
 
+test('上次讀信的時間：試算表上的程式寫在 _meta 第 3 列，同步、連結時讀回來；App 按「讀信」拿到的先記下來；設讀信網址不會蓋掉', async () => {
+  const { fake, d, id } = await linked();
+  assert.equal(d.Sync.state().meterReadAt, '');
+  const first = '2026-10-20T05:00:00.000Z';
+  fake.write(id, "'_meta'!A3", [['meterReadAt', first]]);
+  d.Store.add('devices', PRINTER);
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().meterReadAt, first);
+  await d.Sync.setMeterUrl('https://script.google.com/macros/s/abc/exec');
+  assert.deepEqual(fake.values(id, '_meta')[2], ['meterReadAt', first]);
+
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  assert.equal(phone.Sync.state().meterReadAt, first);
+
+  const second = '2026-10-20T06:05:00.000Z';
+  d.Sync.setMeterReadAt(second);
+  assert.equal(d.Sync.state().meterReadAt, second);
+  d.Sync.setMeterReadAt(undefined); // 舊版程式沒有回傳時間：不動
+  assert.equal(d.Sync.state().meterReadAt, second);
+});
+
 test('連結：這台裝置有資料、雲端還沒有試算表時，先確認要存到哪個帳號；選「取消」就不連結', async () => {
   const fake = new FakeGoogle();
   const d = device(fake, { confirmAnswer: false });
