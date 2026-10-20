@@ -640,6 +640,17 @@ test('讀信失敗：照樣同步，時間不更新；按「同步」時提示�
   assert.match(d.toasts.at(-1), /^error:已同步，但讀信失敗/);
 });
 
+test('程式沒回傳時間（舊版）：照樣同步；按「同步」時提示要重貼程式、換新版本', async () => {
+  const { fake, d } = await linked();
+  await d.Sync.setMeterUrl(METER_URL);
+  fake.meter = () => ({ count: 0 });
+  d.Store.add('devices', PRINTER);
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().pending, 0);
+  assert.equal(d.Sync.state().meterReadAt, '');
+  assert.match(d.toasts.at(-1), /^error:已同步，但試算表上的程式是舊版/);
+});
+
 test('沒有讀信網址：同步不讀信；改資料後、連上網路的自動同步也不讀信', async () => {
   const { fake, d, id } = await linked();
   mailOnce(fake, id, '2026-10-20T06:05:00.000Z');

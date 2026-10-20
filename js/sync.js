@@ -447,7 +447,7 @@ const Sync = (() => {
   // ---------- 同步一次 ----------
   // 登入過期時不跳出視窗（要使用者點按鈕），只更新狀態；manual 為 true 時完成後提示
   //   mail：有讀信網址時先叫程式讀信，讀到的這次就一起拿回來（打開 App、切回來、按「同步」；改資料後的自動同步不讀）
-  //     讀信失敗照樣同步（抄表頁「上次讀信」的時間不會更新），按「同步」時才提示
+  //     讀信失敗照樣同步（抄表頁「上次讀信」的時間不會更新），按「同步」時才提示；程式沒回傳時間的是舊版，按「同步」時也提示
   async function run({ manual = false, mail = false } = {}) {
     if (!cloud) return;
     if (running) {
@@ -497,6 +497,7 @@ const Sync = (() => {
       saveCloud();
       okAt = Date.now();
       if (manual && mailed?.failed) hooks.toast('已同步，但讀信失敗：確認讀信網址對、部署時「誰可以存取」選了「任何人」', 'error');
+      else if (manual && mailed && !mailed.at) hooks.toast('已同步，但試算表上的程式是舊版：重貼程式、存檔，再到「管理部署作業」換新版本', 'error');
       else if (manual) hooks.toast(mailText(mailed) ? `已同步（${mailText(mailed)}）` : '已同步');
     } catch (e) {
       if (e.code === 'network') offline = true;
