@@ -1112,6 +1112,14 @@ a.wide-btn { display: flex; align-items: center; justify-content: center; text-d
 .steps li { overflow-wrap: anywhere; }
 .meter-url { margin: 16px 0 10px; }
 
+/* 自動抄表的機器設定：一列一項，左邊項目、右邊填什麼；A 寄信用（藍）、B 收信用（紫） */
+.machine-path { margin: 14px 2px 8px; font-size: 14px; font-weight: 600; }
+.kv li { justify-content: space-between; gap: 12px; min-height: 44px; padding-right: 16px; font-size: 15px; }
+.kv li > span { color: var(--text-2); }
+.kv li > b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.badge.mail { display: inline-block; min-width: 24px; padding: 4px 7px; font-size: 13px; text-align: center; }
+.mails li { gap: 12px; padding: 10px 16px; }
+
 /* ---------- 提醒 ---------- */
 .inbox-btn { position: relative; margin-right: 0; }
 .icon-btn svg.line { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }

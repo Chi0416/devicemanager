@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.20.3">
+  <link rel="manifest" href="manifest.json?v=2026.10.20.4">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.20.3">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.20.4">
 </head>
 <body>
   <div class="app">
@@ -205,7 +205,56 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.20.3</p>
+      <p class="note muted">版本 2026.10.20.4</p>
+    </div>
+  </dialog>
+
+  <!-- 自動抄表的機器設定：從設定的「自動抄表」→「機器設定」打開（見 app.js）
+       A 寄信用（藍）、B 收信用（紫）分開標；B 的信箱由 app.js 填進 [data-email] -->
+  <dialog id="machine-sheet" class="sheet">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title">機器設定</h2>
+      <span></span>
+    </div>
+    <div class="sheet-body">
+      <ul class="member-list mails">
+        <li><span class="badge blue mail">A</span><span class="member-info"><b>寄信用</b><small>寄信專用的 Gmail，機器用它寄出張數</small></span></li>
+        <li><span class="badge purple mail">B</span><span class="member-info"><b>收信用</b><small>你自己的 Gmail：<span data-email></span></small></span></li>
+      </ul>
+
+      <h3 class="section-head">1. 基本設定</h3>
+      <p class="machine-path">系統設定 → 檔案轉送</p>
+      <ul class="member-list kv">
+        <li><span>管理員的電子郵件地址</span><b><span class="badge blue mail">A</span></b></li>
+        <li><span>自動指定傳送者名稱</span><b>開啟</b></li>
+      </ul>
+
+      <h3 class="section-head">2. 伺服器設定</h3>
+      <p class="machine-path">系統設定 → 檔案轉送 → SMTP 伺服器名稱</p>
+      <ul class="member-list kv">
+        <li><span>伺服器名稱</span><b>smtp.gmail.com</b></li>
+        <li><span>埠編號</span><b>465</b></li>
+        <li><span>使用安全連接（SSL）</span><b>開啟</b></li>
+      </ul>
+      <p class="machine-path">系統設定 → 檔案轉送 → SMTP 驗證</p>
+      <ul class="member-list kv">
+        <li><span>SMTP 驗證</span><b>開啟</b></li>
+        <li><span>使用者名稱</span><b><span class="badge blue mail">A</span> 的 @ 前面那段</b></li>
+        <li><span>電子郵件地址</span><b><span class="badge blue mail">A</span></b></li>
+        <li><span>密碼</span><b><span class="badge blue mail">A</span> 的應用程式密碼</b></li>
+        <li><span>加密</span><b>關閉</b></li>
+      </ul>
+
+      <h3 class="section-head">3. 服務模式設定</h3>
+      <p class="machine-path">SP 5-866</p>
+      <ul class="member-list kv">
+        <li><span>110</span><b>1</b></li>
+        <li><span>114</span><b>1</b></li>
+        <li><span>115</span><b>1</b></li>
+        <li><span>121</span><b><span class="badge purple mail">B</span> <span data-email></span></b></li>
+      </ul>
+      <p class="note muted">改完重新開機。</p>
     </div>
   </dialog>
 
@@ -240,24 +289,24 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.20.3"></script>
-  <script src="js/schema.js?v=2026.10.20.3"></script>
-  <script src="js/storage.js?v=2026.10.20.3"></script>
-  <script src="js/refs.js?v=2026.10.20.3"></script>
-  <script src="js/records.js?v=2026.10.20.3"></script>
-  <script src="js/list.js?v=2026.10.20.3"></script>
-  <script src="js/form.js?v=2026.10.20.3"></script>
-  <script src="js/picker.js?v=2026.10.20.3"></script>
-  <script src="js/lists.js?v=2026.10.20.3"></script>
-  <script src="js/detail.js?v=2026.10.20.3"></script>
-  <script src="js/overview.js?v=2026.10.20.3"></script>
-  <script src="js/places.js?v=2026.10.20.3"></script>
-  <script src="js/config.js?v=2026.10.20.3"></script>
-  <script src="js/google.js?v=2026.10.20.3"></script>
-  <script src="js/sheet.js?v=2026.10.20.3"></script>
-  <script src="js/sync.js?v=2026.10.20.3"></script>
-  <script src="js/inbox.js?v=2026.10.20.3"></script>
-  <script src="js/app.js?v=2026.10.20.3"></script>
+  <script src="js/util.js?v=2026.10.20.4"></script>
+  <script src="js/schema.js?v=2026.10.20.4"></script>
+  <script src="js/storage.js?v=2026.10.20.4"></script>
+  <script src="js/refs.js?v=2026.10.20.4"></script>
+  <script src="js/records.js?v=2026.10.20.4"></script>
+  <script src="js/list.js?v=2026.10.20.4"></script>
+  <script src="js/form.js?v=2026.10.20.4"></script>
+  <script src="js/picker.js?v=2026.10.20.4"></script>
+  <script src="js/lists.js?v=2026.10.20.4"></script>
+  <script src="js/detail.js?v=2026.10.20.4"></script>
+  <script src="js/overview.js?v=2026.10.20.4"></script>
+  <script src="js/places.js?v=2026.10.20.4"></script>
+  <script src="js/config.js?v=2026.10.20.4"></script>
+  <script src="js/google.js?v=2026.10.20.4"></script>
+  <script src="js/sheet.js?v=2026.10.20.4"></script>
+  <script src="js/sync.js?v=2026.10.20.4"></script>
+  <script src="js/inbox.js?v=2026.10.20.4"></script>
+  <script src="js/app.js?v=2026.10.20.4"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

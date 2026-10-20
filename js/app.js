@@ -344,12 +344,13 @@
       <details class="steps-box" ${ready ? '' : 'open'}>
         <summary>設定步驟（用電腦做）</summary>
         <ol class="steps muted">
-          <li>機器：設好寄信（SMTP、管理員電子郵件地址）；服務模式 5-866 的 110、114、115 設 1，121 填 ${U.esc(st.email)}，改完重新開機</li>
+          <li>機器：按「機器設定」照著設</li>
           <li>按「打開試算表」，選「擴充功能」→「Apps Script」</li>
           <li>刪掉裡面原本的內容，按「複製程式」貼上，存檔</li>
           <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
           <li>要用「現在讀信」：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
         </ol>
+        <button type="button" class="wide-btn" data-act="machine">機器設定</button>
         <button type="button" class="wide-btn ${ready ? '' : 'primary'}" data-act="copy-meter">複製程式</button>
         ${st.url ? `<a class="wide-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : ''}
         <div class="field meter-url">
@@ -397,11 +398,22 @@
     }
   }
 
+  // 機器設定（index.html 的 #machine-sheet）：B 寫登入 App 的那個 Gmail
+  const machine = $('machine-sheet');
+  function openMachine() {
+    machine.querySelectorAll('[data-email]').forEach(el => { el.textContent = Sync.state().email || ''; });
+    machine.showModal();
+    machine.querySelector('.sheet-body').scrollTop = 0;
+  }
+  machine.querySelector('[data-act="close"]').addEventListener('click', () => machine.close());
+  machine.addEventListener('click', e => { if (e.target === machine) machine.close(); }); // 點背景關閉
+
   meterEl.addEventListener('click', async e => {
     const btn = e.target.closest('[data-act]');
     const act = btn?.dataset.act;
     if (act === 'read-meter') readMeterNow(btn);
     else if (act === 'save-meter-url') saveMeterUrl();
+    else if (act === 'machine') openMachine();
     else if (act === 'copy-meter') {
       try {
         await navigator.clipboard.writeText(await loadMeterCode());
