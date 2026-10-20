@@ -202,7 +202,7 @@ function device(fake, { storage = {}, token = true, confirmAnswer = true, clock 
   if (token) ls[TOKEN_KEY] = JSON.stringify({ accessToken: 'fake', expiresAt: (clock?.now ?? Date.now()) + 3600e3 });
   for (const f of FILES) {
     vm.runInContext(readFileSync(new URL(`js/${f}.js`, ROOT), 'utf8'), ctx, { filename: `${f}.js` });
-    if (f === 'config' && configured) vm.runInContext("CONFIG.googleClientId = 'test-client'", ctx);
+    if (f === 'config') vm.runInContext(`CONFIG.googleClientId = '${configured ? 'test-client' : ''}'`, ctx);
   }
   const app = vm.runInContext('({ Store, Sync, Sheet, Refs, Records })', ctx);
   app.Sync.init({
