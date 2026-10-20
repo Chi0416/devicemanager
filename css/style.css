@@ -924,10 +924,10 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .todo-count.warn { color: var(--warn); }
 #todo-sheet .sheet-body { min-height: min(420px, 60vh); }
 .model-list { padding: 0 14px 6px; border: .5px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
-.gen-head { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0 3px; border-top: .5px solid var(--border); font-size: 13px; font-weight: 600; color: var(--muted); }
-.gen-head:first-child { border-top: 0; }
+.gen-head { display: flex; justify-content: space-between; gap: 12px; padding: 16px 0 6px; border-bottom: .5px solid var(--border-strong); font-size: 13px; font-weight: 600; color: var(--muted); }
+.gen-head:first-child { padding-top: 12px; }
 .gen-head span:last-child { font-weight: 500; font-variant-numeric: tabular-nums; }
-.gen-rows { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; margin: 0; padding: 0; list-style: none; }
+.gen-rows { margin: 0; padding: 2px 0 0; list-style: none; }
 .model-cell {
   display: block;
   width: 100%;

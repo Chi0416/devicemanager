@@ -2,7 +2,7 @@
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
 //   要處理：合約到期、快到期，保固 30 天內到期，耗材快到了（預估 14 天內），空著的位置；依資料算，處理掉就自己不見，沒有的那一列不列
 //     合約、保固：點一列打開那份清單（#todo-sheet），點一項打開那份合約、那台設備；空著的位置：到位置頁、篩好空著的（onPlaces）
-//   機型：依世代分組（機型清單的「世代」，空白時照型號猜），每組寫小計；組裡兩欄、照機型清單的順序，細長條是台數
+//   機型：依世代分組（機型清單的「世代」，空白時照型號猜），標題寫「IM C 系列」和小計，下面一條線；組裡一行一個、照機型清單的順序，細長條是台數
 //     點一個到設備頁，篩好狀態和機型（onPick，見 app.js）
 function createOverview({ onPick, onPlaces }) {
   const KEY = `${Store.PREFIX}overview.status`;
@@ -99,7 +99,7 @@ function createOverview({ onPick, onPlaces }) {
       </button></li>`).join('')}</ul>` : '<p class="todo-none">目前沒有要處理的事</p>'}`;
   }
 
-  // 機型：依世代分組（見 records.js 的 modelGroups），每組寫小計；組裡兩欄，名字、台數，下面細長條（和最多的那種比）
+  // 機型：依世代分組（見 records.js 的 modelGroups），標題「IM C 系列」（其他就寫其他）和小計；組裡一行一個，名字、台數，下面細長條（和最多的那種比）
   function modelsHTML(groups) {
     const total = groups.reduce((n, g) => n + g.count, 0);
     const max = Math.max(1, ...groups.flatMap(g => g.rows.map(r => r.count)));
@@ -113,7 +113,7 @@ function createOverview({ onPick, onPlaces }) {
         : `<li><div class="model-cell empty-model">${inner}</div></li>`;
     };
     return `${head}<div class="model-list">${groups.map(g => `
-      <div class="gen-head"><span>${U.esc(g.gen)}</span><span>${g.count} 台</span></div>
+      <div class="gen-head"><span>${U.esc(g.gen === Records.OTHER_GEN ? g.gen : `${g.gen} 系列`)}</span><span>${g.count} 台</span></div>
       <ul class="gen-rows">${g.rows.map(cell).join('')}</ul>`).join('')}</div>`;
   }
 
