@@ -236,10 +236,8 @@ body:has(dialog[open]) { overflow: hidden; }
 }
 .group-head span { margin-left: 8px; font-weight: 500; color: var(--muted); }
 .list-intro { margin: 2px 4px 12px; font-size: 12px; line-height: 1.6; color: var(--muted); }
-/* 抄表頁最上面的小字：上次讀信的時間、「讀信」 */
+/* 抄表頁最上面的小字：上次讀信的時間 */
 .meter-line { margin: 0 4px 10px; font-size: 12px; line-height: 1.6; color: var(--muted); }
-.meter-line .link-btn { margin-left: 10px; }
-.meter-line .link-btn:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 
 .card {
   display: block;

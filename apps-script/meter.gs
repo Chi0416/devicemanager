@@ -1,6 +1,6 @@
 // 自動抄表：機器每月寄來的張數信（服務模式 SP 5-866），每小時看一次信箱，寫進這份試算表的「抄表」分頁
 //   裝在 App 建立的「設備管理」試算表上（擴充功能 → Apps Script），貼上後執行一次 install；App 同步時讀進來（id 由 App 補上）
-//   急著看的時候：試算表上方選單「自動抄表」→「現在讀信」；或部署成網頁應用程式，在 App 設定裡按「現在讀信」（見 doGet）
+//   急著看的時候：試算表上方選單「自動抄表」→「現在讀信」；部署成網頁應用程式的話，App 打開、按「同步」時也會先叫它讀信（見 doGet）
 //   信要寄到登入 App 的那個帳號的 Gmail（SP 5-866-121）：這支程式只讀得到自己帳號的信
 //   信的樣子（主旨「Page Counter : 序號」，用 SP 5-866-112 測試寄的主旨前面有 [TEST]）：
 //     Serial No.: 313CM615862
@@ -11,7 +11,7 @@
 //   照信裡的時間由舊到新寫（Gmail 搜尋是新的在前），試算表上的順序就是機器寄信的順序
 //   結算月份：抄表日期的上一個月（11/1 寄來的算 10 月的帳）；測試寄的空白（App 當作起點，不算帳）
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
-//   每次看完信箱（每小時那次、選單、App 按的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
+//   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
@@ -42,7 +42,7 @@ function resultText_({ count, fixed }) {
   return parts.length ? parts.join('、') : '沒有新的信';
 }
 
-// App 的「讀信」：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
+// App 同步前的讀信：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
 //   只回 { count: 寫了幾筆, fixed: 補了幾筆的設備, at: 讀完的時間 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
 function doGet() {
   return ContentService.createTextOutput(JSON.stringify(checkMail())).setMimeType(ContentService.MimeType.JSON);

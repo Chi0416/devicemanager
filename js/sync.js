@@ -30,7 +30,7 @@ const Sync = (() => {
 
   // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt } ----------
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
-  //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；App 按「讀信」時程式也直接回傳）
+  //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；同步前叫它讀信時也直接回傳）
   let cloud = null;
   try { cloud = JSON.parse(localStorage.getItem(CLOUD_KEY)); } catch (_) {}
 
@@ -44,6 +44,7 @@ const Sync = (() => {
   // ---------- 狀態與通知畫面 ----------
   let running = false;
   let again = false;
+  let againMail = false; // 排在後面的那一次要不要先讀信
   let error = '';
   let offline = false; // 上次同步時沒有網路（連上後自動再同步）
   let problems = [];
@@ -427,19 +428,42 @@ const Sync = (() => {
     return done;
   }
 
+  // ---------- 讀信（自動抄表） ----------
+  // 叫試算表上的程式讀一次信（讀信網址，見 apps-script/meter.gs 的 doGet），回 { count, fixed, at }；讀信失敗回 { failed: true }
+  async function readMail() {
+    try {
+      const res = await fetch(cloud.meterUrl, { signal: AbortSignal.timeout(30000) });
+      const r = await res.json();
+      if (r.at) cloud.meterReadAt = r.at;
+      return r;
+    } catch (_) {
+      return { failed: true };
+    }
+  }
+
+  // 「寫進 2 筆、補上 1 筆的設備」；都沒有時是空字串
+  const mailText = r => [r?.count && `寫進 ${r.count} 筆`, r?.fixed && `補上 ${r.fixed} 筆的設備`].filter(Boolean).join('、');
+
   // ---------- 同步一次 ----------
   // 登入過期時不跳出視窗（要使用者點按鈕），只更新狀態；manual 為 true 時完成後提示
-  async function run({ manual = false } = {}) {
+  //   mail：有讀信網址時先叫程式讀信，讀到的這次就一起拿回來（打開 App、切回來、按「同步」；改資料後的自動同步不讀）
+  //     讀信失敗照樣同步（抄表頁「上次讀信」的時間不會更新），按「同步」時才提示
+  async function run({ manual = false, mail = false } = {}) {
     if (!cloud) return;
-    if (running) { again = true; return; }
+    if (running) {
+      again = true;
+      againMail ||= mail;
+      return;
+    }
     if (!Google.hasToken()) { emit(); return; }
     running = true;
     error = '';
     offline = false;
     lastRunAt = Date.now();
     emit();
-    const snap = Store.pendingSnapshot();
     try {
+      const mailed = mail && cloud.meterUrl ? await readMail() : null;
+      const snap = Store.pendingSnapshot();
       let meta = await locate();
       if (!meta) {
         // 試算表被刪掉或丟進垃圾桶：不小心的話重建；想重新開始的話取消連結
@@ -472,7 +496,8 @@ const Sync = (() => {
       cloud.lastSyncAt = new Date().toISOString();
       saveCloud();
       okAt = Date.now();
-      if (manual) hooks.toast('已同步');
+      if (manual && mailed?.failed) hooks.toast('已同步，但讀信失敗：確認讀信網址對、部署時「誰可以存取」選了「任何人」', 'error');
+      else if (manual) hooks.toast(mailText(mailed) ? `已同步（${mailText(mailed)}）` : '已同步');
     } catch (e) {
       if (e.code === 'network') offline = true;
       else if (e.code !== 'need_login') error = e.message || String(e);
@@ -482,8 +507,9 @@ const Sync = (() => {
       running = false;
       emit();
       if (again) {
-        again = false;
-        run();
+        const m = againMail;
+        again = againMail = false;
+        run({ mail: m });
       }
       if (!running) idleWaiters.splice(0).forEach(fn => fn());
     }
@@ -565,21 +591,13 @@ const Sync = (() => {
     emit();
   }
 
-  // App 按「讀信」後程式回傳的時間：先記下來，不用等同步（同步時從 _meta 讀回來的也是這個時間）
-  function setMeterReadAt(at) {
-    if (!cloud || !at) return;
-    cloud.meterReadAt = at;
-    saveCloud();
-    emit();
-  }
-
   // ---------- 按鈕 ----------
   // 必須在使用者點擊的當下呼叫：登入過期時要先跳出 Google 視窗
   function login(after) {
     return Google.requestToken({ hint: cloud?.email || '' }).then(
       () => {
         autoLoginTried = false;
-        return after === 'link' ? link() : run({ manual: true });
+        return after === 'link' ? link() : run({ manual: true, mail: true });
       },
       e => {
         if (e.code === 'popup_failed_to_open') {
@@ -595,7 +613,7 @@ const Sync = (() => {
   const startLink = () => login('link');
 
   function syncNow() {
-    if (Google.hasToken()) return run({ manual: true });
+    if (Google.hasToken()) return run({ manual: true, mail: true });
     if (!navigator.onLine) {
       noNetwork();
       hooks.toast('目前沒有網路，連上網路後再按「同步」');
@@ -718,13 +736,13 @@ const Sync = (() => {
     const back = Google.consumeRedirect();
     if (back?.error) hooks.toast(back.error, 'error');
     else if (back?.after === 'link') link();
-    else if (cloud) run({ manual: back?.after === 'sync' });
+    else if (cloud) run({ manual: back?.after === 'sync', mail: true });
 
     // 從背景切回來時抓一次最新資料（可能在試算表或另一台裝置改過），也更新「上次同步是幾小時前」的提示
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) return;
       emit();
-      if (cloud && Google.hasToken() && Date.now() - lastRunAt > 30000) run();
+      if (cloud && Google.hasToken() && Date.now() - lastRunAt > 30000) run({ mail: true });
     });
     // 網路恢復時馬上同步；登入過期時沒辦法自動同步，提示列改成請使用者按「同步」
     window.addEventListener('online', () => {
@@ -734,5 +752,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, startLink, syncNow, loginByRedirect, logout, setMeterUrl, setMeterReadAt };
+  return { init, state, startLink, syncNow, loginByRedirect, logout, setMeterUrl };
 })();

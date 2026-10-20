@@ -13,6 +13,7 @@ class FakeGoogle {
     this.n = 0;
     this.calls = [];
     this.onBatchGet = null; // 讀取時插入的動作（模擬同步途中使用者又改了資料）
+    this.meter = null;      // 讀信網址被叫的時候（模擬試算表上的程式讀信）：() => 回傳的 { count, fixed, at }；沒設是讀信失敗
   }
 
   // 'title'!A5、'title'!A:ZZ、title
@@ -70,6 +71,12 @@ class FakeGoogle {
     const ok = json => ({ status: 200, ok: true, text: async () => JSON.stringify(json) });
     const notFound = () => ({ status: 404, ok: false, text: async () => JSON.stringify({ error: { message: 'not found' } }) });
     const path = decodeURIComponent(u.pathname);
+
+    if (u.hostname === 'script.google.com') {
+      if (!this.meter) return notFound();
+      const r = this.meter();
+      return { status: 200, ok: true, json: async () => r };
+    }
 
     if (path === '/drive/v3/about') return ok({ user: { emailAddress: 'test@example.com' } });
     if (path === '/drive/v3/files') {
@@ -175,6 +182,7 @@ function device(fake, { storage = {}, token = true, confirmAnswer = true, clock 
     setTimeout: () => 0, // 自動同步的計時器不執行，測試裡直接呼叫同步
     clearTimeout: () => {},
     fetch: fake.fetch,
+    AbortSignal,
     navigator: nav,
     URLSearchParams,
     location: { origin: 'http://localhost:8770', pathname: '/', search: '', hash: '', assign() {} },
@@ -591,11 +599,61 @@ test('上次讀信的時間：試算表上的程式寫在 _meta 第 3 列，同�
   await phone.Sync.startLink();
   assert.equal(phone.Sync.state().meterReadAt, first);
 
-  const second = '2026-10-20T06:05:00.000Z';
-  d.Sync.setMeterReadAt(second);
-  assert.equal(d.Sync.state().meterReadAt, second);
-  d.Sync.setMeterReadAt(undefined); // 舊版程式沒有回傳時間：不動
-  assert.equal(d.Sync.state().meterReadAt, second);
+});
+
+// 讀信網址：模擬試算表上的程式讀到一封信，寫一列抄表、在 _meta 第 3 列記時間
+const METER_URL = 'https://script.google.com/macros/s/abc/exec';
+function mailOnce(fake, id, at) {
+  fake.meter = () => {
+    fake.appendRow(id, '抄表', ['NB-001', 46315, '2026/09', 1200, '', '自動抄表']);
+    fake.write(id, "'_meta'!A3", [['meterReadAt', at]]);
+    fake.meter = () => { fake.write(id, "'_meta'!A3", [['meterReadAt', at]]); return { count: 0, fixed: 0, at }; };
+    return { count: 1, fixed: 0, at };
+  };
+}
+const settle = async d => { do await new Promise(r => setImmediate(r)); while (d.Sync.state().running); };
+
+test('按「同步」：有讀信網址時先叫程式讀信，讀到的這次同步就拿回來，提示寫進幾筆；上次讀信的時間跟著更新', async () => {
+  const { fake, d, id } = await linked();
+  await d.Sync.setMeterUrl(METER_URL);
+  const at = '2026-10-20T06:05:00.000Z';
+  mailOnce(fake, id, at);
+  const before = fake.calls.length;
+  await d.Sync.syncNow();
+  const calls = fake.calls.slice(before);
+  const mailAt = calls.indexOf('GET /macros/s/abc/exec');
+  assert.ok(mailAt >= 0 && mailAt < calls.findIndex(c => c.includes('batchGet')));
+  assert.equal(d.Store.list('readings').length, 1);
+  assert.equal(d.Sync.state().meterReadAt, at);
+  assert.equal(d.toasts.at(-1), '已同步（寫進 1 筆）');
+  await d.Sync.syncNow();
+  assert.equal(d.toasts.at(-1), '已同步');
+});
+
+test('讀信失敗：照樣同步，時間不更新；按「同步」時提示讀信失敗', async () => {
+  const { fake, d } = await linked();
+  await d.Sync.setMeterUrl(METER_URL);
+  d.Store.add('devices', PRINTER);
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().pending, 0);
+  assert.equal(d.Sync.state().meterReadAt, '');
+  assert.match(d.toasts.at(-1), /^error:已同步，但讀信失敗/);
+});
+
+test('沒有讀信網址：同步不讀信；改資料後、連上網路的自動同步也不讀信', async () => {
+  const { fake, d, id } = await linked();
+  mailOnce(fake, id, '2026-10-20T06:05:00.000Z');
+  await d.Sync.syncNow();
+  assert.ok(!fake.calls.includes('GET /macros/s/abc/exec'));
+  assert.equal(d.toasts.at(-1), '已同步');
+
+  await d.Sync.setMeterUrl(METER_URL);
+  d.Store.add('devices', PRINTER);
+  d.fire('online');
+  await settle(d);
+  assert.equal(d.Sync.state().pending, 0);
+  assert.ok(!fake.calls.includes('GET /macros/s/abc/exec'));
+  assert.equal(d.Store.list('readings').length, 0);
 });
 
 test('連結：這台裝置有資料、雲端還沒有試算表時，先確認要存到哪個帳號；選「取消」就不連結', async () => {
