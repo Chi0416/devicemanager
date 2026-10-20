@@ -1,5 +1,5 @@
 // 位置頁（底部第二格）：每個位置一張卡片，點了打開位置詳情（見 detail.js 的 Place）
-//   卡片：名稱、現在放的機器（空著寫最後一次搬走，倉庫寫幾台）、合約（快到期、已到期標色）、最近一期用量（跟前一期比）
+//   倉庫排最上面，其他照名稱；卡片：名稱、現在放的機器（空著寫最後一次搬走，倉庫寫幾台）、合約（快到期、已到期標色）、最近一期用量（跟前一期比）
 //   上面搜尋（名稱、以前的名字、放著的機器的機型名稱序號都找得到），篩選：全部（沒停用的）／有機器／空著／倉庫／停用
 //   用量、合約一次算好全部的位置（見 records.js 的 usageByPlace、currentContracts）
 function createPlaces() {
@@ -26,7 +26,7 @@ function createPlaces() {
   const shortDate = iso => (String(iso).slice(0, 4) === U.today().slice(0, 4) ? U.fmtDate(iso).slice(5) : U.fmtDate(iso));
   const num = v => U.fmtNum(v);
 
-  // 全部的位置和要寫在卡片上的東西
+  // 全部的位置和要寫在卡片上的東西；倉庫排最上面，其他照名稱
   function rows() {
     const machines = new Map();
     Store.list('devices').forEach(d => {
@@ -42,7 +42,8 @@ function createPlaces() {
         const on = machines.get(norm(p.code)) || [];
         return { p, on, kind: kindOf(p, on.length), usage: usage.get(norm(p.code)) || [], contract: contracts.get(norm(p.code)) || null };
       })
-      .sort((a, b) => String(a.p.name ?? '').localeCompare(String(b.p.name ?? ''), 'zh-Hant', { numeric: true }));
+      .sort((a, b) => (b.kind === 'stock') - (a.kind === 'stock')
+        || String(a.p.name ?? '').localeCompare(String(b.p.name ?? ''), 'zh-Hant', { numeric: true }));
   }
 
   const searchText = x => [Records.placeText(x.p.code), ...x.on.map(d => `${Records.label(d)} ${d.serial || ''}`)].join(' ');
