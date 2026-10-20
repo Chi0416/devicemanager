@@ -1106,8 +1106,11 @@ a.wide-btn { display: flex; align-items: center; justify-content: center; text-d
 .cloud-logout { display: block; margin: 12px auto 0; }
 .cloud-logout:disabled { opacity: .55; cursor: default; }
 .cloud-logout-note { margin-top: 4px; text-align: center; }
+.steps-box { margin-top: 12px; }
+.steps-box summary { padding: 6px 2px; font-size: 14px; font-weight: 500; color: var(--accent-text); cursor: pointer; }
 .steps { margin: 10px 0 12px; padding-left: 20px; font-size: 13px; line-height: 1.6; }
 .steps li { overflow-wrap: anywhere; }
+.meter-url { margin: 16px 0 10px; }
 
 /* ---------- 提醒 ---------- */
 .inbox-btn { position: relative; margin-right: 0; }

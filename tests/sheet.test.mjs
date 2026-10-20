@@ -394,3 +394,11 @@ test('翻新的「原廠商」改名「廠商或來源」：舊標題讀得到�
   assert.equal(r.data.refurbs[0].source, '日本拍賣');
   assert.deepEqual(r.rewrites, [{ table: 'refurbs', tab: '翻新', row: 1, col: 6, value: '廠商或來源' }]);
 });
+
+test('_meta 第 2 列的讀信網址（自動抄表）讀得到；沒有這一列時是空字串', () => {
+  const url = 'https://script.google.com/macros/s/abc/exec';
+  assert.equal(Sheet.fromValues({ _meta: [['version', 1], ['meterUrl', ` ${url} `]] }).meterUrl, url);
+  assert.equal(Sheet.fromValues({ _meta: [['version', 1], ['meterUrl', ` ${url} `]] }).version, 1);
+  assert.equal(Sheet.fromValues({ _meta: [['version', 1]] }).meterUrl, '');
+  assert.equal(Sheet.fromValues({}).meterUrl, '');
+});

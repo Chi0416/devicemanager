@@ -1,6 +1,6 @@
 // 自動抄表：機器每月寄來的張數信（服務模式 SP 5-866），每小時看一次信箱，寫進這份試算表的「抄表」分頁
 //   裝在 App 建立的「設備管理」試算表上（擴充功能 → Apps Script），貼上後執行一次 install；App 同步時讀進來（id 由 App 補上）
-//   急著看的時候：試算表上方選單「自動抄表」→「現在讀信」
+//   急著看的時候：試算表上方選單「自動抄表」→「現在讀信」；或部署成網頁應用程式，在 App 設定裡按「現在讀信」（見 doGet）
 //   信要寄到登入 App 的那個帳號的 Gmail（SP 5-866-121）：這支程式只讀得到自己帳號的信
 //   信的樣子（主旨「Page Counter : 序號」，用 SP 5-866-112 測試寄的主旨前面有 [TEST]）：
 //     Serial No.: 313CM615862
@@ -35,8 +35,25 @@ function readNow() {
   SpreadsheetApp.getActive().toast(n ? `寫進 ${n} 筆` : '沒有新的信');
 }
 
+// App 的「現在讀信」：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
+//   只回寫了幾筆，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
+function doGet() {
+  return ContentService.createTextOutput(JSON.stringify({ count: checkMail() })).setMimeType(ContentService.MimeType.JSON);
+}
+
 // 找最近 7 天的張數信，沒寫過的加在「抄表」最下面；回傳寫了幾筆
 function checkMail() {
+  // 每小時那次和按鈕剛好同時跑時，等前一個跑完，同一封信不會寫兩次
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return readMail_();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function readMail_() {
   const ss = SpreadsheetApp.getActive();
   const readings = ss.getSheetByName('抄表');
   const devices = ss.getSheetByName('設備');

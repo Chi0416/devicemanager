@@ -552,6 +552,30 @@ test('第二台裝置（沒有資料）連結：直接用雲端的資料，不�
   assert.deepEqual(phone.asked.messages, []);
 });
 
+test('自動抄表的讀信網址：存在 _meta 第 2 列，同步不會蓋掉；其他裝置連結、同步後也有，改了、清掉也跟著', async () => {
+  const { fake, d, id } = await linked();
+  const first = 'https://script.google.com/macros/s/abc/exec';
+  await d.Sync.setMeterUrl(first);
+  assert.equal(d.Sync.state().meterUrl, first);
+  assert.deepEqual(fake.values(id, '_meta'), [['version', 1], ['meterUrl', first]]);
+  d.Store.add('devices', PRINTER);
+  await d.Sync.syncNow();
+  assert.deepEqual(fake.values(id, '_meta'), [['version', 1], ['meterUrl', first]]);
+  assert.equal(d.Sync.state().meterUrl, first);
+
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  assert.equal(phone.Sync.state().meterUrl, first);
+
+  const second = 'https://script.google.com/macros/s/def/exec';
+  await phone.Sync.setMeterUrl(second);
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().meterUrl, second);
+  await phone.Sync.setMeterUrl('');
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().meterUrl, '');
+});
+
 test('連結：這台裝置有資料、雲端還沒有試算表時，先確認要存到哪個帳號；選「取消」就不連結', async () => {
   const fake = new FakeGoogle();
   const d = device(fake, { confirmAnswer: false });

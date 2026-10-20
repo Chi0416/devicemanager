@@ -1,5 +1,5 @@
 // 試算表格式：App 的資料 ↔ Google 試算表的列（只做轉換，不連網路）
-//   每張資料表一個分頁，分頁名稱和頁面標題一樣；另有隱藏的 _meta 分頁（格式版本）
+//   每張資料表一個分頁，分頁名稱和頁面標題一樣；另有隱藏的 _meta 分頁（第 1 列格式版本、第 2 列自動抄表的讀信網址）
 //   第一列是中文標題（和表單欄位名稱一樣），最後一欄是 id；讀取時依標題找欄位，調換欄位順序也讀得到
 //   編號、序號等文字欄設成純文字（001 不會變成 1）；日期存成試算表的日期（可以排序、篩選）；勾選的欄位是核取方塊
 //   讀取時容許手動輸入：空白列略過、沒有 id 的列補上 id；
@@ -12,6 +12,7 @@ const Sheet = (() => {
   const VERSION = 1;
   const ID = 'id';
   const META = { title: '_meta', sheetId: 99 };
+  const METER_KEY = 'meterUrl'; // _meta 第 2 列：自動抄表的讀信網址（Apps Script 部署成網頁應用程式的網址，見 sync.js 的 setMeterUrl）
   const TABLES = Object.keys(SCHEMAS);
   const TAB = Object.fromEntries(TABLES.map((t, i) => [t, {
     title: SCHEMAS[t].title,
@@ -216,15 +217,17 @@ const Sheet = (() => {
     return rows;
   }
 
+  // _meta 分頁一列一項：第一格是名稱、第二格是值
+  const metaValue = (values, key) => (values || []).find(r => String(r?.[0] ?? '').trim() === key)?.[1];
+
   // _meta 分頁記的格式版本；沒有這個分頁（或讀不到）時當作版本 1
   function metaVersion(values) {
-    const row = (values || []).find(r => String(r?.[0] ?? '').trim() === 'version');
-    const v = Number(row?.[1]);
+    const v = Number(metaValue(values, 'version'));
     return v > 0 ? v : 1;
   }
 
   // byTitle：{ 分頁名稱: values }，由 readRanges() 的範圍讀回，有 _meta 分頁時也一起讀
-  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites }
+  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, meterUrl }
   //   data 和 data.json 同樣的結構
   //   rowOf[分頁][id] 是那一筆在第幾列；headers[分頁] 是標題列（補上 id 欄之後）
   //   broken 是缺分頁或缺欄位的資料表：讀到的資料不完整，同步時不要拿來取代 App 裡的資料
@@ -238,7 +241,8 @@ const Sheet = (() => {
     const data = {};
     TABLES.forEach(t => { data[t] = readTable(t, byTitle[TAB[t].title], ctx); });
     const { problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites } = ctx;
-    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites };
+    const meterUrl = String(metaValue(byTitle[META.title], METER_KEY) ?? '').trim();
+    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, meterUrl };
   }
 
   // 一格的值（補上的欄用）
@@ -328,7 +332,7 @@ const Sheet = (() => {
   const readRanges = () => TABLES.map(t => TAB[t].title);
 
   return {
-    VERSION, ID, META, TAB,
+    VERSION, ID, META, METER_KEY, TAB,
     toSerial, fromSerial, colLetter,
     encodeRow, encodeCell, toValues, fromValues, problemText,
     createBody, setupRequests, addColumnRequests, metaValues, readRanges,

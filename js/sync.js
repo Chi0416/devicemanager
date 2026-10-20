@@ -28,7 +28,8 @@ const Sync = (() => {
   // 試算表上有幾筆資料（預先放的類別不算：只有那幾筆時，當作雲端還沒有資料）
   const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
-  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt } ----------
+  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl } ----------
+  //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
   let cloud = null;
   try { cloud = JSON.parse(localStorage.getItem(CLOUD_KEY)); } catch (_) {}
 
@@ -62,6 +63,7 @@ const Sync = (() => {
       linked: !!cloud,
       email: cloud?.email || '',
       url: cloud?.url || '',
+      meterUrl: cloud?.meterUrl || '',
       lastSyncAt: cloud?.lastSyncAt || null,
       running,
       error,
@@ -293,6 +295,7 @@ const Sync = (() => {
   async function exchange(meta, snap) {
     const byTitle = await pull(meta);
     const parsed = Sheet.fromValues(byTitle);
+    cloud.meterUrl = parsed.meterUrl;
     // 手動輸入、沒有 id 的列：剛給的 id 先寫回試算表，寫好了才放進這台裝置
     //   寫的時候斷線就整次停下來：這台裝置不會留著試算表上沒有的 id（下次讀回來會是另一個 id，改過的話同一筆會變兩筆）
     const ids = [
@@ -497,6 +500,7 @@ const Sync = (() => {
       const email = about.user.emailAddress;
       const local = Store.exportPayload();
       let meta = null;
+      let meterUrl = '';
       const found = await findSpreadsheet();
       if (found) meta = await info(found);
 
@@ -511,6 +515,7 @@ const Sync = (() => {
       } else {
         await ensureTabs(meta);
         const parsed = Sheet.fromValues(await pull(meta));
+        meterUrl = parsed.meterUrl;
         const remoteCount = countRecords(parsed.data);
         if (!remoteCount) {
           if (!upload()) return;
@@ -530,7 +535,7 @@ const Sync = (() => {
           hooks.onData();
         }
       }
-      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString() };
+      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl };
       saveCloud();
       hooks.toast('已連結 Google 帳號');
     } catch (e) {
@@ -541,6 +546,19 @@ const Sync = (() => {
     }
     // 補上在試算表裡手動輸入的資料缺的 id 等
     if (cloud) await run();
+  }
+
+  // ---------- 自動抄表的讀信網址 ----------
+  // 寫在 _meta 分頁第 2 列（第 1 列是格式版本，不動）；空字串是清掉。登入過期時丟出 need_login，請使用者先按「同步」
+  async function setMeterUrl(url) {
+    if (!cloud?.spreadsheetId) return;
+    await api(`${Google.SHEETS}/${cloud.spreadsheetId}/values:batchUpdate`, {
+      method: 'POST',
+      body: { valueInputOption: 'RAW', data: [{ range: a1(Sheet.META.title, 'A2'), values: [[Sheet.METER_KEY, url]] }] },
+    });
+    cloud.meterUrl = url;
+    saveCloud();
+    emit();
   }
 
   // ---------- 按鈕 ----------
@@ -704,5 +722,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, startLink, syncNow, loginByRedirect, logout };
+  return { init, state, startLink, syncNow, loginByRedirect, logout, setMeterUrl };
 })();

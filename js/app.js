@@ -323,32 +323,92 @@
     .then(r => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
     .catch(e => { meterCode = null; throw e; });
 
+  // 讀信網址：試算表上的程式部署成網頁應用程式的網址（公司帳號是 /a/macros/網域/s/…）；存在試算表裡，其他裝置同步後也有（見 sync.js）
+  const METER_URL = /^https:\/\/script\.google\.com\/(?:a\/macros\/[^/]+|macros)\/s\/[\w-]+\/exec$/;
+  let meterKey = '';
+
+  // 只在帳號、試算表、讀信網址變了才重畫：同步狀態一直在變，重畫會清掉正在打的網址、收起打開的步驟
   function renderMeter(st) {
+    const key = [st.linked, st.email, st.url, st.meterUrl].join('|');
+    if (key === meterKey) return;
+    meterKey = key;
     if (!st.linked) {
       meterEl.innerHTML = '<p class="note muted cloud-intro">連結 Google 帳號後才能設定。</p>';
       return;
     }
     loadMeterCode().catch(() => {});
+    const ready = !!st.meterUrl;
     meterEl.innerHTML = `
-      <p class="note muted cloud-intro">機器每月把張數寄到你的 Gmail，試算表上的小程式每小時看一次信箱，寫進「抄表」。下面要用電腦做。</p>
-      <ol class="steps muted">
-        <li>機器：設好寄信（SMTP、管理員電子郵件地址）；服務模式 5-866 的 110、114、115 設 1，121 填 ${U.esc(st.email)}，改完重新開機</li>
-        <li>按「打開試算表」，選「擴充功能」→「Apps Script」</li>
-        <li>刪掉裡面原本的內容，按「複製程式」貼上，存檔</li>
-        <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
-      </ol>
-      <button type="button" class="wide-btn primary" data-act="copy-meter">複製程式</button>
-      ${st.url ? `<a class="wide-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : ''}
-      <p class="note muted">5-866-112 寄測試信（結算月份空白，不算帳）；急著看時在試算表選「自動抄表」→「現在讀信」，再回來按同步。</p>`;
+      <p class="note muted cloud-intro">機器每月把張數寄到你的 Gmail，試算表上的小程式每小時看一次信箱，寫進「抄表」。</p>
+      ${ready ? '<button type="button" class="wide-btn primary" data-act="read-meter">現在讀信</button>' : ''}
+      <details class="steps-box" ${ready ? '' : 'open'}>
+        <summary>設定步驟（用電腦做）</summary>
+        <ol class="steps muted">
+          <li>機器：設好寄信（SMTP、管理員電子郵件地址）；服務模式 5-866 的 110、114、115 設 1，121 填 ${U.esc(st.email)}，改完重新開機</li>
+          <li>按「打開試算表」，選「擴充功能」→「Apps Script」</li>
+          <li>刪掉裡面原本的內容，按「複製程式」貼上，存檔</li>
+          <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
+          <li>要用「現在讀信」：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
+        </ol>
+        <button type="button" class="wide-btn ${ready ? '' : 'primary'}" data-act="copy-meter">複製程式</button>
+        ${st.url ? `<a class="wide-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : ''}
+        <div class="field meter-url">
+          <label for="meter-url">讀信網址</label>
+          <input id="meter-url" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec" value="${U.esc(st.meterUrl)}">
+        </div>
+        <button type="button" class="wide-btn" data-act="save-meter-url">儲存網址</button>
+        <p class="note muted">改了試算表上的程式：「部署」→「管理部署作業」→ 鉛筆 → 版本選「新版本」→「部署」，網址不變。</p>
+      </details>
+      <p class="note muted">5-866-112 寄測試信（結算月份空白，不算帳）。</p>`;
+  }
+
+  // 叫試算表上的程式讀一次信（它只回寫了幾筆），寫了就同步；登入過期時不跳 Google 視窗（已經不是點擊的當下），請使用者按「同步」
+  async function readMeterNow(btn) {
+    btn.disabled = true;
+    btn.textContent = '讀信中…';
+    try {
+      const res = await fetch(Sync.state().meterUrl);
+      const { count } = await res.json();
+      if (!count) toast('沒有新的信');
+      else if (Sync.state().needLogin) toast(`寫進 ${count} 筆，按「同步」就看得到`);
+      else {
+        toast(`寫進 ${count} 筆，同步中…`);
+        Sync.syncNow();
+      }
+    } catch (_) {
+      toast('讀信失敗：確認網址對、部署時「誰可以存取」選了「任何人」', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '現在讀信';
+    }
+  }
+
+  async function saveMeterUrl() {
+    const url = $('meter-url').value.trim();
+    if (url && !METER_URL.test(url)) {
+      toast('網址不對：要是 https://script.google.com/… 開頭、/exec 結尾', 'error');
+      return;
+    }
+    try {
+      await Sync.setMeterUrl(url);
+      toast(url ? '已儲存，其他裝置同步後也有' : '已清除');
+    } catch (e) {
+      toast(e.code === 'need_login' ? '登入已過期，先按上面的「同步」再儲存' : `儲存失敗：${e.message || e}`, 'error');
+    }
   }
 
   meterEl.addEventListener('click', async e => {
-    if (e.target.closest('[data-act]')?.dataset.act !== 'copy-meter') return;
-    try {
-      await navigator.clipboard.writeText(await loadMeterCode());
-      toast('已複製，到 Apps Script 貼上');
-    } catch (_) {
-      toast('複製失敗，請改用電腦的瀏覽器', 'error');
+    const btn = e.target.closest('[data-act]');
+    const act = btn?.dataset.act;
+    if (act === 'read-meter') readMeterNow(btn);
+    else if (act === 'save-meter-url') saveMeterUrl();
+    else if (act === 'copy-meter') {
+      try {
+        await navigator.clipboard.writeText(await loadMeterCode());
+        toast('已複製，到 Apps Script 貼上');
+      } catch (_) {
+        toast('複製失敗，請改用電腦的瀏覽器', 'error');
+      }
     }
   });
 
