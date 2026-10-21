@@ -170,7 +170,8 @@ const Detail = (() => {
   }
 
   // 碳粉：抄表程式最新一次回報的（試算表的「碳粉」分頁，同步時讀回來，見 sync.js）；先用序號找，找不到再用設備編號；沒回報過的不顯示
-  //   K Y M C 四格（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）；20% 以下紅字；右上角回報的時間，超過 3 天沒回報寫「N 天沒回報」灰字
+  //   K Y M C 四格（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）；20% 以下紅字；百分比下面一條碳粉顏色的細條（讀不到的沒有）
+  //   右上角回報的時間，超過 3 天沒回報寫「N 天沒回報」灰字
   const LOW = 20;
   const STALE = 3;
   function tonerHTML(d) {
@@ -182,7 +183,8 @@ const Detail = (() => {
     const cells = colors.map(c => {
       const v = t[c];
       const cls = v === null ? 'muted' : v <= LOW ? 'low' : '';
-      return `<span class="cell"><small>${c}</small><span class="${cls}">${v === null ? '—' : `${v}%`}</span></span>`;
+      const bar = v === null ? '' : `<i class="toner-bar t-${c.toLowerCase()}" aria-hidden="true"><b style="width:${v}%"></b></i>`;
+      return `<span class="cell"><small>${c}</small><span class="${cls}">${v === null ? '—' : `${v}%`}</span>${bar}</span>`;
     }).join('');
     const days = t.date ? Math.round((Date.parse(U.today()) - Date.parse(t.date)) / 86400000) : null;
     const when = days === null ? '—' : days > STALE ? `${days} 天沒回報` : `${U.fmtDate(t.date)} ${t.time}`.trim();

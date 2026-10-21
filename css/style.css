@@ -32,6 +32,11 @@
   /* 長條圖的兩種張數（位置詳情的用量）：黑白藍、彩色青綠；色盲也分得開，和提醒的橘色不撞 */
   --series-bw: #2a78d6;
   --series-color: #1baf7a;
+  /* 碳粉的四色（設備詳情的碳粉卡）：K 深灰、Y 黃、M 洋紅、C 青；黃色調深一點，淺色底上才看得到 */
+  --toner-k: #2b3240;
+  --toner-y: #e0b000;
+  --toner-m: #d6338a;
+  --toner-c: #1a9fd9;
   --tabbar-h: 60px;
   --max-w: 640px;
   --side-w: 0px;
@@ -63,6 +68,11 @@
     --hover: rgba(232, 237, 245, .06);
     --series-bw: #3987e5;
     --series-color: #199e70;
+    /* 黑色在深色底上看不到，改淺灰 */
+    --toner-k: #c9d1dd;
+    --toner-y: #f2cc3d;
+    --toner-m: #ec6aa9;
+    --toner-c: #4cb8ea;
     --danger: #f07878;
     --invalid-bg: #3a2228;
     --flash: #22385e;
@@ -985,13 +995,19 @@ button.model-cell:active .model-name { color: var(--accent-text); }
 .uc-pick small { display: block; font-size: 12.5px; color: var(--text-2); }
 .usage-card .card-note { margin-top: 4px; }
 
-/* ---------- 設備詳情的碳粉（見 detail.js 的 tonerHTML）：右上角回報的時間（超過 3 天灰字），K Y M C 四格，20% 以下紅字 ---------- */
+/* ---------- 設備詳情的碳粉（見 detail.js 的 tonerHTML）：右上角回報的時間（超過 3 天灰字），K Y M C 四格，20% 以下紅字，下面一條碳粉顏色的細條 ---------- */
 .toner-card { margin-top: 10px; }
 .uc-head span.fresh { color: var(--text-2); }
 .detail-card .card-grid.toner-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .toner-grid .cell > span { font-weight: 600; color: var(--text); }
 .toner-grid .cell > span.muted { font-weight: 500; color: var(--muted); }
 .toner-grid .cell > span.low { color: var(--danger); }
+.toner-bar { display: block; height: 4px; margin-top: 6px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.toner-bar b { display: block; height: 100%; border-radius: 2px; }
+.toner-bar.t-k b { background: var(--toner-k); }
+.toner-bar.t-y b { background: var(--toner-y); }
+.toner-bar.t-m b { background: var(--toner-m); }
+.toner-bar.t-c b { background: var(--toner-c); }
 
 /* ---------- 設備詳情的耗材（見 detail.js 的 consumablesHTML）：一項一列，細長條是已用幾 % ---------- */
 .cons-card { margin-top: 10px; }
