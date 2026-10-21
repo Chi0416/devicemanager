@@ -1,9 +1,9 @@
-// 產生測試用的假資料（data.json 的格式）：30 台事務機和它們的位置、異動、合約、抄表、保養、翻新、選配件
+// 產生測試用的假資料（data.json 的格式）：30 台事務機和它們的位置、異動、合約、抄表、保養、翻新、選配件、碳粉
 //   設備的名稱是機身號碼（#1001…），編號是系統給的（畫面上不顯示）
 //   位置存編號（L0001…）：一個位置放一台，公司倉庫是倉庫；合約綁位置（鼎泰國際 3F、4F、5F 是同一份合約）
 //   有幾台跟著客戶搬到新辦公室：新的位置另簽一份合約，舊的那份提前結束
 //   用法：node tools/make-demo.mjs > data-demo.json，再到 App 的設定 → 匯入 data.json
-//   每次產生的內容都一樣（固定的亂數種子）；日期以 2026-10-11 為準
+//   每次產生的內容都一樣（固定的亂數種子）；日期以 2026-10-11 為準（碳粉回報的日期照產生那天）
 //   data-demo.json 符合 .gitignore 的 data*.json，不會推上 GitHub
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -173,6 +173,80 @@ STATUSES.forEach((status, n) => {
     }));
     if (n === 24) data.parts.push(rec('parts', { device: code, name: '送紙匣', serial: `PB${int(1000, 9999)}`, installDate: addDays(buy, 20), removeDate: date }));
   }
+});
+
+// ---------- 看耗材用：長榮物流 新辦公室那台換成一年多的抄表和換耗材紀錄（備註寫「假資料（看耗材）」） ----------
+//   2025/06～2026/09 每月 5 日抄上個月（年底多、二月少）；碳粉、感光鼓、加熱組換的時候都有記張數
+//   2026/08/20 路過順便抄一次（結算月份空白）：不算帳，8 月那期照樣從 8/5 算到 9/5
+//   結果：碳粉 C 快用完（橘）、加熱組超過 10 萬（紅）、感光鼓 71%、碳粉 M 40%、Y 60%、K 26%
+const FOCUS = '長榮物流 新辦公室';
+const focus = data.devices.find(d => d.location === place(FOCUS));
+if (focus) {
+  const NOTE = '假資料（看耗材）';
+  const code = focus.code;
+  const moveIn = data.moves.filter(m => m.device === code && m.to === place(FOCUS)).at(-1);
+  if (moveIn && moveIn.date > '2024-06-01') throw new Error(`${FOCUS} 那台太晚搬進來（${moveIn.date}），耗材紀錄會算到別的位置`);
+  data.readings = data.readings.filter(r => r.device !== code);
+  data.maintenance = data.maintenance.filter(r => r.device !== code);
+  const USE = [[4200, 1000], [4300, 1050], [4600, 1150], [4800, 1180], [4700, 1120], [5100, 1250], [5700, 1450], [5300, 1350],
+    [3500, 850], [4700, 1150], [4400, 1080], [4600, 1120], [4500, 1100], [4800, 1180], [4400, 1120], [4600, 1150]];
+  let bw = 115800;
+  let color = 14000;
+  const points = USE.map(([b, c], k) => {
+    const month = addMonths('2025-06-01', k).slice(0, 7);
+    bw += b;
+    color += c;
+    return rec('readings', { device: code, date: `${addMonths(`${month}-01`, 1).slice(0, 7)}-05`, month, bw, color, note: NOTE });
+  });
+  data.readings.push(...points);
+  // 張數 → 哪一天（前後兩次抄表之間照比例；比第一次抄表還早的，照前三個月的速度往回推）；那天的黑白、彩色張數
+  const val = (p, kind) => (kind === 'color' ? p.color : p.bw + p.color);
+  const t = s => day(s).getTime();
+  const when = (kind, v) => {
+    const [p, q] = v < val(points[0], kind) ? [points[0], points[3]]
+      : points.slice(0, -1).map((p, i) => [p, points[i + 1]]).find(([p, q]) => v >= val(p, kind) && v <= val(q, kind));
+    return t(p.date) + (v - val(p, kind)) / (val(q, kind) - val(p, kind)) * (t(q.date) - t(p.date));
+  };
+  const countsAt = ms => {
+    const i = points.findIndex(p => t(p.date) >= ms);
+    const [p, q] = i <= 0 ? [points[0], points[3]] : [points[i - 1], points[i]];
+    const lerp = c => Math.round(p[c] + (q[c] - p[c]) * (ms - t(p.date)) / (t(q.date) - t(p.date)));
+    return { bw: lerp('bw'), color: lerp('color') };
+  };
+  const last = points.at(-1);
+  // 每一項換的時候的張數：最近一次抄表往回推（一支印幾張）
+  [
+    ['碳粉 K', 'total', [3000, 14500, 26200, 37700]],
+    ['碳粉 C', 'color', [8500, 17700, 26500]],
+    ['碳粉 M', 'color', [4000, 14000, 24000]],
+    ['碳粉 Y', 'color', [5700, 15200, 24700]],
+    ['感光鼓', 'total', [71000]],
+    ['加熱組', 'total', [104000]],
+  ].forEach(([item, kind, backs]) => backs.forEach(back => {
+    const ms = when(kind, val(last, kind) - back);
+    data.maintenance.push(rec('maintenance', { device: code, date: iso(new Date(ms)), item, ...countsAt(ms), note: NOTE }));
+  }));
+  data.readings.push(rec('readings', { device: code, date: '2026-08-20', month: '', ...countsAt(t('2026-08-20')), note: '假資料（順便抄）' }));
+}
+
+// ---------- 碳粉：抄表程式回報的剩幾 %（試算表的「碳粉」分頁；沒連結 Google 時 App 用這份） ----------
+//   [設備編號, 幾天前回報, 時間, K, Y, M, C]；讀不到的是 null，黑白機只有 K
+//   日期照產生那天往回推（固定日期的話，過幾天全部變成「N 天沒回報」）
+const TONER = [
+  ['26-0001', 0, '08:12', 70, 50, 60, 40], ['25-0001', 0, '08:20', 90, 80, 10, 70], ['25-0002', 0, '08:31', 20, 60, 50, 60],
+  ['23-0001', 0, '08:05', 60, 30, 40, 50], ['24-0001', 1, '17:45', 40, 70, 70, 80], ['23-0002', 0, '07:58', 80, 90, 90, 90],
+  ['24-0002', 5, '09:10', 50, 40, 60, 30], ['23-0003', 0, '08:30', 80, 40, 60, 10], ['25-0003', 0, '08:44', 30, 50, 20, 40],
+  ['25-0004', 0, '09:02', 100, 100, 100, 100], ['26-0002', 0, '08:15', 60, 70, 80, 60], ['24-0003', 0, '08:40', 10, 50, 60, 70],
+  ['24-0004', 0, '07:50', 50, 60, 40, 50], ['25-0005', 12, '16:20', 70, 20, 30, 40], ['24-0005', 0, '08:25', 40, 50, 50, 50],
+  ['25-0006', 0, '08:08', 30, 30, 30, 30], ['24-0006', 0, '08:36', 90, 60, 70, 80], ['25-0007', 0, '08:50', 70, 0, 40, 60],
+  ['24-0007', 0, '08:18', 50, 60, 70, 60], ['26-0003', 0, '08:27', 10, null, null, null], ['26-0004', 0, '08:33', 60, null, null, null],
+  ['25-0008', 0, '08:41', 80, null, 60, 70], ['26-0005', 7, '11:05', 40, 30, 50, 20], ['25-0012', 0, '08:22', 60, 70, 70, 60],
+];
+const NOW = iso(new Date(Date.now() - new Date().getTimezoneOffset() * 60000));
+data.toner = TONER.map(([device, ago, time, K, Y, M, C]) => {
+  const d = data.devices.find(x => x.code === device);
+  if (!d) throw new Error(`碳粉：找不到設備 ${device}`);
+  return { serial: d.serial, device, date: addDays(NOW, -ago), time, K, Y, M, C };
 });
 
 // 合約修改紀錄：第一份合約的抄表日期打錯過

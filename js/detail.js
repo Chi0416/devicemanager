@@ -126,7 +126,7 @@ const DetailRows = {
   reading(list) {
     const r = [...list].sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')) || String(a.id).localeCompare(String(b.id))).at(-1);
     if (!r) return { main: '還沒有抄表' };
-    const use = Records.usageNote(r);
+    const use = Records.readingUse(r);
     const main = r.month ? `${U.fmtMonth(r.month)} 帳（${U.fmtDate(r.date)} 抄）` : U.fmtDate(r.date);
     return { main, sub: use?.text || '', warn: !!use?.warn };
   },
@@ -170,6 +170,7 @@ const Detail = (() => {
   }
 
   // 碳粉：抄表程式最新一次回報的（試算表的「碳粉」分頁，同步時讀回來，見 sync.js）；先用序號找，找不到再用設備編號
+  //   沒有碳粉分頁時用匯入的 data.json 裡的（假資料，見 tools/make-demo.mjs）
   //   K Y M C 四格（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）；20% 以下紅字；百分比下面一條碳粉顏色的細條（讀不到的只有灰色底條）
   //   右上角回報的時間，超過 3 天沒回報寫「N 天沒回報」灰字
   //   沒回報過的也顯示：四格「—」、灰色底條，右上角「還沒有回報」
@@ -177,7 +178,7 @@ const Detail = (() => {
   const STALE = 3;
   function tonerHTML(d) {
     const norm = v => Refs.norm(v);
-    const list = Sync.state().toner || [];
+    const list = Sync.state().toner || Store.toner() || [];
     const t = (norm(d.serial) && list.find(x => norm(x.serial) === norm(d.serial))) || list.find(x => norm(x.device) === norm(d.code));
     const colors = !t || ['Y', 'M', 'C'].some(c => t[c] !== null) ? ['K', 'Y', 'M', 'C'] : ['K'];
     const cells = colors.map(c => {

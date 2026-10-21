@@ -10,8 +10,9 @@ const Store = (() => {
   let available = true;
 
   // 全新的資料；有 seed 的表（類別的預設項目）先放好
+  //   toner：匯入的 data.json 裡的碳粉（假資料用；連結 Google 時用試算表「碳粉」分頁的，見 sync.js）
   function blank() {
-    const d = { version: 1, lastExportAt: null };
+    const d = { version: 1, lastExportAt: null, toner: null };
     TABLES.forEach(t => { d[t] = SCHEMAS[t].seed ? SCHEMAS[t].seed() : []; });
     return d;
   }
@@ -28,6 +29,7 @@ const Store = (() => {
         }
       });
       if (d.lastExportAt) out.lastExportAt = d.lastExportAt;
+      if (Array.isArray(d.toner)) out.toner = d.toner.filter(r => r && typeof r === 'object');
     }
     return out;
   }
@@ -136,7 +138,12 @@ const Store = (() => {
     exportPayload() {
       const p = { app: 'devicemanager', version: 1, exportedAt: new Date().toISOString() };
       TABLES.forEach(t => { p[t] = data[t]; });
+      if (data.toner) p.toner = data.toner;
       return p;
+    },
+
+    toner() {
+      return data.toner;
     },
 
     lastExportAt() {
@@ -238,15 +245,16 @@ const Store = (() => {
         });
       });
       out.lastExportAt = data.lastExportAt;
+      out.toner = data.toner;
       data = normalize(out);
       persist();
     },
 
     // 改用試算表的資料（連結時選了雲端那一份），這台裝置的修改全部放棄
     loadRemote(remote) {
-      const lastExportAt = data.lastExportAt;
+      const { lastExportAt, toner } = data;
       data = normalize(remote);
-      data.lastExportAt = lastExportAt;
+      Object.assign(data, { lastExportAt, toner });
       sync = { pending: {}, v: sync.v, full: false };
       persist();
     },

@@ -485,17 +485,44 @@ const Records = (() => {
     return u.length ? { text: '第一次抄表', warn: false } : null;
   }
 
+  // 結算月份空白的抄表（都不算帳）：起點或順便抄
+  //   起點：機器放到這個位置之後的第一筆抄表（安裝、移機、換機進來那天抄的；沒有異動的是這台的第一筆），下一次抄表從它算起
+  //   順便抄：其他空白的（路過順便抄、自動抄表的測試）；跟保養填的張數一樣只是記下來，一期不會被切成兩段
+  function isStart(rec) {
+    const date = String(rec.date ?? '');
+    const here = key(locationAt(rec.device, date));
+    const arrive = of('moves', rec.device).filter(m => key(m.to) === here && String(m.date ?? '') <= date)
+      .reduce((d, m) => (String(m.date) > d ? String(m.date) : d), '');
+    const before = rec.id ? r => byMeter(r, rec) < 0 : r => cmp(String(r.date ?? ''), date) <= 0;
+    return !of('readings', rec.device).some(r => r.id !== rec.id && String(r.date ?? '') >= arrive && before(r));
+  }
+  const readingKind = rec => (rec.month || !key(rec.device) ? '' : isStart(rec) ? '起點' : '順便抄');
+
+  // 抄表的用量那一段：結算月份空白的寫「起點」「順便抄」，不寫本期；比上一次少時照樣提醒
+  function readingUse(rec) {
+    const use = usageNote(rec);
+    const kind = readingKind(rec);
+    if (!kind) return use;
+    return use?.warn ? { text: `${kind}・${use.text}`, warn: true } : { text: kind, warn: false };
+  }
+
   // 抄表卡片最下面一行：哪天抄的、本期用量（列表依結算月份分組，日期寫在這裡）
   function readingNote(rec) {
-    const use = usageNote(rec);
+    const use = readingUse(rec);
     const text = [rec.date && `${U.fmtDate(rec.date)} 抄`, use?.text].filter(Boolean).join('・');
     return text ? { text, warn: !!use?.warn } : null;
   }
 
   // 表單上結算月份下面：這台設備這個月已經抄過了（重抄、換機時還是可以存）
-  //   空白時：只當起點、不算帳（安裝當天抄的）
+  //   空白時：寫這筆是起點還是順便抄；撤機那天的順便抄提醒要填（撤機前最後一次要結帳，不然這一段不算）
   function monthNote(values) {
-    if (!values.month) return '空白＝起點，不算帳';
+    if (!values.month) {
+      const kind = values.date ? readingKind(values) : '';
+      if (kind === '順便抄' && of('moves', values.device).some(m => m.type === '撤機' && String(m.date) === String(values.date))) {
+        return { text: '撤機前最後一次，要填結算月份，不然這段不算', warn: true };
+      }
+      return kind ? `空白＝${kind}，不算帳` : '空白＝不算帳';
+    }
     if (!values.device) return '';
     const dup = of('readings', values.device).find(r => r.id !== values.id && r.month === values.month);
     return dup ? { text: `這個月已經抄過了（${shortDate(dup.date)}）`, warn: true } : '';
@@ -514,7 +541,7 @@ const Records = (() => {
 
   // ---------- 每個位置的用量：以「一期」算（兩次抄表之間），每月抄、一季抄、半年抄的都比得公平 ----------
   //   一筆抄表的用量＝那台機器這次減上一次抄表（中間保養填的張數不算分段，整期才不會少算）；算在抄表那天機器所在的位置
-  //   一期幾個月：結算月份和上一次抄表的結算月份差幾個月；結算月份空白的（安裝當天的起點）只當上一次，不算一期
+  //   一期幾個月：結算月份和上一次抄表的結算月份差幾個月；結算月份空白的起點只當上一次，不算一期；順便抄的跳過（見 isStart）
   //   同一個位置同一個結算月份有好幾筆（換機那個月、倉庫）加起來；第一次抄表、比上次少的（換主機板）不算
   //   一次把全部的位置算好（位置頁每張卡片都要，一個一個找太慢）：Map(位置編號 → [{ month, months, bw, color, total }]，舊到新)
   const monthIndex = m => { const [y, mo] = String(m).split('-').map(Number); return y * 12 + mo - 1; };
@@ -531,6 +558,7 @@ const Records = (() => {
     lines.forEach(line => {
       const last = {}; // 每一種張數上一次抄表的那一筆
       line.forEach(r => {
+        if (!r.month && !isStart(r)) return;
         const diffs = r.month ? COUNTS.map(([c]) => c).filter(c => isNum(r[c]) && last[c] && r[c] >= last[c][c]).map(c => [c, r[c] - last[c][c], last[c]]) : [];
         if (diffs.length) {
           // 上一次是安裝當天的起點（沒有結算月份）：照日期換算幾個月
@@ -984,7 +1012,7 @@ const Records = (() => {
     moveDateNote, moveToNote, isStock, disableCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
-    countsText, usage, usageNote, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
+    countsText, usage, usageNote, readingKind, readingUse, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade,
   };

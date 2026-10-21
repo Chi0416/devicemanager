@@ -732,6 +732,17 @@ test('匯入 data.json 後整份重寫試算表', async () => {
   assert.equal(d.Sync.state().pending, 0);
 });
 
+test('匯入 data.json 裡的碳粉（假資料）：同步後還在、匯出也有；匯入沒有碳粉的檔案就清掉', async () => {
+  const { d } = await linked();
+  const row = { serial: '3101R800451', device: 'PR-001', date: '2026-10-21', time: '08:12', K: 70, Y: 50, M: 60, C: 40 };
+  d.Store.replaceAll(d.Store.parseImport({ devices: [{ ...PRINTER, id: 'p9' }], toner: [row] }));
+  await d.Sync.syncNow();
+  assert.deepEqual(plain(d.Store.toner()), [row]);
+  assert.deepEqual(plain(d.Store.exportPayload().toner), [row]);
+  d.Store.replaceAll(d.Store.parseImport({ devices: [] }));
+  assert.equal(d.Store.toner(), null);
+});
+
 test('登入過期：不會自動同步，狀態顯示需要重新連線', async () => {
   const { fake, d } = await linked();
   const storage = { ...d.ls, [TOKEN_KEY]: JSON.stringify({ accessToken: 'old', expiresAt: Date.now() - 1 }) };

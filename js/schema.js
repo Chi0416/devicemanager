@@ -388,11 +388,11 @@ const SCHEMAS = {
 
   // 抄表：本期用量＝這次減上一次（保養、翻新填的張數一起排，依抄表日期）
   //   結算月份：是幾月的帳款，自己選（請假、放假、臨時去抄都有，不預設）；列表依結算月份分組
-  //     安裝當天抄的是起點，結算月份可以空白（不算帳，只當下一次的上一次）
+  //     空白不算帳：機器放到這個位置後第一次抄的是起點（下一次從它算起），其他的是順便抄（見 records.js 的 isStart）
   readings: {
     title: '抄表',
     once: true,
-    // 結算月份空白的（安裝當天的起點）：照抄表日期排，標題寫「結算月份空白」
+    // 結算月份空白的（起點、順便抄）：照抄表日期排，標題寫「結算月份空白」
     period: { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' },
     card: { title: r => Records.countsText(r) || '抄表', grid: [] },
     note: r => Records.readingNote(r),
