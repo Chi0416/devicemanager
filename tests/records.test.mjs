@@ -173,6 +173,31 @@ test('位置詳情：進出這一格的異動；機器放在這一格期間做�
   assert.match(Records.deviceText('24-0001', '2026-09-15'), /安心診所 櫃台/);
 });
 
+test('位置詳情的異動：一台待過一段，現在放著的在最上面；換機那天兩台各一段；開始記異動之前就在的沒有進來；沒有異動的也算', () => {
+  const { Records, add } = withDevices();
+  // #1003 本來就在大華，2025/01/01 撤回倉庫；#1001 2025/03/05 裝到大華，2026/01/10 換成 #1002（先撤再裝）；#1004 在安心，沒有異動
+  add('devices', { code: '26-0002', name: '#1003', location: DH });
+  add('devices', { code: '26-0001', name: '#1004', location: AX });
+  add('moves', { device: '26-0002', date: '2025-01-01', type: '撤機', from: DH, to: WH });
+  add('moves', { device: '24-0001', date: '2025-03-05', type: '安裝', from: WH, to: DH });
+  add('moves', { device: '24-0001', date: '2026-01-10', type: '撤機', from: DH, to: WH });
+  add('moves', { device: '25-0001', date: '2026-01-10', type: '安裝', from: WH, to: DH });
+  Records.syncLocations();
+  const stays = code => plain(Records.staysAt(code).map(s => [s.device, s.in?.date ?? null, s.out?.date ?? null]));
+  assert.deepEqual(stays(DH), [['25-0001', '2026-01-10', null], ['24-0001', '2025-03-05', '2026-01-10'], ['26-0002', null, '2025-01-01']]);
+  assert.deepEqual(stays(AX), [['26-0001', null, null]]);
+  // 倉庫：還在的越晚進來越上面，再來越晚離開的越上面
+  assert.deepEqual(stays(WH), [['24-0001', '2026-01-10', null], ['26-0002', '2025-01-01', null], ['25-0001', null, '2026-01-10'], ['24-0001', null, '2025-03-05']]);
+  assert.deepEqual(plain(Records.staysAt('')), []);
+  // 待了多久
+  assert.equal(Records.spanText('2025-08-15', '2026-03-28'), '7 個月');
+  assert.equal(Records.spanText('2024-05-01', '2026-03-01'), '1 年 10 個月');
+  assert.equal(Records.spanText('2024-03-01', '2026-03-01'), '2 年');
+  assert.equal(Records.spanText('2026-01-31', '2026-02-28'), '28 天');
+  assert.equal(Records.spanText('2026-03-28', '2026-03-28'), '當天');
+  assert.equal(Records.spanText('', '2026-03-28'), '');
+});
+
 test('搬機器那天的紀錄算客戶那邊：撤機那天抄的算原客戶、安裝那天抄的算新客戶，換機那天兩台都算這一格；客戶搬家算新位置', () => {
   const { Records, add } = withDevices();
   const NEW = 'L0004';

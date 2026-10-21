@@ -1074,6 +1074,12 @@ button.model-cell:active .model-name { color: var(--accent-text); }
 .detail-link small { flex: none; font-size: 12px; color: var(--muted); }
 .detail-link span:not(.go) { flex: 1; min-width: 0; font-weight: 600; color: var(--accent-text); overflow-wrap: anywhere; }
 .detail-link .go { flex: none; font-size: 18px; line-height: 1; color: var(--muted); }
+/* 位置詳情的異動：一台待過一段一張卡片，點「進來」「離開」那一行打開那筆異動（卡片本身不能點） */
+.stay-card { cursor: default; }
+.stay-card:active { background: var(--surface); }
+.stay-card .detail-link .stay-note { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.stay-card .detail-link.none { cursor: default; }
+.stay-card .detail-link.none span { font-weight: 400; color: var(--muted); }
 .detail-rows { margin-top: 12px; }
 .detail-rows li { gap: 8px; padding: 6px 8px 6px 14px; }
 .detail-rows .list-item { flex: 1; min-width: 0; min-height: 52px; gap: 12px; }

@@ -124,6 +124,49 @@ const Records = (() => {
 
   // 進出這個位置的異動（新位置或原位置是它）
   const movesAt = code => (key(code) ? Store.list('moves').filter(m => key(m.to) === key(code) || key(m.from) === key(code)) : []);
+  // 位置詳情的異動：這裡放過哪些機器，一台待過一次是一段 [{ device: 設備編號, in: 進來那筆異動, out: 離開那筆 }]
+  //   每台照自己的異動由舊到新：新位置是這裡的是進來，原位置是這裡的是離開（換機那天先撤再裝，兩台各一段）
+  //   開始記異動之前就在這裡的（第一筆是從這裡搬走）沒有 in；還在這裡的沒有 out
+  //   現在放在這裡、沒有進出這裡的異動的（設備表單直接填位置）也算一段，in、out 都沒有
+  //   還在這裡的在最上面（越晚進來越上面），再來越晚離開的越上面
+  function staysAt(code) {
+    const k = key(code);
+    if (!k) return [];
+    const stays = [];
+    const open = new Map(); // 設備編號 → 還沒離開的那一段
+    [...movesAt(code)].sort(byDate('date')).forEach(m => {
+      const dk = key(m.device);
+      if (key(m.from) === k) {
+        const s = open.get(dk);
+        if (s) s.out = m;
+        else stays.push({ device: m.device, in: null, out: m });
+        open.delete(dk);
+      }
+      if (key(m.to) === k) {
+        const s = { device: m.device, in: m, out: null };
+        stays.push(s);
+        open.set(dk, s);
+      }
+    });
+    machinesAt(code).filter(d => !open.has(key(d.code))).forEach(d => stays.push({ device: d.code, in: null, out: null }));
+    const end = s => (s.out ? String(s.out.date ?? '') : '￿');
+    const start = s => (s.in ? String(s.in.date ?? '') : '');
+    const last = s => String((s.out || s.in)?.id ?? '');
+    return stays.sort((a, b) => cmp(end(b), end(a)) || cmp(start(b), start(a)) || cmp(last(b), last(a)));
+  }
+  // 待了多久：未滿一個月寫幾天（同一天寫當天），未滿一年寫幾個月，再久寫幾年幾個月
+  function spanText(from, to) {
+    const [y1, m1, d1] = String(from ?? '').split('-').map(Number);
+    const [y2, m2, d2] = String(to ?? '').split('-').map(Number);
+    if (!y1 || !y2) return '';
+    const months = (y2 - y1) * 12 + (m2 - m1) - (d2 < d1 ? 1 : 0);
+    if (months < 1) {
+      const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000);
+      return days > 0 ? `${days} 天` : '當天';
+    }
+    const y = Math.floor(months / 12);
+    return [y && `${y} 年`, months % 12 && `${months % 12} 個月`].filter(Boolean).join(' ');
+  }
   // 機器放在這個位置的期間做的紀錄（抄表、保養、翻新）
   function recordsAt(table, code) {
     if (!key(code)) return [];
@@ -1049,7 +1092,7 @@ const Records = (() => {
 
   return {
     TABLES, DEVICE_TABLES, firstLine, noteLine, device, of, latest, label, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
-    place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, recordsAt,
+    place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
     moveDateNote, moveToNote, isStock, disableCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,

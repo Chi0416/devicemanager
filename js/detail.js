@@ -1,11 +1,12 @@
 // 詳情頁：設備詳情（Detail）、位置詳情（Place）共用 createDetail
 //   上面：資訊卡（設備下面接最新回報、耗材，位置下面接用量）；下面：一張表一列，寫最新的狀況和筆數
 //     點一列打開那張表的頁面（只列這台設備、這個位置的紀錄，右上角新增）；右邊的「＋」直接新增
+//     那一頁平常是卡片列表（list.js）；列上有 view 時用它自己的畫法（位置的異動：一台待過一段一張卡片）
 //   右上角「編輯」打開那一筆的表單；那一筆被刪掉時這一頁跟著關
 //   設備：點設備卡片打開（見 app.js）；標題、資訊卡寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
 //     在這裡新增紀錄時自動帶入這台設備；合約是它現在所在位置的，新增時帶入這個位置
 //   位置：位置頁點一張卡片打開（見 places.js）；標題寫位置名稱；資訊卡上點現在放著的機器打開設備詳情
-//     異動：進出這個位置的（那一列寫現在放著哪台）；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
+//     異動：這裡放過哪些機器，一台待過一段一張卡片（那一列寫現在放著哪台、右邊寫幾段）；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
 //     新增抄表、保養、翻新時，這裡只放著一台的話帶入那一台
 function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = () => {} }) {
   const titleEl = dlg.querySelector('.sheet-title');
@@ -20,12 +21,10 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
   const current = () => (id ? Store.get(table, id) : null);
   const rowOf = key => rows.find(r => r.key === key);
 
-  const lists = Object.fromEntries(rows.map(r => [r.key, createList(r.key, SCHEMAS[r.key], {
-    openForm: rid => Form.open(r.key, rid),
-    rows: () => (current() ? r.records(current()) : []),
-    detail: true,
-    device: r.device || null,
-  })]));
+  const lists = Object.fromEntries(rows.map(r => {
+    const opts = { openForm: rid => Form.open(r.key, rid), rows: () => (current() ? r.records(current()) : []) };
+    return [r.key, r.view ? r.view(opts) : createList(r.key, SCHEMAS[r.key], { ...opts, detail: true, device: r.device || null })];
+  }));
   Object.values(lists).forEach(l => subBody.appendChild(l.el));
 
   // 每一列：summary(這一筆) → { main, sub, warn }
@@ -378,6 +377,58 @@ const Place = (() => {
     };
   }
 
+  // 異動那一頁：這裡放過哪些機器，一台待過一段一張卡片（見 records.js 的 staysAt），現在放著的在最上面
+  //   卡片：機型＋名稱（現在放著的接「現在」）、哪天到哪天待了多久；下面「進來」「離開」兩行寫類型、從哪裡來、到哪裡去、備註第一行
+  //   點「進來」「離開」那一行打開那筆異動；開始記異動之前就在這裡的，進來寫「沒有紀錄」
+  function staysView({ rows, openForm }) {
+    const el = document.createElement('section');
+    el.className = 'panel';
+    el.hidden = true;
+    el.innerHTML = '<div class="list"></div>';
+    const listEl = el.querySelector('.list');
+    let flashId = null;
+    el.addEventListener('click', e => {
+      const btn = e.target.closest('[data-move]');
+      if (btn) openForm(btn.dataset.move);
+    });
+
+    const where = (m, dir, p) => [m.type, Records.placeName(p) && `${dir}${Records.placeName(p)}`].filter(Boolean).join('，') || '異動';
+    const line = (label, m, text) => `
+      <button type="button" class="detail-link" data-move="${U.esc(m.id)}">
+        <small>${label}</small>
+        <span>${U.esc(text)}${Records.firstLine(m.note) ? `<span class="stay-note">${U.esc(Records.firstLine(m.note))}</span>` : ''}</span>
+        <span class="go" aria-hidden="true">›</span>
+      </button>`;
+    function cardHTML(s) {
+      const now = !s.out;
+      const d = Records.device(s.device);
+      const range = s.in
+        ? `${U.fmtDate(s.in.date)} → ${now ? '現在' : U.fmtDate(s.out.date)}（${Records.spanText(s.in.date, now ? U.today() : s.out.date)}）`
+        : now ? '' : `到 ${U.fmtDate(s.out.date)}`;
+      const lines = !s.in && !s.out ? '<span class="card-note">沒有異動紀錄</span>' : [
+        s.in ? line('進來', s.in, where(s.in, '從', s.in.from)) : '<span class="detail-link none"><small>進來</small><span>沒有紀錄</span></span>',
+        s.out ? line('離開', s.out, where(s.out, '到', s.out.to)) : '',
+      ].join('');
+      const flash = flashId && [s.in?.id, s.out?.id].includes(flashId);
+      return `
+        <div class="card stay-card${flash ? ' flash' : ''}">
+          <span class="card-top">
+            <span class="card-title">${U.esc(Records.label(d) || s.device)}</span>
+            ${now ? '<span class="badge green">現在</span>' : ''}
+          </span>
+          ${range ? `<span class="card-sub">${U.esc(range)}</span>` : ''}
+          ${lines}
+        </div>`;
+    }
+
+    function refresh() {
+      const list = rows();
+      listEl.innerHTML = list.length ? list.map(cardHTML).join('') : '<p class="empty">還沒有異動</p>';
+      flashId = null;
+    }
+    return { el, refresh, reset: refresh, changed(rec) { flashId = rec?.id ?? null; refresh(); } };
+  }
+
   return createDetail({
     table: 'locations',
     dlg: document.getElementById('place-sheet'),
@@ -397,7 +448,7 @@ const Place = (() => {
       }
     },
     rows: [
-      { key: 'moves', label: '異動', summary: machineRow, records: p => Records.movesAt(p.code), preset: moveHere, device: machine },
+      { key: 'moves', label: '異動', summary: machineRow, records: p => Records.staysAt(p.code), preset: moveHere, view: staysView },
       { key: 'contracts', label: '合約', summary: p => DetailRows.contract(Records.currentContract(p.code), Records.contractsAt(p.code)),
         records: p => Records.contractsAt(p.code), preset: p => ({ locations: p.code }) },
       { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, device: machine },
