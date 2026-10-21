@@ -384,7 +384,7 @@ const Place = (() => {
       }
     },
     rows: [
-      { key: 'moves', label: '機器', summary: machineRow, records: p => Records.movesAt(p.code), preset: moveHere, device: machine },
+      { key: 'moves', label: '設備', summary: machineRow, records: p => Records.movesAt(p.code), preset: moveHere, device: machine },
       { key: 'contracts', label: '合約', summary: p => DetailRows.contract(Records.currentContract(p.code), Records.contractsAt(p.code)),
         records: p => Records.contractsAt(p.code), preset: p => ({ locations: p.code }) },
       { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, device: machine },

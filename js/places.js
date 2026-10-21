@@ -3,7 +3,7 @@
 //   上面搜尋（名稱、以前的名字、放著的機器的機型名稱序號都找得到），篩選：全部（沒停用的）／有機器／空著／倉庫／停用
 //   用量、合約一次算好全部的位置（見 records.js 的 usageByPlace、currentContracts）
 function createPlaces() {
-  const FILTERS = [['', '全部'], ['on', '有機器'], ['empty', '空著'], ['stock', '倉庫'], ['off', '停用']];
+  const FILTERS = [['', '全部'], ['on', '有設備'], ['empty', '空著'], ['stock', '倉庫'], ['off', '停用']];
   const state = { keyword: '', filter: '', flashId: null };
 
   const el = document.createElement('section');
@@ -12,7 +12,7 @@ function createPlaces() {
   el.innerHTML = `
     <div class="filterbar">
       <div class="filterbar-row">
-        <input class="f-keyword" type="search" placeholder="搜尋位置或機器" autocomplete="off" enterkeyhint="search">
+        <input class="f-keyword" type="search" placeholder="搜尋位置或設備" autocomplete="off" enterkeyhint="search">
       </div>
       <div class="filter-chips" role="group" aria-label="篩選"></div>
     </div>
