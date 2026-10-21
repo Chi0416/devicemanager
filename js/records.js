@@ -357,9 +357,6 @@ const Records = (() => {
     return lines.length ? { text: lines.slice(0, 2).join('\n'), warn } : '';
   }
 
-  // 「連續新增」時新位置留不留：倉庫留著（客戶一次退好幾台），客戶的位置不留（免得裝到同一格）
-  const keepPlace = values => isStock(values.to);
-
   // 位置勾停用時：還放著機器的不能停用（先撤機）；本來就停用的不擋
   function disableCheck(values) {
     if (values.disabled !== 'true') return '';
@@ -984,7 +981,7 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, keepPlace, disableCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, isStock, disableCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,

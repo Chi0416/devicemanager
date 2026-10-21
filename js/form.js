@@ -1,5 +1,6 @@
 // 新增／編輯表單：從底部彈出的 sheet，各資料表共用
 //   新增時按「儲存」存好就關；按最下面的「儲存，再新增一筆」留在表單接著填（keep 的欄位保留，編號跳下一號）
+//     schema 的 once（異動、抄表、翻新、合約）沒有這個按鈕：一次一筆
 //   系統產生的欄位（auto，設備的編號）：不能改，新增時寫「存檔後自動產生：26-0003」，存檔時才給
 //   從清單選的欄位（ref，見 refs.js）：可以打字搜尋的下拉選單，只能選清單裡的；找不到時點「＋ 新增」馬上加進清單
 //     舊資料裡不在清單上的值（試算表手打的），沒改的話照常可以存；紀錄的設備欄只能選已經有的設備
@@ -77,7 +78,7 @@ const Form = (() => {
     setCloseLabel('取消');
     resetDelete();
     delBtn.hidden = !id;
-    anotherBtn.hidden = !!id;
+    anotherBtn.hidden = !!id || !!schema.once;
     copyBtn.hidden = copyNote.hidden = !(id && schema.copy);
     if (schema.copy) {
       copyBtn.textContent = schema.copy.label;
@@ -737,8 +738,8 @@ const Form = (() => {
     if (!again) {
       dlg.close();
       hooks.toast(ctx.count > 1 ? `已新增 ${ctx.count} 筆` : `已新增：${summary(saved)}`);
-      // 接著打開下一張表單（安裝、撤機後抄表，見 schema 的 next）；連續新增的不打開
-      const next = ctx.count === 1 ? ctx.schema.next?.(saved) : null;
+      // 接著打開下一張表單（安裝、撤機後抄表，見 schema 的 next）
+      const next = ctx.schema.next?.(saved);
       if (next) setTimeout(() => open(next.table, null, next.preset, next), 0);
       return;
     }

@@ -24,7 +24,7 @@
 //   upper:       存檔時英文字母轉大寫（員工編號）
 //   auto:        系統自己產生、不能改（設備的編號）：auto(這一筆) 回傳新的值；新增時存檔才給，給了就不會變
 //   keep:        連續新增時保留該欄的值（一次買好幾台時，類別、品牌、購買日期不用重填）
-//                可以是函式：keep(values) 為 true 時才留（異動的新位置：倉庫才留）
+//                可以是函式：keep(values) 為 true 時才留（設備的位置：倉庫才留）
 //   default:     新增時預先填入的值；可以是函式（第一個狀態）
 //   hint:        顯示在表單欄位下方的說明
 //   note:        依表單目前填的內容，顯示在欄位下方的提醒：note(values) 回傳文字或 { text, warn }，不用提醒時回傳空字串
@@ -79,6 +79,7 @@
 //   （資料表）copy:      編輯時表單下面的「以這筆為底新增」按鈕（合約的「重新簽約」）：
 //                       { label 按鈕上的字, keys 帶過去的欄位, watch 改了這些欄位時 note 變橘色, note 按鈕下面的說明 }
 //   （資料表）history:   編輯時表單最下面的修改紀錄：history(這一筆) 回傳 [{ date, text }]
+//   （資料表）once:      新增時沒有「儲存，再新增一筆」（異動、抄表、翻新、合約：一次一筆，連續輸入很容易同一台機器多存一筆）
 //   （資料表）next:      新增好按「儲存」後接著打開的表單：next(存好的那一筆) 回傳 { table, preset, message } 或 null（安裝、撤機後抄表）
 //   （資料表）afterSave、afterRemove: 新增、修改、刪除之後要跟著改的（異動改了，設備的位置跟著算）：
 //                       afterSave(改之前（新增時是 null）, 改之後)、afterRemove(刪掉的那一筆)
@@ -257,7 +258,8 @@ const SCHEMAS = {
       { key: 'serial',   label: '序號',     type: 'text', optional: true, caps: true, section: '機器識別' },
       { key: 'board',    label: '主機板號碼', type: 'text', optional: true, caps: true, tight: true, clean: cleanBoard, note: boardNote },
       // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示；那裡已經有別台機器時提醒（倉庫不提醒）
-      placeField('location', '位置', { optional: true, keep: true, section: '放置與保管',
+      // 連續新增時，倉庫才留著（客戶的位置一格一台）
+      placeField('location', '位置', { optional: true, keep: v => Records.isStock(v.location), section: '放置與保管',
         lock: r => (Records.hasMoves(r.code) ? '要換位置請新增異動' : ''), note: v => Records.slotNote(v.location, v.code) }),
       { key: 'keeper',   label: '保管人',   type: 'ref', ref: 'people', optional: true },
       { key: 'buyDate',  label: '購買日期', type: 'date', optional: true, keep: true, section: '購買與保固' },
@@ -305,6 +307,7 @@ const SCHEMAS = {
     title: '異動',
     // 表單上：類型一整列（手機上四個按鈕才不擠），下面日期和狀態一列（狀態跟著類型帶）；試算表照下面欄位的順序
     formOrder: ['type', 'date', 'status'],
+    once: true,
     period: recordMonth('date'),
     card: { title: r => Records.moveTitle(r), badge: 'type', grid: [] },
     note: r => Records.noteLine(r.note),
@@ -313,7 +316,7 @@ const SCHEMAS = {
     searchText: r => [Records.placeText(r.from), Records.placeText(r.to), Records.deviceText(r.device)].join(' '),
     searchHint: '搜尋位置',
     afterSave: (before, after) => [...Records.syncLocations(before ? [before] : []), ...Records.applyMoveStatus(before, after)],
-    // 安裝、撤機存好後接著打開抄表（按「儲存」時；連續新增時不打開）
+    // 安裝、撤機存好後接著打開抄表
     next: r => Records.readingAfterMove(r),
     afterRemove: r => Records.syncLocations([r]),
     fields: [
@@ -321,14 +324,14 @@ const SCHEMAS = {
         check: v => Records.moveDeviceCheck(v), lock: () => '選錯機器的話，刪掉這筆重新新增',
         shown: v => Records.placeName(Records.placeBefore(v.device, v.date, v.id)) }),
       // 日期打錯（比最近一筆早、在今天之後）時提醒
-      dateField('date', '日期', { keep: true, note: v => Records.moveDateNote(v), noteLines: 2 }),
-      { key: 'type', label: '類型', type: 'text', full: true, keep: true, toggle: toggleOf(MOVE_TYPES), check: v => Records.moveTypeCheck(v) },
+      dateField('date', '日期', { note: v => Records.moveDateNote(v), noteLines: 2 }),
+      { key: 'type', label: '類型', type: 'text', full: true, toggle: toggleOf(MOVE_TYPES), check: v => Records.moveTypeCheck(v) },
       placeField('from', '原位置', { optional: true, hidden: true, calc: v => Records.placeBefore(v.device, v.date, v.id) }),
       // 一格一台：那裡已經有別台機器時提醒（換機時兩筆異動先輸入哪一筆都可以，所以只提醒）；撤機、安裝時提醒合約
       placeField('to', '新位置', { full: true, rank: () => Records.freeFirst(), only: v => Records.movePlaces(v),
-        onlyNote: v => Records.movePlacesNote(v), check: v => Records.moveToCheck(v), keep: v => Records.keepPlace(v),
+        onlyNote: v => Records.movePlacesNote(v), check: v => Records.moveToCheck(v),
         note: v => Records.moveToNote(v), noteLines: 2 }),
-      { key: 'status', label: '狀態', type: 'ref', ref: 'statuses', optional: true, keep: true,
+      { key: 'status', label: '狀態', type: 'ref', ref: 'statuses', optional: true,
         calc: v => Records.moveStatus(v), hint: '存檔後設備改成這個狀態' },
       noteField(),
     ],
@@ -340,6 +343,7 @@ const SCHEMAS = {
   //   兩個日期之外都是自由輸入的文字
   contracts: {
     title: '合約',
+    once: true,
     period: recordMonth('signDate'),
     card: { title: r => Records.firstLine(r.content) || '合約', grid: [] },
     status: r => (Records.isCurrentContract(r) ? { label: '目前', cls: 'blue' } : null),
@@ -387,6 +391,7 @@ const SCHEMAS = {
   //     安裝當天抄的是起點，結算月份可以空白（不算帳，只當下一次的上一次）
   readings: {
     title: '抄表',
+    once: true,
     // 結算月份空白的（安裝當天的起點）：照抄表日期排，標題寫「結算月份空白」
     period: { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' },
     card: { title: r => Records.countsText(r) || '抄表', grid: [] },
@@ -397,7 +402,7 @@ const SCHEMAS = {
     searchHint: '搜尋位置',
     fields: [
       deviceField(),
-      dateField('date', '抄表日期', { keep: true }),
+      dateField('date', '抄表日期'),
       { key: 'month', label: '結算月份', type: 'month', optional: true, note: v => Records.monthNote(v) },
       countField('bw', '黑白張數', { optional: false }),
       countField('color', '彩色張數'),
@@ -429,6 +434,7 @@ const SCHEMAS = {
   // 翻新：翻新項目自由輸入；工程師從人員選；序號先帶入設備現在的序號，不一樣時提醒（不會去改設備）
   refurbs: {
     title: '翻新',
+    once: true,
     period: recordMonth('date'),
     card: { title: r => Records.firstLine(r.content) || '翻新', grid: [] },
     note: r => Records.refurbNote(r),
@@ -438,9 +444,9 @@ const SCHEMAS = {
     searchHint: '搜尋位置或翻新項目',
     fields: [
       deviceField(),
-      dateField('date', '翻新日期', { keep: true }),
+      dateField('date', '翻新日期'),
       { key: 'stockDate', label: '入庫日', type: 'date', optional: true },
-      { key: 'engineer',  label: '工程師', type: 'ref', ref: 'people', optional: true, keep: true },
+      { key: 'engineer',  label: '工程師', type: 'ref', ref: 'people', optional: true },
       { key: 'serial',    label: '序號', type: 'text', optional: true, caps: true,
         calc: v => Records.device(v.device)?.serial || '', note: v => Records.serialNote(v) },
       { key: 'country',   label: '國別', type: 'text', optional: true, toggle: toggleOf(COUNTRIES) },

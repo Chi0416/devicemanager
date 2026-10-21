@@ -344,11 +344,19 @@ test('異動的表單：編輯時原位置鎖住、寫當時的位置；日期�
     { text: '大華貿易 3F 還有合約（到 2027/03/15）\n客戶不租了：合約填提前結束日、位置勾停用', warn: false });
   assert.deepEqual(plain(to({ type: '安裝', device: '25-0001', from: '', to: AX })), { text: '這個位置還沒有合約', warn: true });
   assert.deepEqual(plain(to({ type: '安裝', device: '25-0001', from: '', to: DH })), { text: '這裡現在是 #1001', warn: true });
-  // 連續新增：新位置是倉庫才留著
-  const keep = field('moves', 'to').keep;
-  assert.equal(keep({ to: WH }), true);
-  assert.equal(keep({ to: AX }), false);
+  // 異動沒有「儲存，再新增一筆」，新位置不留
+  assert.equal(field('moves', 'to').keep, undefined);
   assert.equal(Records.disableCheck({ disabled: 'true', code: DH }), '這裡還放著 #1001，先撤機');
+});
+
+test('「儲存，再新增一筆」：異動、合約、抄表、翻新沒有（一次一筆）；設備連續新增時，位置是倉庫才留著', () => {
+  const { SCHEMAS, field } = withDevices();
+  assert.deepEqual(plain(Object.keys(SCHEMAS).filter(k => SCHEMAS[k].once)), ['moves', 'contracts', 'readings', 'refurbs']);
+  ['moves', 'contracts', 'readings', 'refurbs'].forEach(k => assert.deepEqual(plain(SCHEMAS[k].fields.filter(x => x.keep)), [], k));
+  const keep = field('devices', 'location').keep;
+  assert.equal(keep({ location: WH }), true);
+  assert.equal(keep({ location: AX }), false);
+  assert.equal(keep({ location: '' }), false);
 });
 
 test('位置停用：還放著機器的不能停用（先撤機）；空的、本來就停用的照常可以存', () => {
