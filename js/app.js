@@ -51,7 +51,7 @@
     locations: createPlaces(),
     // 點設備卡片打開詳情（見 detail.js）
     devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id) }),
-    // 紀錄：卡片最上面那一排寫位置、機型、名稱，和設備卡片一樣小標題在上，下面才是內容（依紀錄的種類，見 records.js 的 recordCells）
+    // 紀錄：卡片最上面那一排寫位置、設備，和設備卡片一樣小標題在上，下面才是內容（依紀錄的種類，見 records.js 的 recordCells）
     ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, createList(k, SCHEMAS[k], {
       openForm: id => Form.open(k, id),
       device: r => Records.recordCells(k, r),

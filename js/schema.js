@@ -234,8 +234,8 @@ const SCHEMAS = {
     search: ['serial', 'name', 'brand', 'model', 'board', 'keeper'],
     searchText: r => Records.placeText(r.location),
     searchHint: '搜尋序號、名稱或位置',
-    // 名稱下面一行寫機器序號（查機器、印紀錄時最常用）
-    card: { title: 'name', sub: r => (r.serial ? `序號 ${r.serial}` : ''), badge: 'status', grid: ['model', 'location', 'keeper'] },
+    // 標題寫機型＋名稱（IMC6000 #1001），下面一行寫機器序號（查機器、印紀錄時最常用）
+    card: { title: r => Records.label(r), sub: r => (r.serial ? `序號 ${r.serial}` : ''), badge: 'status', grid: ['location', 'keeper'] },
     note: warrantyNote,
     describe: r => Records.label(r),
     unique: [['code'], ['board']],

@@ -2,10 +2,10 @@
 //   上面：資訊卡（設備下面接碳粉、耗材，位置下面接用量）；下面：一張表一列，寫最新的狀況和筆數
 //     點一列打開那張表的頁面（只列這台設備、這個位置的紀錄，右上角新增）；右邊的「＋」直接新增
 //   右上角「編輯」打開那一筆的表單；那一筆被刪掉時這一頁跟著關
-//   設備：點設備卡片打開（見 app.js）；標題寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
+//   設備：點設備卡片打開（見 app.js）；標題、資訊卡寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
 //     在這裡新增紀錄時自動帶入這台設備；合約是它現在所在位置的，新增時帶入這個位置
 //   位置：位置頁點一張卡片打開（見 places.js）；標題寫位置名稱；資訊卡上點現在放著的機器打開設備詳情
-//     機器：進出這個位置的異動；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
+//     異動：進出這個位置的（那一列寫現在放著哪台）；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
 //     新增抄表、保養、翻新時，這裡只放著一台的話帶入那一台
 function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = () => {} }) {
   const titleEl = dlg.querySelector('.sheet-title');
@@ -151,14 +151,14 @@ const Detail = (() => {
 
   function infoHTML(d) {
     const tone = Refs.tone('statuses', Refs.find(statusField, d.status));
-    const cells = [['序號', d.serial], ['機型', d.model], ['主機板號碼', d.board], ['保管人', d.keeper]]
+    const cells = [['序號', d.serial], ['主機板號碼', d.board], ['保管人', d.keeper]]
       .map(([label, v]) => `<span class="cell"><small>${label}</small><span>${U.esc(v) || '—'}</span></span>`).join('');
     const w = warrantyNote(d);
     const p = Records.place(d.location);
     return `
       <div class="detail-card">
         <span class="card-top">
-          <span class="card-title">${U.esc(d.name)}</span>
+          <span class="card-title">${U.esc(Records.label(d))}</span>
           ${d.status ? `<span class="badge ${U.esc(tone)}">${U.esc(d.status)}</span>` : ''}
         </span>
         <span class="card-grid">${cells}</span>
@@ -272,7 +272,7 @@ const Detail = (() => {
 
 // ---------- 位置詳情 ----------
 const Place = (() => {
-  // 紀錄卡片最上面那一排：機型｜名稱（位置都一樣，不用寫；和異動卡片一樣，見 records.js 的 recordCells）；找不到設備時提醒
+  // 紀錄卡片最上面那一排：設備（位置都一樣，不用寫；和異動卡片一樣，見 records.js 的 recordCells）；找不到設備時提醒
   const machine = r => Records.recordCells('moves', r);
   // 這裡只放著一台時，新增紀錄帶入那一台
   const theOne = p => {
@@ -356,7 +356,7 @@ const Place = (() => {
       </div>`;
   }
 
-  // 機器：現在放著哪台、最近一次進出
+  // 異動那一列：現在放著哪台、最近一次進出
   function machineRow(p) {
     const on = Records.machinesAt(p.code);
     const m = Records.lastMoveAt(p.code);
@@ -385,7 +385,7 @@ const Place = (() => {
       }
     },
     rows: [
-      { key: 'moves', label: '設備', summary: machineRow, records: p => Records.movesAt(p.code), preset: moveHere, device: machine },
+      { key: 'moves', label: '異動', summary: machineRow, records: p => Records.movesAt(p.code), preset: moveHere, device: machine },
       { key: 'contracts', label: '合約', summary: p => DetailRows.contract(Records.currentContract(p.code), Records.contractsAt(p.code)),
         records: p => Records.contractsAt(p.code), preset: p => ({ locations: p.code }) },
       { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, device: machine },

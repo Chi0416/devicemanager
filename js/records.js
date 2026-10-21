@@ -132,9 +132,9 @@ const Records = (() => {
   }
 
   // 「紀錄」分頁的卡片最上面那一排（下面才是紀錄的內容），和設備卡片一樣小標題在上、內容在下：[{ label, value, warn }]
-  //   保養、抄表、翻新：位置（那時候的）｜機型｜名稱（序號不寫，搜尋找得到）
+  //   保養、抄表、翻新：位置（那時候的）｜設備（機型＋名稱，IMC6000 #1001；序號不寫，搜尋找得到）
   //   合約：位置（合約綁位置，不寫機器）
-  //   異動：機型｜名稱（標題已經寫了從哪裡到哪裡）
+  //   異動：設備（標題已經寫了從哪裡到哪裡）
   //   找不到設備、合約沒填位置時提醒
   function recordCells(table, r) {
     if (table === 'contracts') {
@@ -145,8 +145,7 @@ const Records = (() => {
     if (!d) return [{ label: '設備', value: `${r.device || '沒有填'}：找不到這台設備`, warn: true }];
     return [
       ...(table === 'moves' ? [] : [{ label: '位置', value: placeName(locationAt(r.device, r.date)) }]),
-      { label: '機型', value: d.model || '' },
-      { label: '名稱', value: d.name || '' },
+      { label: '設備', value: label(d) },
     ];
   }
 

@@ -8,7 +8,7 @@
 //   rows：要列的資料（設備詳情裡只列這台設備的紀錄）；沒有時列整張表
 //   detail：放在設備詳情裡，不要搜尋框和月份、分組選單（篩選按鈕照常）
 //   device(列)：卡片最上面那一排寫在哪裡、哪一台設備（底部「紀錄」分頁，和設備卡片一樣小標題在上、內容在下），下面才是紀錄的內容
-//     回傳 [{ label, value, warn }]（位置、機型、名稱）
+//     回傳 [{ label, value, warn }]（位置、設備）
 function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null }) {
   const fields = schema.fields;
   const byKey = Object.fromEntries(fields.map(f => [f.key, f]));

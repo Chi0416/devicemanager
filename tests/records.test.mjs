@@ -923,10 +923,11 @@ test('設備：編號不顯示，認機器看機型＋名稱；名稱下面寫�
   const { Store, SCHEMAS, Records, field, add } = withDevices();
   const s = SCHEMAS.devices;
   assert.equal(s.card.code, undefined);
-  assert.deepEqual(plain(s.card.grid), ['model', 'location', 'keeper']);
+  assert.deepEqual(plain(s.card.grid), ['location', 'keeper']); // 機型寫在標題，不另外一格
   assert.equal(field('devices', 'code').hidden, true);
   assert.equal(field('devices', 'code').auto !== undefined, true); // 系統還是會給編號
   const a = add('devices', { code: '26-0011', name: '#1234', model: 'IMC4500', serial: '3101R800999', status: '出租中' });
+  assert.equal(s.card.title(a), 'IMC4500 #1234');
   assert.equal(s.card.sub(a), '序號 3101R800999');
   assert.equal(s.describe(a), 'IMC4500 #1234');
   assert.equal(Records.fullLabel(a), 'IMC4500 #1234 · 3101R800999');
@@ -1019,13 +1020,13 @@ test('位置編號重複換號：這台裝置上新增的異動、合約跟著�
   assert.equal(Store.get('contracts', 'c2').locations, 'L0004');
 });
 
-test('紀錄卡片下面那一排：和設備卡片一樣小標題在上（位置｜機型｜名稱），異動沒有位置，合約只有位置', () => {
+test('紀錄卡片下面那一排：和設備卡片一樣小標題在上（位置｜設備，設備寫機型＋名稱），異動沒有位置，合約只有位置', () => {
   const { Records, Store, add, d1 } = withDevices();
   Store.update('devices', d1.id, { model: 'IMC4500' });
   const m = add('maintenance', { device: '24-0001', date: '2026-09-10', item: '碳粉 K' });
   const mv = add('moves', { device: '24-0001', date: '2026-09-01', type: '其他', to: Store.list('devices')[0].location });
-  assert.deepEqual(plain(Records.recordCells('maintenance', m).map(c => [c.label, c.value])), [['位置', Records.placeName(Store.get('devices', d1.id).location)], ['機型', 'IMC4500'], ['名稱', '#1001']]);
-  assert.deepEqual(plain(Records.recordCells('moves', mv).map(c => c.label)), ['機型', '名稱']);
+  assert.deepEqual(plain(Records.recordCells('maintenance', m).map(c => [c.label, c.value])), [['位置', Records.placeName(Store.get('devices', d1.id).location)], ['設備', 'IMC4500 #1001']]);
+  assert.deepEqual(plain(Records.recordCells('moves', mv).map(c => [c.label, c.value])), [['設備', 'IMC4500 #1001']]);
   assert.deepEqual(plain(Records.recordCells('contracts', { locations: '' })), [{ label: '位置', value: '沒有填位置', warn: true }]);
 });
 
