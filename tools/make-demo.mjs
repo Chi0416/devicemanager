@@ -2,6 +2,7 @@
 //   設備的名稱是機身號碼（#1001…），編號是系統給的（畫面上不顯示）
 //   位置存編號（L0001…）：一個位置放一台，公司倉庫是倉庫；合約綁位置（鼎泰國際 3F、4F、5F 是同一份合約）
 //   有幾台跟著客戶搬到新辦公室：新的位置另簽一份合約，舊的那份提前結束
+//   大華貿易 3F 換過三次機（看位置的異動）
 //   用法：node tools/make-demo.mjs > data-demo.json，再到 App 的設定 → 匯入 data.json
 //   每次產生的內容都一樣（固定的亂數種子）；日期以 2026-10-11 為準（最新回報的日期照產生那天）
 //   data-demo.json 符合 .gitignore 的 data*.json，不會推上 GitHub
@@ -227,6 +228,25 @@ if (focus) {
     data.maintenance.push(rec('maintenance', { device: code, date: iso(new Date(ms)), item, ...countsAt(ms), note: NOTE }));
   }));
   data.readings.push(rec('readings', { device: code, date: '2026-08-20', month: '', ...countsAt(t('2026-08-20')), note: '假資料（順便抄）' }));
+}
+
+// ---------- 看位置的異動用：大華貿易 3F 在現在這台之前換過三台（用倉庫裡的機器，換機那天先撤機再安裝） ----------
+//   2024/03 裝 IMC6000 #1889 → 2025/01 常卡紙換 IMC3500 #2074 → 2025/08 主機板燒壞換 IMC4500 #1926 → 2026/03 換成現在的新機
+//   合約：2024/03 簽的那份 2 年，到期後換新機時重新簽約
+const SWAP = '大華貿易 3F';
+const swapIn = data.moves.find(m => m.to === place(SWAP));
+const swapOld = ['24-0008', '24-0010', '24-0009'].map(c => data.devices.find(d => d.code === c));
+if (swapIn && swapOld.every(d => d && d.location === place(STOCK))) {
+  const STEPS = [['2024-03-05'], ['2025-01-10', '常卡紙，換一台'], ['2025-08-15', '主機板燒壞，換一台'], [swapIn.date, '換新機']];
+  swapOld.forEach((d, i) => {
+    const [from, [to, why]] = [STEPS[i], STEPS[i + 1]];
+    if (d.buyDate > from[0]) throw new Error(`${d.code} ${d.buyDate} 才買，不能在 ${from[0]} 裝到 ${SWAP}`);
+    data.moves.push(rec('moves', { device: d.code, date: from[0], type: '安裝', from: place(STOCK), to: place(SWAP) }));
+    data.moves.push(rec('moves', { device: d.code, date: to, type: '撤機', from: place(SWAP), to: place(STOCK), note: why }));
+  });
+  // 同一天照 id 排：現在這台的安裝排在最後一次撤機之後
+  swapIn.id = uid();
+  data.contracts.push(rec('contracts', { locations: place(SWAP), signDate: '2024-03-01', endDate: '2026-03-01', ...terms('IMC6000') }));
 }
 
 // ---------- 最新回報：抄表程式回報的張數、碳粉剩幾 %（試算表的「最新回報」分頁；沒連結 Google 時 App 用這份） ----------
