@@ -10,6 +10,7 @@
 //   設備：用序號到「設備」分頁找設備編號；找不到的空白、備註寫序號，之後 App 登記了這個序號，下次讀信時自動補上
 //   照信裡的時間由舊到新寫（Gmail 搜尋是新的在前），試算表上的順序就是機器寄信的順序
 //   結算月份：抄表日期的上一個月（11/1 寄來的算 10 月的帳）；測試寄的空白（App 當作起點，不算帳）
+//   備註「自動抄表 09:50」（測試的「自動抄表（測試）09:50」），時間是信裡寫的機器寄出時間；抄表日期欄只有日期
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
 //   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「回報」，每月第一次順便算帳（見 doPost），要帶密語
@@ -71,10 +72,10 @@ function doGet() {
 // 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, date: '2026-10-21', time: '08:30', test }] }
 //   客戶電腦上背景每天一次、客戶在視窗按「提交計數器」都送這個；密語對不上就不收
 //   回報：寫進「回報」分頁，一台一天一列（同一天再送的蓋過那一列）；沒有這個分頁時自己建
-//   算帳：每月 1 號以後第一次回報，在「抄表」寫一筆上個月的帳（備註「自動抄表（腳本）」），一台一個月一筆；
+//   算帳：每月 1 號以後第一次回報，在「抄表」寫一筆上個月的帳（備註「自動抄表（腳本）08:30」，時間是讀機器的時間），一台一個月一筆；
 //     上個月已經有帳的（不管是寄信、腳本還是手動抄的）不再寫；這個月已經有抄表的（例如月中安裝的起點）也不寫，下個月才開始算
 //   回 { results: [{ serial, device: 設備編號（對不到時空白）, bill: 'new' 寫了帳／'has' 已經有了／'later' 下個月才算, month: '2026/09' }] }，出錯回 { error }
-//   測試（test: true）照舊只在「抄表」寫一筆起點（結算月份空白，App 不算帳），備註「自動抄表（腳本測試）」，不寫回報
+//   測試（test: true）照舊只在「抄表」寫一筆起點（結算月份空白，App 不算帳），備註「自動抄表（腳本測試）08:30」，不寫回報
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
@@ -116,12 +117,12 @@ function writePosted_(list) {
     const d = String(r.date || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
     const [y, m, day] = d ? d.slice(1).map(Number) : today;
     const code = codeOf[serial.toUpperCase()] || '';
+    const time = /^\d{1,2}:\d{2}$/.test(String(r.time || '')) ? String(r.time).padStart(5, '0') : now[3];
     if (r.test === true) {
-      return { serial, device: append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: true, note: '自動抄表（腳本測試）' }) };
+      return { serial, device: append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: true, note: `自動抄表（腳本測試）${time}` }) };
     }
     report = report || reportSheet_(ss);
     const t = r.toner || {};
-    const time = /^\d{1,2}:\d{2}$/.test(String(r.time || '')) ? String(r.time) : now[3];
     writeReport_(report, [serial_(y, m, day), time, serial, code, String(r.rnp || ''), bw, color, ...'KYMC'.split('').map(c => count_(t[c]))]);
 
     const keys = [code, serial.toUpperCase()].filter(Boolean);
@@ -132,7 +133,7 @@ function writePosted_(list) {
     if (keys.some(k => books.billed.has(`${k}|${prev}`))) bill = 'has';
     else if (keys.some(k => books.dated.has(`${k}|${cur}`))) bill = 'later';
     else {
-      append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: false, note: '自動抄表（腳本）' });
+      append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: false, note: `自動抄表（腳本）${time}` });
       keys.forEach(k => { books.billed.add(`${k}|${prev}`); books.dated.add(`${k}|${cur}`); });
     }
     return { serial, device: code, bill, month, skipped: bill === 'has' };
@@ -274,7 +275,8 @@ function readMail_() {
   for (const { msg, r, when } of mails) {
     const [y, m, d] = when;
     const test = msg.getSubject().includes('[TEST]');
-    const note = test ? '自動抄表（測試）' : '自動抄表';
+    const hm = `${String(when[3]).padStart(2, '0')}:${String(when[4]).padStart(2, '0')}`; // 信裡的時間（機器寄出的時間）
+    const note = test ? `自動抄表（測試）${hm}` : `自動抄表 ${hm}`;
     append_(readings, col, codeOf, { serial: r.serial, y, m, d, bw: r.bw, color: r.color, test, note });
     // 每寫一封就記下來：中途出錯時，下次不會重複寫
     done[msg.getId()] = now;
