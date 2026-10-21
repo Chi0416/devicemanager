@@ -1,5 +1,6 @@
 // 試算表格式：App 的資料 ↔ Google 試算表的列（只做轉換，不連網路）
 //   每張資料表一個分頁，分頁名稱和頁面標題一樣；另有隱藏的 _meta 分頁（第 1 列格式版本、第 2 列自動抄表的讀信網址、第 3 列上次讀信的時間）
+//   「碳粉」分頁是試算表上的程式寫的（抄表程式每台最新一次的回報，見 apps-script/meter.gs），App 只讀不寫
 //   第一列是中文標題（和表單欄位名稱一樣），最後一欄是 id；讀取時依標題找欄位，調換欄位順序也讀得到
 //   編號、序號等文字欄設成純文字（001 不會變成 1）；日期存成試算表的日期（可以排序、篩選）；勾選的欄位是核取方塊
 //   讀取時容許手動輸入：空白列略過、沒有 id 的列補上 id；
@@ -14,6 +15,7 @@ const Sheet = (() => {
   const META = { title: '_meta', sheetId: 99 };
   const METER_KEY = 'meterUrl'; // _meta 第 2 列：自動抄表的讀信網址（Apps Script 部署成網頁應用程式的網址，見 sync.js 的 setMeterUrl）
   const METER_AT_KEY = 'meterReadAt'; // _meta 第 3 列：試算表上的程式上次看完信箱的時間（ISO 文字，程式寫的，見 apps-script/meter.gs）
+  const TONER = '碳粉'; // 試算表上的程式寫的分頁；沒有這個分頁時不讀（見 sync.js 的 pull）
   const TABLES = Object.keys(SCHEMAS);
   const TAB = Object.fromEntries(TABLES.map((t, i) => [t, {
     title: SCHEMAS[t].title,
@@ -227,8 +229,32 @@ const Sheet = (() => {
     return v > 0 ? v : 1;
   }
 
-  // byTitle：{ 分頁名稱: values }，由 readRanges() 的範圍讀回，有 _meta 分頁時也一起讀
-  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, meterUrl, meterReadAt }
+  // 「碳粉」分頁：[{ serial, device, date, time, K, Y, M, C }]，依標題找欄；沒有這個分頁時是 null
+  //   日期讀成 2026-10-21；時間是文字 08:30（被改成時間格式也讀得懂）；碳粉 0～100，空白、看不懂的是 null；沒有序號的列略過
+  function readToner(values) {
+    if (!values) return null;
+    const head = (values[0] || []).map(h => String(h ?? '').trim());
+    const cell = (cells, label) => (head.includes(label) ? cells[head.indexOf(label)] : '');
+    const level = v => (typeof v === 'number' && v >= 0 && v <= 100 ? v : null);
+    const time = v => {
+      if (typeof v !== 'number') return String(v ?? '').trim();
+      const min = Math.round((v % 1) * 1440);
+      return `${U.pad2(Math.floor(min / 60))}:${U.pad2(min % 60)}`;
+    };
+    return values.slice(1).map(cells => cells || []).filter(cells => !blank(cell(cells, '序號'))).map(cells => {
+      const d = cell(cells, '日期');
+      return {
+        serial: String(cell(cells, '序號')).trim(),
+        device: String(cell(cells, '設備') ?? '').trim(),
+        date: typeof d === 'number' ? fromSerial(d) : U.parseDate(String(d ?? '')),
+        time: time(cell(cells, '時間')),
+        ...Object.fromEntries(['K', 'Y', 'M', 'C'].map(c => [c, level(cell(cells, `碳粉${c}`))])),
+      };
+    });
+  }
+
+  // byTitle：{ 分頁名稱: values }，由 readRanges() 的範圍讀回，有 _meta、碳粉分頁時也一起讀
+  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, meterUrl, meterReadAt, toner }
   //   data 和 data.json 同樣的結構
   //   rowOf[分頁][id] 是那一筆在第幾列；headers[分頁] 是標題列（補上 id 欄之後）
   //   broken 是缺分頁或缺欄位的資料表：讀到的資料不完整，同步時不要拿來取代 App 裡的資料
@@ -244,7 +270,8 @@ const Sheet = (() => {
     const { problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites } = ctx;
     const meterUrl = String(metaValue(byTitle[META.title], METER_KEY) ?? '').trim();
     const meterReadAt = String(metaValue(byTitle[META.title], METER_AT_KEY) ?? '').trim();
-    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, meterUrl, meterReadAt };
+    const toner = readToner(byTitle[TONER]);
+    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, meterUrl, meterReadAt, toner };
   }
 
   // 一格的值（補上的欄用）
@@ -334,7 +361,7 @@ const Sheet = (() => {
   const readRanges = () => TABLES.map(t => TAB[t].title);
 
   return {
-    VERSION, ID, META, METER_KEY, TAB,
+    VERSION, ID, META, METER_KEY, TONER, TAB,
     toSerial, fromSerial, colLetter,
     encodeRow, encodeCell, toValues, fromValues, problemText,
     createBody, setupRequests, addColumnRequests, metaValues, readRanges,

@@ -58,7 +58,7 @@ function createOverview({ onPick, onPlaces }) {
         return `預估 14 天內・${[...by].map(([k, v]) => `${k} ${v}`).join('、')}`;
       },
       row: x => ({ title: `${x.place.name} · ${x.item}`, sub: [Records.label(x.device), x.over ? '已經超過了' : `預估 ${Records.etaText(x.eta)}`].join('・') }),
-      open: x => Place.open(x.place.id),
+      open: x => Detail.open(x.device.id),
     },
     {
       key: 'places', title: '空著的位置', icon: 'pin', tone: 'blue',

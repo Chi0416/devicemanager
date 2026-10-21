@@ -13,7 +13,7 @@
 //   備註「自動抄表 09:50」（測試的「自動抄表（測試）09:50」），時間是信裡寫的機器寄出時間；抄表日期欄只有日期
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
-//   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「回報」，每月第一次順便算帳（見 doPost），要帶密語
+//   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「回報」和「碳粉」，每月第一次順便算帳（見 doPost），要帶密語
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
@@ -72,6 +72,7 @@ function doGet() {
 // 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, date: '2026-10-21', time: '08:30', test }] }
 //   客戶電腦上背景每天一次、客戶在視窗按「提交計數器」都送這個；密語對不上就不收
 //   回報：寫進「回報」分頁，一台一天一列（同一天再送的蓋過那一列）；沒有這個分頁時自己建
+//   碳粉：寫進「碳粉」分頁，一台一列，只留最新一次（再送的蓋過那一列）；沒有這個分頁時自己建；App 同步時讀這個分頁（碳粉頁）
 //   算帳：每月 1 號以後第一次回報，在「抄表」寫一筆上個月的帳（備註「自動抄表（腳本）08:30」，時間是讀機器的時間），一台一個月一筆；
 //     上個月已經有帳的（不管是寄信、腳本還是手動抄的）不再寫；這個月已經有抄表的（例如月中安裝的起點）也不寫，下個月才開始算
 //   回 { results: [{ serial, device: 設備編號（對不到時空白）, bill: 'new' 寫了帳／'has' 已經有了／'later' 下個月才算, month: '2026/09' }] }，出錯回 { error }
@@ -101,6 +102,8 @@ function json_(data) {
 const REPORT = '回報';
 const REPORT_HEAD = ['日期', '時間', '序號', '設備', '主機板號碼', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
 const RECENT = 3000; // 找同一天的回報只看最後這幾列（一天最多一台一列，600 台也夠）
+const TONER = '碳粉';
+const TONER_HEAD = ['序號', '設備', '主機板號碼', '日期', '時間', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
 
 function writePosted_(list) {
   const { ss, readings, col, codeOf } = sheets_();
@@ -109,6 +112,7 @@ function writePosted_(list) {
   const today = now.slice(0, 3).map(Number);
   const books = books_(readings, col, tz);
   let report = null;
+  let toner = null;
   return list.map(r => {
     const serial = String(r.serial || '').trim();
     const bw = Number(r.bw);
@@ -121,9 +125,11 @@ function writePosted_(list) {
     if (r.test === true) {
       return { serial, device: append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: true, note: `自動抄表（腳本測試）${time}` }) };
     }
-    report = report || reportSheet_(ss);
-    const t = r.toner || {};
-    writeReport_(report, [serial_(y, m, day), time, serial, code, String(r.rnp || ''), bw, color, ...'KYMC'.split('').map(c => count_(t[c]))]);
+    report = report || tab_(ss, REPORT, REPORT_HEAD, { 'A:A': 'yyyy/mm/dd', 'B:C': '@' });
+    toner = toner || tab_(ss, TONER, TONER_HEAD, { 'A:C': '@', 'D:D': 'yyyy/mm/dd', 'E:E': '@' });
+    const t = 'KYMC'.split('').map(c => count_((r.toner || {})[c]));
+    writeReport_(report, [serial_(y, m, day), time, serial, code, String(r.rnp || ''), bw, color, ...t]);
+    writeToner_(toner, [serial, code, String(r.rnp || ''), serial_(y, m, day), time, ...t]);
 
     const keys = [code, serial.toUpperCase()].filter(Boolean);
     const month = lastMonth_(y, m);
@@ -176,20 +182,20 @@ function ym_(v, tz) {
   return m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
 }
 
-// 「回報」分頁和它的欄位；沒有時建一個（App 不讀這個分頁，同步不會動到）
-function reportSheet_(ss) {
-  let sheet = ss.getSheetByName(REPORT);
+// 「回報」「碳粉」分頁和它的欄位；沒有時建一個，formats 是各欄的格式（{ 'A:A': 'yyyy/mm/dd' }）
+//   App 不讀「回報」；「碳粉」只讀不寫，同步都不會動到
+function tab_(ss, name, heads, formats) {
+  let sheet = ss.getSheetByName(name);
   if (!sheet) {
-    sheet = ss.insertSheet(REPORT);
-    sheet.getRange(1, 1, 1, REPORT_HEAD.length).setValues([REPORT_HEAD]).setFontWeight('bold');
+    sheet = ss.insertSheet(name);
+    sheet.getRange(1, 1, 1, heads.length).setValues([heads]).setFontWeight('bold');
     sheet.setFrozenRows(1);
-    sheet.getRange('A:A').setNumberFormat('yyyy/mm/dd');
-    sheet.getRange('B:C').setNumberFormat('@');
+    Object.keys(formats).forEach(a1 => sheet.getRange(a1).setNumberFormat(formats[a1]));
   }
   const head = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
-  const col = REPORT_HEAD.map(name => {
-    const i = head.indexOf(name);
-    if (i < 0) throw new Error(`「${REPORT}」分頁找不到「${name}」這一欄`);
+  const col = heads.map(h => {
+    const i = head.indexOf(h);
+    if (i < 0) throw new Error(`「${name}」分頁找不到「${h}」這一欄`);
     return i;
   });
   return { sheet, col, width: head.length };
@@ -206,6 +212,21 @@ function writeReport_({ sheet, col, width }, values) {
     const recent = sheet.getRange(from, 1, last - from + 1, width).getValues();
     const i = recent.findIndex(r => sameDay_(r[col[0]], values[0]) && String(r[col[2]]).trim().toUpperCase() === values[2].toUpperCase());
     if (i >= 0) at = from + i;
+  }
+  if (at) sheet.getRange(at, 1, 1, width).setValues([row]);
+  else sheet.appendRow(row);
+}
+
+// 寫一列碳粉：同一台（序號）已經有的蓋過去，沒有的加在最下面
+function writeToner_({ sheet, col, width }, values) {
+  const row = new Array(width).fill('');
+  values.forEach((v, i) => { row[col[i]] = v; });
+  const last = sheet.getLastRow();
+  let at = 0;
+  if (last >= 2) {
+    const serials = sheet.getRange(2, col[0] + 1, last - 1, 1).getValues();
+    const i = serials.findIndex(r => String(r[0]).trim().toUpperCase() === values[0].toUpperCase());
+    if (i >= 0) at = i + 2;
   }
   if (at) sheet.getRange(at, 1, 1, width).setValues([row]);
   else sheet.appendRow(row);

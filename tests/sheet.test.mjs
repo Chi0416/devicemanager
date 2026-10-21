@@ -410,3 +410,25 @@ test('_meta 第 3 列上次讀信的時間（試算表上的程式寫的）讀�
   assert.equal(Sheet.fromValues({ _meta: [['version', 1]] }).meterReadAt, '');
   assert.equal(Sheet.fromValues({}).meterReadAt, '');
 });
+
+test('「碳粉」分頁（試算表上的程式寫的）：依標題找欄，日期、時間、碳粉讀得懂，空白和看不懂的碳粉是 null；沒有這個分頁時是 null', () => {
+  const head = ['序號', '設備', '主機板號碼', '日期', '時間', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
+  const r = Sheet.fromValues({
+    碳粉: [
+      head,
+      ['313CM615862', '26-0001', 'RNP0026735', 46316, '08:30', 80, 40, 60, 10],
+      [' 3101R800451 ', '', '', '2026/10/17', 0.375, 30],
+      [],
+      ['', '26-0002', '', 46316, '09:00', 50],
+      ['E123', '', '', 46316, '09:10', -3, '', 'x', 120],
+    ],
+  });
+  assert.deepEqual(plain(r.toner), [
+    { serial: '313CM615862', device: '26-0001', date: '2026-10-21', time: '08:30', K: 80, Y: 40, M: 60, C: 10 },
+    { serial: '3101R800451', device: '', date: '2026-10-17', time: '09:00', K: 30, Y: null, M: null, C: null },
+    { serial: 'E123', device: '', date: '2026-10-21', time: '09:10', K: null, Y: null, M: null, C: null },
+  ]);
+  const moved = Sheet.fromValues({ 碳粉: [['碳粉C', '序號', '日期'], [5, 'A1', 46316]] });
+  assert.deepEqual(plain(moved.toner), [{ serial: 'A1', device: '', date: '2026-10-21', time: '', K: null, Y: null, M: null, C: 5 }]);
+  assert.equal(Sheet.fromValues({}).toner, null);
+});

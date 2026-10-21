@@ -601,6 +601,27 @@ test('上次讀信的時間：試算表上的程式寫在 _meta 第 3 列，同�
 
 });
 
+test('碳粉：試算表上沒有「碳粉」分頁時不讀、也不建；程式建了以後，同步、連結時讀回來', async () => {
+  const { fake, d, id } = await linked();
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().toner, null);
+  assert.equal(fake.files[id].sheets.some(s => s.title === '碳粉'), false);
+
+  fake.files[id].sheets.push({ sheetId: 500, title: '碳粉', grid: [
+    ['序號', '設備', '主機板號碼', '日期', '時間', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'],
+    ['313CM615862', '26-0001', '', 46316, '08:30', 80, 40, 60, 10],
+  ] });
+  await d.Sync.syncNow();
+  const row = { serial: '313CM615862', device: '26-0001', date: '2026-10-21', time: '08:30', K: 80, Y: 40, M: 60, C: 10 };
+  assert.deepEqual(plain(d.Sync.state().toner), [row]);
+  assert.deepEqual(JSON.parse(d.ls['devmgr.cloud']).toner, [row]);
+  assert.equal(fake.values(id, '碳粉').length, 2);
+
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  assert.deepEqual(plain(phone.Sync.state().toner), [row]);
+});
+
 // 讀信網址：模擬試算表上的程式讀到一封信，寫一列抄表、在 _meta 第 3 列記時間
 const METER_URL = 'https://script.google.com/macros/s/abc/exec';
 function mailOnce(fake, id, at) {

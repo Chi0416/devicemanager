@@ -28,9 +28,10 @@ const Sync = (() => {
   // 試算表上有幾筆資料（預先放的類別不算：只有那幾筆時，當作雲端還沒有資料）
   const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
-  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt } ----------
+  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, toner } ----------
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
   //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；同步前叫它讀信時也直接回傳）
+  //   toner：「碳粉」分頁（抄表程式每台最新一次的回報，試算表上的程式寫的），同步時讀回來；沒有這個分頁時是 null
   let cloud = null;
   try { cloud = JSON.parse(localStorage.getItem(CLOUD_KEY)); } catch (_) {}
 
@@ -67,6 +68,7 @@ const Sync = (() => {
       url: cloud?.url || '',
       meterUrl: cloud?.meterUrl || '',
       meterReadAt: cloud?.meterReadAt || '',
+      toner: cloud?.toner || null,
       lastSyncAt: cloud?.lastSyncAt || null,
       running,
       error,
@@ -178,8 +180,9 @@ const Sync = (() => {
     return meta;
   }
 
+  // 「碳粉」分頁是試算表上的程式建的：有這個分頁才讀（讀不存在的分頁整次會失敗）
   async function pull(meta) {
-    const titles = [...Sheet.readRanges(), Sheet.META.title];
+    const titles = [...Sheet.readRanges(), Sheet.META.title, ...(meta.sheetIds[Sheet.TONER] === undefined ? [] : [Sheet.TONER])];
     const ranges = titles.map(t => `ranges=${enc(a1(t))}`).join('&');
     const r = await api(`${Google.SHEETS}/${meta.id}/values:batchGet?${ranges}`
       + '&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER');
@@ -300,6 +303,7 @@ const Sync = (() => {
     const parsed = Sheet.fromValues(byTitle);
     cloud.meterUrl = parsed.meterUrl;
     cloud.meterReadAt = parsed.meterReadAt;
+    cloud.toner = parsed.toner;
     // 手動輸入、沒有 id 的列：剛給的 id 先寫回試算表，寫好了才放進這台裝置
     //   寫的時候斷線就整次停下來：這台裝置不會留著試算表上沒有的 id（下次讀回來會是另一個 id，改過的話同一筆會變兩筆）
     const ids = [
@@ -532,6 +536,7 @@ const Sync = (() => {
       let meta = null;
       let meterUrl = '';
       let meterReadAt = '';
+      let toner = null;
       const found = await findSpreadsheet();
       if (found) meta = await info(found);
 
@@ -546,7 +551,7 @@ const Sync = (() => {
       } else {
         await ensureTabs(meta);
         const parsed = Sheet.fromValues(await pull(meta));
-        ({ meterUrl, meterReadAt } = parsed);
+        ({ meterUrl, meterReadAt, toner } = parsed);
         const remoteCount = countRecords(parsed.data);
         if (!remoteCount) {
           if (!upload()) return;
@@ -566,7 +571,7 @@ const Sync = (() => {
           hooks.onData();
         }
       }
-      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt };
+      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt, toner };
       saveCloud();
       hooks.toast('已連結 Google 帳號');
     } catch (e) {

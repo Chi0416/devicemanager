@@ -1,5 +1,5 @@
 // 詳情頁：設備詳情（Detail）、位置詳情（Place）共用 createDetail
-//   上面：資訊卡；下面：一張表一列，寫最新的狀況和筆數
+//   上面：資訊卡（設備下面接碳粉、耗材，位置下面接用量）；下面：一張表一列，寫最新的狀況和筆數
 //     點一列打開那張表的頁面（只列這台設備、這個位置的紀錄，右上角新增）；右邊的「＋」直接新增
 //   右上角「編輯」打開那一筆的表單；那一筆被刪掉時這一頁跟著關
 //   設備：點設備卡片打開（見 app.js）；標題寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
@@ -164,6 +164,70 @@ const Detail = (() => {
         <span class="card-grid">${cells}</span>
         ${w ? `<span class="card-note${w.warn ? ' warn' : ''}">${U.esc(w.text)}</span>` : ''}
         ${p ? `<button type="button" class="detail-link" data-place="${U.esc(p.id)}"><small>位置</small><span>${U.esc(p.name)}</span><span class="go" aria-hidden="true">›</span></button>` : ''}
+      </div>
+      ${tonerHTML(d)}
+      ${consumablesHTML(d)}`;
+  }
+
+  // 碳粉：抄表程式最新一次回報的（試算表的「碳粉」分頁，同步時讀回來，見 sync.js）；先用序號找，找不到再用設備編號；沒回報過的不顯示
+  //   K Y M C 四格（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）；20% 以下紅字；右上角回報的時間，超過 3 天沒回報寫「N 天沒回報」灰字
+  const LOW = 20;
+  const STALE = 3;
+  function tonerHTML(d) {
+    const norm = v => Refs.norm(v);
+    const list = Sync.state().toner || [];
+    const t = (norm(d.serial) && list.find(x => norm(x.serial) === norm(d.serial))) || list.find(x => norm(x.device) === norm(d.code));
+    if (!t) return '';
+    const colors = ['Y', 'M', 'C'].some(c => t[c] !== null) ? ['K', 'Y', 'M', 'C'] : ['K'];
+    const cells = colors.map(c => {
+      const v = t[c];
+      const cls = v === null ? 'muted' : v <= LOW ? 'low' : '';
+      return `<span class="cell"><small>${c}</small><span class="${cls}">${v === null ? '—' : `${v}%`}</span></span>`;
+    }).join('');
+    const days = t.date ? Math.round((Date.parse(U.today()) - Date.parse(t.date)) / 86400000) : null;
+    const when = days === null ? '—' : days > STALE ? `${days} 天沒回報` : `${U.fmtDate(t.date)} ${t.time}`.trim();
+    return `
+      <div class="detail-card toner-card">
+        <span class="uc-head"><b>碳粉</b><span class="${days !== null && days > STALE ? '' : 'fresh'}">${U.esc(when)}</span></span>
+        <span class="card-grid toner-grid">${cells}</span>
+      </div>`;
+  }
+
+  // 耗材：這台的碳粉、感光鼓…，從裝進現在這個位置那天算（見 records.js 的 consumablesAt）；在倉庫、一格放好幾台的不算
+  //   一項一列：壽命（設定的，或在這裡換過的平均）、已用幾 %（細長條，快到了橘色、超過紅色）、上次換哪天、預估什麼時候到
+  //   還算不出平均的：寫換過幾次、上次換到現在印了幾張
+  function consumablesHTML(d) {
+    const list = Records.consumablesAt(d.location).filter(x => x.device.id === d.id);
+    if (!list.length) return '';
+    const n = v => U.fmtNum(v);
+    const rows = list.map(x => {
+      const life = x.lifeSet ? `壽命 ${n(x.life)} 張（設定）` : x.avg ? `平均每支 ${n(x.avg)} 張` : '';
+      const times = x.count ? `換過 ${x.count} 次` : '';
+      const head = [life, times].filter(Boolean).join('・');
+      const start = x.start ? `${x.start.install ? '安裝' : '上次換'} ${U.fmtDate(x.start.date)}` : '';
+      const tone = x.over ? 'danger' : x.soon ? 'warn' : '';
+      // 起點那天沒有張數（安裝當天沒抄表、換的那天前後都沒有抄表）：算不出用了多少，不畫長條
+      if (x.used === null) {
+        return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
+          <span class="cons-sub"><span>${U.esc(start)}</span></span>
+          <small>${x.start?.install ? '安裝那天' : '換的那天'}沒有張數，算不出用了多少</small></li>`;
+      }
+      if (!x.life) {
+        return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
+          <span class="cons-sub">${U.esc([start, x.used !== null && `到現在${x.approx ? '約 ' : ' '}${n(x.used)} 張`].filter(Boolean).join('・'))}</span>
+          <small>再換一次才算得出平均</small></li>`;
+      }
+      const pct = Math.round((x.pct || 0) * 100);
+      const when = x.over ? '已經超過了' : x.eta ? `預估 ${Records.etaText(x.eta)}${x.kind === 'color' || /碳粉/.test(x.item) ? '用完' : '到'}` : '';
+      return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
+        <span class="meter ${tone}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(pct, 100)}" aria-label="${U.esc(x.item)}已用 ${pct}%"><i style="width:${Math.min(pct, 100)}%"></i></span>
+        <span class="cons-sub"><span>已用 ${pct}%${x.used !== null ? `（${x.approx ? '約 ' : ''}${n(x.used)} 張）` : ''}</span><span class="${tone}">${U.esc(when)}</span></span>
+        <small>${U.esc(start)}</small></li>`;
+    }).join('');
+    return `
+      <div class="detail-card cons-card">
+        <span class="uc-head"><b>耗材</b></span>
+        <ul class="cons-list">${rows}</ul>
       </div>`;
   }
 
@@ -238,46 +302,7 @@ const Place = (() => {
         ${p.note ? `<span class="card-sub">${U.esc(Records.firstLine(p.note))}</span>` : ''}
         ${on.length ? links : '<span class="card-note">現在沒有機器</span>'}
       </div>
-      ${p.stock ? '' : usageHTML(p)}
-      ${p.stock ? '' : consumablesHTML(p)}`;
-  }
-
-  // 耗材：這裡現在那台機器的碳粉、感光鼓…（見 records.js 的 consumablesAt）
-  //   一項一列：壽命（設定的，或這裡換過的平均）、已用幾 %（細長條，快到了橘色、超過紅色）、上次換哪天、預估什麼時候到
-  //   還算不出平均的：寫換過幾次、上次換到現在印了幾張
-  function consumablesHTML(p) {
-    const list = Records.consumablesAt(p.code);
-    if (!list.length) return '';
-    const n = v => U.fmtNum(v);
-    const rows = list.map(x => {
-      const life = x.lifeSet ? `壽命 ${n(x.life)} 張（設定）` : x.avg ? `平均每支 ${n(x.avg)} 張` : '';
-      const times = x.count ? `換過 ${x.count} 次` : '';
-      const head = [life, times].filter(Boolean).join('・');
-      const start = x.start ? `${x.start.install ? '安裝' : '上次換'} ${U.fmtDate(x.start.date)}` : '';
-      const tone = x.over ? 'danger' : x.soon ? 'warn' : '';
-      // 起點那天沒有張數（安裝當天沒抄表、換的那天前後都沒有抄表）：算不出用了多少，不畫長條
-      if (x.used === null) {
-        return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
-          <span class="cons-sub"><span>${U.esc(start)}</span></span>
-          <small>${x.start?.install ? '安裝那天' : '換的那天'}沒有張數，算不出用了多少</small></li>`;
-      }
-      if (!x.life) {
-        return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
-          <span class="cons-sub">${U.esc([start, x.used !== null && `到現在${x.approx ? '約 ' : ' '}${n(x.used)} 張`].filter(Boolean).join('・'))}</span>
-          <small>再換一次才算得出平均</small></li>`;
-      }
-      const pct = Math.round((x.pct || 0) * 100);
-      const when = x.over ? '已經超過了' : x.eta ? `預估 ${Records.etaText(x.eta)}${x.kind === 'color' || /碳粉/.test(x.item) ? '用完' : '到'}` : '';
-      return `<li class="cons-row"><span class="cons-top"><b>${U.esc(x.item)}</b><span>${U.esc(head)}</span></span>
-        <span class="meter ${tone}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(pct, 100)}" aria-label="${U.esc(x.item)}已用 ${pct}%"><i style="width:${Math.min(pct, 100)}%"></i></span>
-        <span class="cons-sub"><span>已用 ${pct}%${x.used !== null ? `（${x.approx ? '約 ' : ''}${n(x.used)} 張）` : ''}</span><span class="${tone}">${U.esc(when)}</span></span>
-        <small>${U.esc(start)}</small></li>`;
-    }).join('');
-    return `
-      <div class="detail-card cons-card">
-        <span class="uc-head"><b>耗材</b><span>${U.esc(Records.label(list[0].device))}</span></span>
-        <ul class="cons-list">${rows}</ul>
-      </div>`;
+      ${p.stock ? '' : usageHTML(p)}`;
   }
 
   // 用量：最近 12 個月的長條圖（下面黑白、上面彩色，一季抄的同一季三個月一樣高，見 records.js 的 monthlyUsage）
