@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.21.2">
+  <link rel="manifest" href="manifest.json?v=2026.10.21.3">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.21.2">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.21.3">
 </head>
 <body>
   <div class="app">
@@ -210,7 +210,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.21.2</p>
+      <p class="note muted">版本 2026.10.21.3</p>
     </div>
   </dialog>
 
@@ -287,7 +287,7 @@
       <h3 class="section-head">3. 抄表程式</h3>
       <ol class="steps muted">
         <li>程式資料夾裡的「設定.txt」填網址（設定裡的讀信網址）和密語</li>
-        <li>有 Python 的電腦：pip install puresnmp，點「抄表設定.pyw」；沒有的：在有 Python 的電腦點「打包.bat」，把「發佈」資料夾複製過去，點「抄表設定.exe」</li>
+        <li>有 Python 的電腦：pip install puresnmp，點「抄表.pyw」；沒有的：在有 Python 的電腦點「打包.bat」，把「發佈」裡的「抄表」資料夾整個複製過去（例如 C:\抄表），點「抄表.exe」</li>
         <li>輸入機器的 IP →「新增」→ 勾「開機自動執行」</li>
         <li>按「提交計數器」試一次，試算表會多一個「回報」分頁</li>
       </ol>
@@ -304,13 +304,14 @@
         <li><span><i class="light light-off"></i>灰</span><b>連不到</b></li>
         <li><span><i class="light light-err"></i>紅</span><b>有問題，看視窗最下面那行</b></li>
       </ul>
-      <p class="note muted">停掉：工作管理員結束「抄表」，再刪掉「啟動」資料夾裡的捷徑（Win+R 輸入 shell:startup）。</p>
+      <p class="note muted">背景不用開著視窗，開機登入後自己跑。停掉：視窗裡取消勾選「開機自動執行」，或工作管理員 →「啟動應用程式」→「抄表」→ 停用。</p>
 
       <h3 class="section-head">4. 出問題時</h3>
       <ul class="member-list help-list">
         <li><span class="member-info"><b>「抄表」沒有新的列</b><small>寄信的每小時才讀一次：試算表上方「自動抄表」→「現在讀信」</small></span></li>
         <li><span class="member-info"><b>備註寫「序號 X 對不到設備」</b><small>App 裡登記這個序號，下次讀信時自動補上</small></span></li>
         <li><span class="member-info"><b>連不到</b><small>IP 對不對、機器有沒有開、SNMP 有沒有開</small></span></li>
+        <li><span class="member-info"><b>抄表.exe 不見了（被防毒刪掉）</b><small>Windows 安全性 → 病毒與威脅防護 → 管理設定 → 排除項目 → 新增「資料夾」，選抄表那個資料夾（要系統管理員），再把資料夾重新複製一次</small></span></li>
         <li><span class="member-info"><b>還沒有密語、密語不對</b><small>試算表上方「自動抄表」→「密語」，重新複製到設定.txt</small></span></li>
         <li><span class="member-info"><b>試算表上的程式是舊版、找不到指令碼函式</b><small>「複製程式」重貼、存檔，再「管理部署作業」→ 鉛筆 → 新版本</small></span></li>
       </ul>
@@ -348,24 +349,24 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.21.2"></script>
-  <script src="js/schema.js?v=2026.10.21.2"></script>
-  <script src="js/storage.js?v=2026.10.21.2"></script>
-  <script src="js/refs.js?v=2026.10.21.2"></script>
-  <script src="js/records.js?v=2026.10.21.2"></script>
-  <script src="js/list.js?v=2026.10.21.2"></script>
-  <script src="js/form.js?v=2026.10.21.2"></script>
-  <script src="js/picker.js?v=2026.10.21.2"></script>
-  <script src="js/lists.js?v=2026.10.21.2"></script>
-  <script src="js/detail.js?v=2026.10.21.2"></script>
-  <script src="js/overview.js?v=2026.10.21.2"></script>
-  <script src="js/places.js?v=2026.10.21.2"></script>
-  <script src="js/config.js?v=2026.10.21.2"></script>
-  <script src="js/google.js?v=2026.10.21.2"></script>
-  <script src="js/sheet.js?v=2026.10.21.2"></script>
-  <script src="js/sync.js?v=2026.10.21.2"></script>
-  <script src="js/inbox.js?v=2026.10.21.2"></script>
-  <script src="js/app.js?v=2026.10.21.2"></script>
+  <script src="js/util.js?v=2026.10.21.3"></script>
+  <script src="js/schema.js?v=2026.10.21.3"></script>
+  <script src="js/storage.js?v=2026.10.21.3"></script>
+  <script src="js/refs.js?v=2026.10.21.3"></script>
+  <script src="js/records.js?v=2026.10.21.3"></script>
+  <script src="js/list.js?v=2026.10.21.3"></script>
+  <script src="js/form.js?v=2026.10.21.3"></script>
+  <script src="js/picker.js?v=2026.10.21.3"></script>
+  <script src="js/lists.js?v=2026.10.21.3"></script>
+  <script src="js/detail.js?v=2026.10.21.3"></script>
+  <script src="js/overview.js?v=2026.10.21.3"></script>
+  <script src="js/places.js?v=2026.10.21.3"></script>
+  <script src="js/config.js?v=2026.10.21.3"></script>
+  <script src="js/google.js?v=2026.10.21.3"></script>
+  <script src="js/sheet.js?v=2026.10.21.3"></script>
+  <script src="js/sync.js?v=2026.10.21.3"></script>
+  <script src="js/inbox.js?v=2026.10.21.3"></script>
+  <script src="js/app.js?v=2026.10.21.3"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>
