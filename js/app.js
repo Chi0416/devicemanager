@@ -399,13 +399,13 @@
   }
 
   // 抄表頁最上面一排小字：上次讀信的時間（試算表上的程式每次看完信箱都記下來，同步時讀回來）
-  //   有讀信網址時，打開 App、切回來、按「同步」會先讀信再同步（見 sync.js 的 run）
+  //   有讀信網址時，打開 App、切回來、按「同步」會先讀信再同步（見 sync.js 的 run）；同步中寫「同步中…」，同步完換回時間
   const meterLine = document.createElement('p');
   meterLine.className = 'meter-line';
   lists.readings.el.querySelector('.list').before(meterLine);
   function renderMeterLine(st) {
     meterLine.hidden = !st.linked || !(st.meterUrl || st.meterReadAt);
-    meterLine.textContent = `上次讀信 ${st.meterReadAt ? U.fmtDateTime(st.meterReadAt) : '—'}`;
+    meterLine.textContent = st.running ? '同步中…' : `上次讀信 ${st.meterReadAt ? U.fmtDateTime(st.meterReadAt) : '—'}`;
   }
 
   async function saveMeterUrl() {
