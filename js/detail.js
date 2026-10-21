@@ -291,7 +291,7 @@ const Place = (() => {
     const on = Records.machinesAt(p.code);
     const olds = String(p.oldNames ?? '').split('\n').map(x => x.trim()).filter(Boolean);
     const links = on.length <= MAX_LINKS ? on.map(d =>
-      `<button type="button" class="detail-link" data-device="${U.esc(d.id)}"><small>現在</small><span>${U.esc(Records.label(d))}</span><span class="go" aria-hidden="true">›</span></button>`).join('')
+      `<button type="button" class="detail-link" data-device="${U.esc(d.id)}"><small>設備</small><span>${U.esc(Records.label(d))}</span><span class="go" aria-hidden="true">›</span></button>`).join('')
       : `<span class="card-note">現在放著 ${on.length} 台</span>`;
     return `
       <div class="detail-card">
