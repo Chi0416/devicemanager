@@ -1046,17 +1046,17 @@ test('匯入 data.json、以 Google 為主：用 id 比對，只加這台沒有�
   assert.equal(Store.pendingCount(), 4); // 加進來的要寫回試算表（還有前面新增的投影機）
 });
 
-test('最新回報：設備卡片序號那一行的右邊寫多久以前（今天、昨天寫時間），3 天內綠字、超過 30 天橘字；碳粉 20% 以下接紅字；沒回報過的不寫', () => {
+test('最新回報：設備卡片序號那一行的右邊寫多久以前（今天、昨天寫時間），3 天內綠字、超過 30 天橘字；不寫碳粉；沒回報過的不寫', () => {
   const { Records, Store } = app({ today: '2026-10-21' });
   const at = (date, more = {}) => [{ serial: ' a1 ', device: '', date, time: '08:30', K: 80, Y: null, M: null, C: null, ...more }];
   const d = { serial: 'A1', code: '26-0001' };
-  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-21', { Y: 15, M: 60, C: 10 }))), { text: '今天 08:30', tone: 'fresh', low: '碳粉 Y 15%、C 10%' });
-  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-20'))), { text: '昨天 08:30', tone: 'fresh', low: '' });
+  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-21', { Y: 15, M: 60, C: 10 }))), { text: '今天 08:30', tone: 'fresh' });
+  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-20'))), { text: '昨天 08:30', tone: 'fresh' });
   assert.equal(Records.reportNote(d, at('2026-10-18')).text, '3 天前');
   assert.equal(Records.reportNote(d, at('2026-10-18')).tone, 'fresh');
-  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-17'))), { text: '4 天前', tone: '', low: '' });
+  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-17'))), { text: '4 天前', tone: '' });
   assert.equal(Records.reportNote(d, at('2026-09-21')).tone, ''); // 30 天
-  assert.deepEqual(plain(Records.reportNote(d, at('2026-09-20'))), { text: '31 天前', tone: 'old', low: '' });
+  assert.deepEqual(plain(Records.reportNote(d, at('2026-09-20'))), { text: '31 天前', tone: 'old' });
   assert.equal(Records.reportNote(d, at('')), null);
   assert.equal(Records.reportNote(d, []), null);
   // 沒有序號的用設備編號找

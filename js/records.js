@@ -829,18 +829,13 @@ const Records = (() => {
   // 設備詳情右上角：2026/10/21 08:30・今天
   const reportWhen = t => `${U.fmtDate(t.date)} ${t.time}`.trim() + `・${agoText(reportDays(t))}`;
 
-  // 設備卡片序號那一行的右邊（「出租中」下面）：{ text: '今天 08:30', tone, low: '碳粉 M 10%' }；沒回報過的 null
-  //   今天、昨天寫時間，再早的只寫 N 天前；有一色 20% 以下時 low 寫哪幾色（紅字）
+  // 設備卡片序號那一行的右邊（「出租中」下面）：{ text: '今天 08:30', tone }；沒回報過的 null
+  //   今天、昨天寫時間，再早的只寫 N 天前；碳粉不寫（太長，使用者另外處理）
   function reportNote(d, list) {
     const t = latestReport(d, list);
     const n = reportDays(t);
     if (n === null) return null;
-    const low = ['K', 'Y', 'M', 'C'].filter(c => typeof t[c] === 'number' && t[c] <= TONER_LOW).map(c => `${c} ${t[c]}%`);
-    return {
-      text: n <= 1 && t.time ? `${agoText(n)} ${t.time}` : agoText(n),
-      tone: reportTone(n),
-      low: low.length ? `碳粉 ${low.join('、')}` : '',
-    };
+    return { text: n <= 1 && t.time ? `${agoText(n)} ${t.time}` : agoText(n), tone: reportTone(n) };
   }
 
   // ---------- 保養、翻新 ----------

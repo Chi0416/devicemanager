@@ -319,13 +319,12 @@ body:has(dialog[open]) { overflow: hidden; }
 
 /* 卡片名稱下面一行小字（設備的機器序號） */
 .card-sub { display: block; margin-top: 3px; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-/* 序號那一行的右邊（狀態標籤下面）：最新回報多久以前，3 天內綠字、超過 30 天橘字，碳粉 20% 以下紅字 */
+/* 序號那一行的右邊（狀態標籤下面）：最新回報多久以前，3 天內綠字、超過 30 天橘字 */
 .card-sub.split { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .card-sub.split > span:first-child { min-width: 0; }
 .card-side { flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .card-side.fresh { color: var(--ok); }
 .card-side.old { color: var(--warn); }
-.card-side .low { color: var(--danger); }
 
 /* 卡片最下面的一行（保固快到期是橘色） */
 .card-note { display: block; margin-top: 10px; font-size: 12px; color: var(--muted); }

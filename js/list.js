@@ -154,7 +154,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     const note = schema.note ? schema.note(r) : null;
     const sub = card.sub?.(r) || '';
     const side = card.side?.(r);
-    const sideHTML = side ? `<span class="card-side ${side.tone}">${U.esc(side.text)}${side.low ? `・<span class="low">${U.esc(side.low)}</span>` : ''}</span>` : '';
+    const sideHTML = side ? `<span class="card-side ${side.tone}">${U.esc(side.text)}</span>` : '';
     const dev = device ? device(r) : [];
     const devCells = dev.map(c => `<span class="cell"><small>${U.esc(c.label)}</small><span class="${c.warn ? 'warn' : ''}">${U.esc(c.value) || '—'}</span></span>`).join('');
     return `
