@@ -658,7 +658,7 @@ const Form = (() => {
         const hit = Refs.find(f, raw);
         if (hit) v = Refs.nameOf(f.ref, hit);
         else if (raw !== original[i]) msg = canAdd(f) ? `${listName(f)}裡沒有「${raw}」，請從選單選，或點「＋ 新增」` : `找不到${listName(f)}「${raw}」，請從選單選`;
-      } else if (f.clean) v = f.clean(raw);
+      } else if (f.clean) v = f.clean(raw, values);
       else if (f.upper) v = U.toHalf(raw).toUpperCase();
       // 和其他欄位一起看才知道對不對的（異動的類型和位置、還放著機器的位置不能停用）
       if (!msg && f.check) msg = f.check(values) || '';

@@ -21,7 +21,7 @@
 //   placeholder: 從清單選的欄位裡的灰字，沒有時寫「選擇或搜尋」
 //   hidden:      表單上不顯示，由 calc 填好（異動的原位置）
 //   multiline:   表單上是可以換行的大格子（備註）
-//   upper:       存檔時英文字母轉大寫（員工編號）
+//   upper:       存檔時英文字母轉大寫（員工編號、序號）
 //   auto:        系統自己產生、不能改（設備的編號）：auto(這一筆) 回傳新的值；新增時存檔才給，給了就不會變
 //   keep:        連續新增時保留該欄的值（一次買好幾台時，類別、品牌、購買日期不用重填）
 //                可以是函式：keep(values) 為 true 時才留（設備的位置：倉庫才留）
@@ -31,7 +31,8 @@
 //                values 是各欄位目前填的內容，另外 values.id 是正在編輯的那一筆的 id（新增時是 null）
 //                位置先留好，沒有提醒時也空著（提醒出現時表單不會跳）；文字要放得進 noteLines 行，多的會被截掉
 //   noteLines:   提醒留幾行（預設 1；張數的「上次…／本期…」是 2 行，用 \n 換行）
-//   clean:       存檔前整理打的字：clean(打的字) 回傳要存的值（主機板號碼補上 RNP、轉大寫）
+//   clean:       存檔前整理打的字：clean(打的字, values) 回傳要存的值（主機板號碼補上 RNP、轉大寫；機型轉大寫）
+//                清單的名字：下拉選單的「＋ 新增」也照它整理（見 refs.js 的 quickAdd）
 //   calc:        依表單目前填的內容先填好：calc(values) 回傳要填的值，沒有時回傳空字串
 //                只在依的欄位改了、算出來的值跟著變時才填；欄位空白、或還是上次填的值時才換，自己改過的不蓋掉（見 form.js）
 //   lock:        舊資料不能在表單上改的原因：lock(這一筆) 回傳說明（有異動的設備，位置要新增異動），可以改時回傳空字串
@@ -108,6 +109,8 @@ const OPTION_LISTS = ['類別', '品牌', '機型', '保養項目', '選配件']
 const GENERATIONS = ['IM C', 'C xx04', 'C xx03', 'C xx01', 'C xx00', '黑白 MP', '其他'];
 // 可以自己排順序的清單（設定 → 清單 →「排序」，↑ ↓ 移動）；其他的依名字排（品牌）
 const SORTED_LISTS = ['類別', '機型', '保養項目', '選配件'];
+// 機型存大寫（imc6000 → IMC6000）；其他清單照打的存（品牌 Ricoh）
+const cleanOption = (v, values) => (values.list === '機型' ? U.toHalf(v).toUpperCase() : v);
 // 預設項目（沒改過時不算這台裝置的資料），照寫的順序排；id 的開頭：類別是 seed-1…，其他加上清單的代號
 const DEFAULT_OPTIONS = [
   { list: '類別', id: '', names: ['事務機', '打卡鐘', '碎紙機'] },
@@ -171,18 +174,10 @@ const fixLocationCodes = () => fixCodes('locations', LOC_RE, nextLocationCode);
 
 // 主機板號碼（事務機的 DNS 名稱）：RNP＋12 碼，例如 RNP123456789012
 //   只打後面 12 碼也可以，存檔時補上 RNP；英文轉大寫、拿掉空白和分隔符號
-const BOARD_RE = /^RNP[0-9A-Z]{12}$/;
+//   不提醒格式：有人只打後六碼，照打的存
 function cleanBoard(v) {
   const t = U.toHalf(String(v ?? '')).trim().toUpperCase().replace(/[\s:.\-]/g, '');
   return /^[0-9A-Z]{12}$/.test(t) && !t.startsWith('RNP') ? `RNP${t}` : t;
-}
-// 格式不對時提醒（還是可以存，避免特殊型號被擋住）；打的和要存的不一樣時，寫會存成什麼
-function boardNote(values) {
-  const raw = String(values.board ?? '').trim();
-  const v = cleanBoard(raw);
-  if (!v) return '';
-  if (!BOARD_RE.test(v)) return { text: '應該是 RNP＋12 碼', warn: true };
-  return v === raw ? '' : `會存成 ${v}`;
 }
 
 // 新增設備時預設的狀態：清單裡排第一個的
@@ -256,9 +251,9 @@ const SCHEMAS = {
       { key: 'category', label: '類別',     type: 'ref', ref: 'options', list: '類別', optional: true, keep: true },
       { key: 'brand',    label: '品牌',     type: 'ref', ref: 'options', list: '品牌', optional: true, keep: true },
       // 機型從清單選，清單的順序就是總覽的順序（以前叫「型號」，是自己打的字）
-      { key: 'model',    label: '機型',     was: ['型號'], type: 'ref', ref: 'options', list: '機型', optional: true, keep: true },
-      { key: 'serial',   label: '序號',     type: 'text', optional: true, caps: true, section: '機器識別' },
-      { key: 'board',    label: '主機板號碼', type: 'text', optional: true, caps: true, tight: true, clean: cleanBoard, note: boardNote },
+      { key: 'model',    label: '機型',     was: ['型號'], type: 'ref', ref: 'options', list: '機型', optional: true, keep: true, caps: true },
+      { key: 'serial',   label: '序號',     type: 'text', optional: true, caps: true, upper: true, section: '機器識別' },
+      { key: 'board',    label: '主機板號碼', type: 'text', optional: true, caps: true, tight: true, clean: cleanBoard },
       // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示；那裡已經有別台機器時提醒（倉庫不提醒）
       // 連續新增時，倉庫才留著（客戶的位置一格一台）
       placeField('location', '位置', { optional: true, keep: v => Records.isStock(v.location), section: '放置與保管',
@@ -449,7 +444,7 @@ const SCHEMAS = {
       dateField('date', '翻新日期'),
       { key: 'stockDate', label: '入庫日', type: 'date', optional: true },
       { key: 'engineer',  label: '工程師', type: 'ref', ref: 'people', optional: true },
-      { key: 'serial',    label: '序號', type: 'text', optional: true, caps: true,
+      { key: 'serial',    label: '序號', type: 'text', optional: true, caps: true, upper: true,
         calc: v => Records.device(v.device)?.serial || '', note: v => Records.serialNote(v) },
       { key: 'country',   label: '國別', type: 'text', optional: true, toggle: toggleOf(COUNTRIES) },
       { key: 'source',    label: '廠商或來源', was: ['原廠商'], type: 'text', optional: true },
@@ -470,7 +465,7 @@ const SCHEMAS = {
     fields: [
       deviceField(),
       { key: 'name',        label: '名稱',     type: 'ref', ref: 'options', list: '選配件' },
-      { key: 'serial',      label: '序號',     type: 'text', optional: true, caps: true },
+      { key: 'serial',      label: '序號',     type: 'text', optional: true, caps: true, upper: true },
       dateField('installDate', '安裝日期', { optional: true }),
       { key: 'removeDate',  label: '拆除日期', type: 'date', optional: true },
       noteField(),
@@ -513,7 +508,7 @@ const SCHEMAS = {
       // 屬於哪一份清單：都是從那份清單裡新增、編輯（或下拉選單的「＋ 新增」），表單上不顯示，免得以為是要選什麼
       { key: 'list',     label: '清單', type: 'text', full: true, hidden: true, suggest: OPTION_LISTS,
         toggle: OPTION_LISTS.map(v => ({ value: v, label: v, tone: '', match: new RegExp(`^${v}$`) })) },
-      { key: 'name',     label: '名稱', type: 'text', full: true },
+      { key: 'name',     label: '名稱', type: 'text', full: true, clean: cleanOption },
       { key: 'order',    label: '順序', type: 'number', optional: true, hidden: true },
       { key: 'disabled', label: '停用', type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示' },
       // 只有機型有：總覽依世代分組，汰舊換新時看得出舊的還有幾台；空白時照型號猜，猜不到的放「其他」

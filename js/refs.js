@@ -73,10 +73,14 @@ const Refs = (() => {
 
   // 表單裡點「＋ 新增」：馬上加進清單（選項加進那一份清單）
   //   位置：打的字是名稱（target 的 addAs），編號由系統給（schema 的 auto）
+  //   名字照表單存檔時的整理方式（schema 的 clean：機型轉大寫）
   function quickAdd(f, name) {
     const tg = targetOf(f.ref);
-    const rec = { ...blankRecord(f.ref), [tg.addAs || tg.name]: String(name).trim() };
+    const key = tg.addAs || tg.name;
+    const rec = { ...blankRecord(f.ref), [key]: String(name).trim() };
     if (tg.group) rec[tg.group] = f.list;
+    const nameField = SCHEMAS[f.ref].fields.find(x => x.key === key);
+    if (nameField?.clean) rec[key] = nameField.clean(rec[key], rec);
     SCHEMAS[f.ref].fields.forEach(x => { if (x.auto && !rec[x.key]) rec[x.key] = x.auto(rec); });
     return Store.add(f.ref, rec);
   }

@@ -21,7 +21,7 @@ function app(storage = {}, { today = null } = {}) {
   });
   for (const f of FILES) vm.runInContext(readFileSync(new URL(`../js/${f}.js`, import.meta.url), 'utf8'), ctx, { filename: `${f}.js` });
   if (today) vm.runInContext(`U.today = () => '${today}'`, ctx);
-  const a = vm.runInContext('({ Store, Refs, SCHEMAS, nextDeviceCode, fixDeviceCodes, nextLocationCode, fixLocationCodes, warrantyNote, cleanBoard, boardNote })', ctx);
+  const a = vm.runInContext('({ Store, Refs, SCHEMAS, nextDeviceCode, fixDeviceCodes, nextLocationCode, fixLocationCodes, warrantyNote, cleanBoard })', ctx);
   const field = (t, key) => a.SCHEMAS[t].fields.find(f => f.key === key);
   return { ...a, ls, field };
 }
@@ -274,8 +274,8 @@ test('保固：30 天內到期標色、過期寫出來；不用提醒的狀態�
   assert.equal(warrantyNote({ warranty: '2026-10-30', status: '遺失' }), null);
 });
 
-test('主機板號碼：RNP＋12 碼；只打 12 碼時補上 RNP、轉大寫、拿掉空白和分隔符號；格式不對時提醒', () => {
-  const { cleanBoard, boardNote } = app();
+test('主機板號碼：只打 12 碼時補上 RNP、轉大寫、拿掉空白和分隔符號；只打後幾碼照存', () => {
+  const { cleanBoard } = app();
   assert.equal(cleanBoard('RNP123456789012'), 'RNP123456789012');
   assert.equal(cleanBoard(' rnp123456789012 '), 'RNP123456789012');
   assert.equal(cleanBoard('123456789012'), 'RNP123456789012');
@@ -283,11 +283,19 @@ test('主機板號碼：RNP＋12 碼；只打 12 碼時補上 RNP、轉大寫、
   assert.equal(cleanBoard('1234-5678-9012'), 'RNP123456789012');
   assert.equal(cleanBoard('ｒｎｐ１２３４５６７８９０１２'), 'RNP123456789012');
   assert.equal(cleanBoard(''), '');
-  assert.equal(boardNote({ board: 'RNP123456789012' }), '');
-  assert.equal(boardNote({ board: 'rnp123456789012' }), '會存成 RNP123456789012');
-  assert.equal(boardNote({ board: '123456789012' }), '會存成 RNP123456789012');
-  assert.equal(boardNote({ board: '' }), '');
-  assert.deepEqual(plain(boardNote({ board: 'RNP12345' })), { text: '應該是 RNP＋12 碼', warn: true });
+  assert.equal(cleanBoard('f4e21a'), 'F4E21A');
+});
+
+test('機型、序號存大寫：機型清單的名字（「＋ 新增」也是）轉大寫，其他清單照打的；設備、翻新、選配件的序號轉大寫', () => {
+  const { Store, Refs, field } = app();
+  const name = field('options', 'name');
+  assert.equal(name.clean('imc6000', { list: '機型' }), 'IMC6000');
+  assert.equal(name.clean('ｍｐ３５５５', { list: '機型' }), 'MP3555');
+  assert.equal(name.clean('Ricoh', { list: '品牌' }), 'Ricoh');
+  assert.equal(Refs.quickAdd(field('devices', 'model'), ' imc4500 ').name, 'IMC4500');
+  assert.equal(Refs.quickAdd(field('devices', 'brand'), 'Ricoh').name, 'Ricoh');
+  assert.equal(Store.list('options').find(o => o.name === 'IMC4500').list, '機型');
+  for (const t of ['devices', 'refurbs', 'parts']) assert.equal(field(t, 'serial').upper, true, t);
 });
 
 test('設備：主機板號碼有填的話不能重複，搜尋找得到', () => {
