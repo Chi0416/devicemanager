@@ -1122,6 +1122,15 @@ a.wide-btn { display: flex; align-items: center; justify-content: center; text-d
 .badge.mail { display: inline-block; min-width: 24px; padding: 4px 7px; font-size: 13px; text-align: center; }
 .mails li { gap: 12px; padding: 10px 16px; }
 
+/* 自動抄表說明：一列一項，粗字是什麼、小字是說明；燈號是抄表程式視窗最前面那個圓點的顏色 */
+.help-list li { padding: 10px 16px; }
+.help-list .member-info small { margin-top: 2px; line-height: 1.5; }
+.light { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; vertical-align: 0; }
+.light-ok { background: var(--ok); }
+.light-busy { background: #e0a500; }
+.light-off { background: var(--muted); }
+.light-err { background: var(--danger); }
+
 /* ---------- 提醒 ---------- */
 .inbox-btn { position: relative; margin-right: 0; }
 .icon-btn svg.line { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }

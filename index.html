@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.20.14">
+  <link rel="manifest" href="manifest.json?v=2026.10.21.1">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.20.14">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.21.1">
 </head>
 <body>
   <div class="app">
@@ -210,7 +210,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.20.14</p>
+      <p class="note muted">版本 2026.10.21.1</p>
     </div>
   </dialog>
 
@@ -263,6 +263,60 @@
     </div>
   </dialog>
 
+  <!-- 自動抄表說明：從設定的「自動抄表」→「說明」打開（見 app.js）
+       兩種送法、試算表、機器自己寄信、抄表程式（客戶電腦上的 SNMP 程式，不放在這個網站上）、出問題時；不寫任何網址、密語 -->
+  <dialog id="meter-help" class="sheet">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title">自動抄表說明</h2>
+      <span></span>
+    </div>
+    <div class="sheet-body">
+      <p class="note muted">張數有兩種送法，都寫進同一張「抄表」，一台一個月一筆帳。</p>
+      <ul class="member-list help-list">
+        <li><span class="member-info"><b>機器自己寄信</b><small>機器每月 1 號把張數寄到你的 Gmail，不用別的電腦</small></span></li>
+        <li><span class="member-info"><b>抄表程式</b><small>客戶那邊一台一直開著的 Windows 電腦，每天回報張數和碳粉</small></span></li>
+      </ul>
+
+      <h3 class="section-head">1. 試算表（兩種都要，用電腦做一次）</h3>
+      <p class="note muted">照設定裡「自動抄表」的設定步驟做：第 5 步的部署兩種都會用到，第 6 步的密語只有抄表程式要。</p>
+
+      <h3 class="section-head">2. 機器自己寄信</h3>
+      <p class="note muted">照「<button type="button" class="link-btn" data-act="machine">機器設定</button>」設好，每月 1 號寄出；試算表上的程式每小時讀信，寫一筆上個月的帳。5-866-112 寄測試信（不算帳）。</p>
+
+      <h3 class="section-head">3. 抄表程式</h3>
+      <ol class="steps muted">
+        <li>程式資料夾裡的「設定.txt」填網址（設定裡的讀信網址）和密語</li>
+        <li>有 Python 的電腦：pip install puresnmp，點「抄表設定.pyw」；沒有的：在有 Python 的電腦點「打包.bat」，把「發佈」資料夾複製過去，點「抄表設定.exe」</li>
+        <li>輸入機器的 IP →「新增」→ 勾「開機自動執行」</li>
+        <li>按「提交計數器」試一次，試算表會多一個「回報」分頁</li>
+      </ol>
+      <ul class="member-list help-list">
+        <li><span class="member-info"><b>每天</b><small>背景回報一次張數和碳粉，存在試算表的「回報」分頁，一台一天一列</small></span></li>
+        <li><span class="member-info"><b>算帳</b><small>每月 1 號以後第一次回報，寫一筆上個月的帳；上個月已經有帳的不再寫</small></span></li>
+        <li><span class="member-info"><b>月中安裝</b><small>這個月已經有起點，下個月 1 號以後才開始算帳</small></span></li>
+        <li><span class="member-info"><b>提交計數器</b><small>客戶按了就馬上回報一次，按幾次都只留一筆</small></span></li>
+      </ul>
+      <p class="machine-path">燈號</p>
+      <ul class="member-list kv">
+        <li><span><i class="light light-ok"></i>綠</span><b>讀好了、送出了</b></li>
+        <li><span><i class="light light-busy"></i>黃</span><b>讀取中、送出中</b></li>
+        <li><span><i class="light light-off"></i>灰</span><b>連不到</b></li>
+        <li><span><i class="light light-err"></i>紅</span><b>有問題，看視窗最下面那行</b></li>
+      </ul>
+      <p class="note muted">停掉：工作管理員結束「抄表」，再刪掉「啟動」資料夾裡的捷徑（Win+R 輸入 shell:startup）。</p>
+
+      <h3 class="section-head">4. 出問題時</h3>
+      <ul class="member-list help-list">
+        <li><span class="member-info"><b>「抄表」沒有新的列</b><small>寄信的每小時才讀一次：試算表上方「自動抄表」→「現在讀信」</small></span></li>
+        <li><span class="member-info"><b>備註寫「序號 X 對不到設備」</b><small>App 裡登記這個序號，下次讀信時自動補上</small></span></li>
+        <li><span class="member-info"><b>連不到</b><small>IP 對不對、機器有沒有開、SNMP 有沒有開</small></span></li>
+        <li><span class="member-info"><b>還沒有密語、密語不對</b><small>試算表上方「自動抄表」→「密語」，重新複製到設定.txt</small></span></li>
+        <li><span class="member-info"><b>試算表上的程式是舊版、找不到指令碼函式</b><small>「複製程式」重貼、存檔，再「管理部署作業」→ 鉛筆 → 新版本</small></span></li>
+      </ul>
+    </div>
+  </dialog>
+
   <!-- 一份清單（見 lists.js）：從設定的「清單」打開 -->
   <dialog id="lists-sheet" class="sheet">
     <div class="sheet-head">
@@ -294,24 +348,24 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.20.14"></script>
-  <script src="js/schema.js?v=2026.10.20.14"></script>
-  <script src="js/storage.js?v=2026.10.20.14"></script>
-  <script src="js/refs.js?v=2026.10.20.14"></script>
-  <script src="js/records.js?v=2026.10.20.14"></script>
-  <script src="js/list.js?v=2026.10.20.14"></script>
-  <script src="js/form.js?v=2026.10.20.14"></script>
-  <script src="js/picker.js?v=2026.10.20.14"></script>
-  <script src="js/lists.js?v=2026.10.20.14"></script>
-  <script src="js/detail.js?v=2026.10.20.14"></script>
-  <script src="js/overview.js?v=2026.10.20.14"></script>
-  <script src="js/places.js?v=2026.10.20.14"></script>
-  <script src="js/config.js?v=2026.10.20.14"></script>
-  <script src="js/google.js?v=2026.10.20.14"></script>
-  <script src="js/sheet.js?v=2026.10.20.14"></script>
-  <script src="js/sync.js?v=2026.10.20.14"></script>
-  <script src="js/inbox.js?v=2026.10.20.14"></script>
-  <script src="js/app.js?v=2026.10.20.14"></script>
+  <script src="js/util.js?v=2026.10.21.1"></script>
+  <script src="js/schema.js?v=2026.10.21.1"></script>
+  <script src="js/storage.js?v=2026.10.21.1"></script>
+  <script src="js/refs.js?v=2026.10.21.1"></script>
+  <script src="js/records.js?v=2026.10.21.1"></script>
+  <script src="js/list.js?v=2026.10.21.1"></script>
+  <script src="js/form.js?v=2026.10.21.1"></script>
+  <script src="js/picker.js?v=2026.10.21.1"></script>
+  <script src="js/lists.js?v=2026.10.21.1"></script>
+  <script src="js/detail.js?v=2026.10.21.1"></script>
+  <script src="js/overview.js?v=2026.10.21.1"></script>
+  <script src="js/places.js?v=2026.10.21.1"></script>
+  <script src="js/config.js?v=2026.10.21.1"></script>
+  <script src="js/google.js?v=2026.10.21.1"></script>
+  <script src="js/sheet.js?v=2026.10.21.1"></script>
+  <script src="js/sync.js?v=2026.10.21.1"></script>
+  <script src="js/inbox.js?v=2026.10.21.1"></script>
+  <script src="js/app.js?v=2026.10.21.1"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

@@ -315,7 +315,8 @@
     }
   });
 
-  // ---------- 自動抄表：機器把張數寄到 Gmail，試算表上的小程式（apps-script/meter.gs）讀信寫進「抄表」 ----------
+  // ---------- 自動抄表：機器把張數寄到 Gmail，或客戶電腦上的抄表程式每天回報，試算表上的小程式（apps-script/meter.gs）寫進「抄表」 ----------
+  //   「說明」打開 index.html 的 #meter-help：兩種送法、抄表程式怎麼用、出問題時
   //   每個人貼在自己的試算表上：App 只能碰自己建立的檔案，沒辦法替使用者裝；按鈕直接複製程式，不會貼到舊版
   const meterEl = $('meter');
   let meterCode = null;
@@ -333,14 +334,15 @@
     const key = [st.linked, st.email, st.url, st.meterUrl].join('|');
     if (key === meterKey) return;
     meterKey = key;
+    const help = '<button type="button" class="link-btn" data-act="meter-help">說明</button>';
     if (!st.linked) {
-      meterEl.innerHTML = '<p class="note muted cloud-intro">連結 Google 帳號後才能設定。</p>';
+      meterEl.innerHTML = `<p class="note muted cloud-intro">連結 Google 帳號後才能設定。${help}</p>`;
       return;
     }
     loadMeterCode().catch(() => {});
     const ready = !!st.meterUrl;
     meterEl.innerHTML = `
-      <p class="note muted cloud-intro">機器每月把張數寄到你的 Gmail，試算表上的小程式每小時看一次信箱，寫進「抄表」。</p>
+      <p class="note muted cloud-intro">機器自己寄信，或客戶電腦上的抄表程式每天回報，試算表上的小程式寫進「抄表」。${help}</p>
       <details class="steps-box" ${ready ? '' : 'open'}>
         <summary>設定步驟（用電腦做）</summary>
         <ol class="steps muted">
@@ -348,7 +350,8 @@
           <li>「${st.url ? `<a class="link-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : '打開試算表'}」（右上角頭像要是 ${U.esc(st.email)}），選「擴充功能」→「Apps Script」</li>
           <li>刪掉裡面原本的內容，按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」貼上，存檔</li>
           <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
-          <li>要讓 App 打開、按「同步」時先讀信（第 3 步貼好、存檔後再做，部署會固定當下的程式）：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
+          <li>要讓 App 打開、按「同步」時先讀信，或用抄表程式（第 3 步貼好、存檔後再做，部署會固定當下的程式）：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
+          <li>用抄表程式的：試算表重新整理，上方「自動抄表」→「密語」，和讀信網址一起填進程式的「設定.txt」</li>
         </ol>
         <div class="field meter-url">
           <label for="meter-url">讀信網址</label>
@@ -394,11 +397,24 @@
   machine.querySelector('[data-act="close"]').addEventListener('click', () => machine.close());
   machine.addEventListener('click', e => { if (e.target === machine) machine.close(); }); // 點背景關閉
 
+  // 自動抄表說明（index.html 的 #meter-help）：裡面的「機器設定」疊在上面打開，返回後回到說明
+  const meterHelp = $('meter-help');
+  function openMeterHelp() {
+    meterHelp.showModal();
+    meterHelp.querySelector('.sheet-body').scrollTop = 0;
+  }
+  meterHelp.addEventListener('click', e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'close' || e.target === meterHelp) meterHelp.close();
+    else if (act === 'machine') openMachine();
+  });
+
   meterEl.addEventListener('click', async e => {
     const btn = e.target.closest('[data-act]');
     const act = btn?.dataset.act;
     if (act === 'save-meter-url') saveMeterUrl();
     else if (act === 'machine') openMachine();
+    else if (act === 'meter-help') openMeterHelp();
     else if (act === 'copy-meter') {
       try {
         await navigator.clipboard.writeText(await loadMeterCode());

@@ -12,6 +12,7 @@
 //   結算月份：抄表日期的上一個月（11/1 寄來的算 10 月的帳）；測試寄的空白（App 當作起點，不算帳）
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
+//   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「回報」，每月第一次順便算帳（見 doPost），要帶密語
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
@@ -28,8 +29,27 @@ function install() {
 }
 
 // 打開試算表時在上方加「自動抄表」選單：急著看的時候按「現在讀信」，不用等每小時那一次（只有電腦的瀏覽器看得到）
+//   「密語」：抄表腳本要填的密語
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('自動抄表').addItem('現在讀信', 'readNow').addToUi();
+  SpreadsheetApp.getUi().createMenu('自動抄表')
+    .addItem('現在讀信', 'readNow')
+    .addItem('密語', 'showKey')
+    .addToUi();
+}
+
+// 抄表腳本要用的密語：第一次看時產生一組，之後都是同一組；存在指令碼屬性，試算表裡看不到
+function showKey() {
+  const props = PropertiesService.getScriptProperties();
+  let key = props.getProperty('key');
+  if (!key) {
+    key = Utilities.getUuid().replace(/-/g, '').slice(0, 16).match(/.{4}/g).join('-');
+    props.setProperty('key', key);
+  }
+  const html = HtmlService.createHtmlOutput(
+    `<input value="${key}" readonly onclick="this.select()" style="font:18px monospace;width:100%;padding:8px;box-sizing:border-box">` +
+    '<p style="font:13px sans-serif;color:#555">點一下全選，複製到抄表腳本</p>'
+  ).setWidth(320).setHeight(110);
+  SpreadsheetApp.getUi().showModalDialog(html, '密語');
 }
 
 function readNow() {
@@ -45,7 +65,154 @@ function resultText_({ count, fixed }) {
 // App 同步前的讀信：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
 //   只回 { count: 寫了幾筆, fixed: 補了幾筆的設備, at: 讀完的時間 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify(checkMail())).setMimeType(ContentService.MimeType.JSON);
+  return json_(checkMail());
+}
+
+// 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, date: '2026-10-21', time: '08:30', test }] }
+//   客戶電腦上背景每天一次、客戶在視窗按「提交計數器」都送這個；密語對不上就不收
+//   回報：寫進「回報」分頁，一台一天一列（同一天再送的蓋過那一列）；沒有這個分頁時自己建
+//   算帳：每月 1 號以後第一次回報，在「抄表」寫一筆上個月的帳（備註「自動抄表（腳本）」），一台一個月一筆；
+//     上個月已經有帳的（不管是寄信、腳本還是手動抄的）不再寫；這個月已經有抄表的（例如月中安裝的起點）也不寫，下個月才開始算
+//   回 { results: [{ serial, device: 設備編號（對不到時空白）, bill: 'new' 寫了帳／'has' 已經有了／'later' 下個月才算, month: '2026/09' }] }，出錯回 { error }
+//   測試（test: true）照舊只在「抄表」寫一筆起點（結算月份空白，App 不算帳），備註「自動抄表（腳本測試）」，不寫回報
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const key = PropertiesService.getScriptProperties().getProperty('key');
+    if (!key) return json_({ error: '還沒有密語：試算表上方「自動抄表」→「密語」' });
+    if (body.key !== key) return json_({ error: '密語不對' });
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      return json_({ results: writePosted_(Array.isArray(body.readings) ? body.readings : []) });
+    } finally {
+      lock.releaseLock();
+    }
+  } catch (err) {
+    return json_({ error: String(err.message || err) });
+  }
+}
+
+function json_(data) {
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+}
+
+const REPORT = '回報';
+const REPORT_HEAD = ['日期', '時間', '序號', '設備', '主機板號碼', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
+const RECENT = 3000; // 找同一天的回報只看最後這幾列（一天最多一台一列，600 台也夠）
+
+function writePosted_(list) {
+  const { ss, readings, col, codeOf } = sheets_();
+  const tz = Session.getScriptTimeZone();
+  const now = Utilities.formatDate(new Date(), tz, 'yyyy-M-d-HH:mm').split('-');
+  const today = now.slice(0, 3).map(Number);
+  const books = books_(readings, col, tz);
+  let report = null;
+  return list.map(r => {
+    const serial = String(r.serial || '').trim();
+    const bw = Number(r.bw);
+    if (!serial || !Number.isInteger(bw) || bw < 0) return { serial, error: '沒有序號或黑白張數' };
+    const color = count_(r.color);
+    const d = String(r.date || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    const [y, m, day] = d ? d.slice(1).map(Number) : today;
+    const code = codeOf[serial.toUpperCase()] || '';
+    if (r.test === true) {
+      return { serial, device: append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: true, note: '自動抄表（腳本測試）' }) };
+    }
+    report = report || reportSheet_(ss);
+    const t = r.toner || {};
+    const time = /^\d{1,2}:\d{2}$/.test(String(r.time || '')) ? String(r.time) : now[3];
+    writeReport_(report, [serial_(y, m, day), time, serial, code, String(r.rnp || ''), bw, color, ...'KYMC'.split('').map(c => count_(t[c]))]);
+
+    const keys = [code, serial.toUpperCase()].filter(Boolean);
+    const month = lastMonth_(y, m);
+    const prev = ym_(month, tz);
+    const cur = `${y}-${String(m).padStart(2, '0')}`;
+    let bill = 'new';
+    if (keys.some(k => books.billed.has(`${k}|${prev}`))) bill = 'has';
+    else if (keys.some(k => books.dated.has(`${k}|${cur}`))) bill = 'later';
+    else {
+      append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: false, note: '自動抄表（腳本）' });
+      keys.forEach(k => { books.billed.add(`${k}|${prev}`); books.dated.add(`${k}|${cur}`); });
+    }
+    return { serial, device: code, bill, month, skipped: bill === 'has' };
+  });
+}
+
+// 0 以上的整數，其他（沒有這一項、碳粉讀不到時的負數）空白
+function count_(v) {
+  return Number.isInteger(v) && v >= 0 ? v : '';
+}
+
+// 「抄表」裡已經有的：billed＝「設備|結算月份」、dated＝「設備|抄表日期的年月」（不管是誰抄的、測試也算）
+//   設備用設備編號，對不到設備的用序號（備註裡寫的）；年月都寫成 2026-09
+function books_(sheet, col, tz) {
+  const billed = new Set();
+  const dated = new Set();
+  const last = sheet.getLastRow();
+  if (last < 2) return { billed, dated };
+  sheet.getRange(2, 1, last - 1, sheet.getLastColumn()).getValues().forEach(r => {
+    const m = String(r[col['備註']]).match(/序號 (\S+) 對不到設備/);
+    const keys = [String(r[col['設備']]).trim(), m ? m[1].toUpperCase() : ''].filter(Boolean);
+    const month = ym_(r[col['結算月份']], tz);
+    const date = ym_(r[col['抄表日期']], tz);
+    keys.forEach(k => {
+      if (month) billed.add(`${k}|${month}`);
+      if (date) dated.add(`${k}|${date}`);
+    });
+  });
+  return { billed, dated };
+}
+
+// 年月 → 2026-09：試算表的日期（Date）、日期序號（數字）、文字 2026/09、2026/09/01 都認得
+function ym_(v, tz) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM');
+  if (typeof v === 'number' && v > 0) {
+    const d = new Date(Date.UTC(1899, 11, 30) + v * 864e5);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+  const m = String(v).trim().match(/^(\d{4})[-/](\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+}
+
+// 「回報」分頁和它的欄位；沒有時建一個（App 不讀這個分頁，同步不會動到）
+function reportSheet_(ss) {
+  let sheet = ss.getSheetByName(REPORT);
+  if (!sheet) {
+    sheet = ss.insertSheet(REPORT);
+    sheet.getRange(1, 1, 1, REPORT_HEAD.length).setValues([REPORT_HEAD]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    sheet.getRange('A:A').setNumberFormat('yyyy/mm/dd');
+    sheet.getRange('B:C').setNumberFormat('@');
+  }
+  const head = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  const col = REPORT_HEAD.map(name => {
+    const i = head.indexOf(name);
+    if (i < 0) throw new Error(`「${REPORT}」分頁找不到「${name}」這一欄`);
+    return i;
+  });
+  return { sheet, col, width: head.length };
+}
+
+// 寫一列回報：同一台同一天已經有的蓋過去，沒有的加在最下面
+function writeReport_({ sheet, col, width }, values) {
+  const row = new Array(width).fill('');
+  values.forEach((v, i) => { row[col[i]] = v; });
+  const last = sheet.getLastRow();
+  let at = 0;
+  if (last >= 2) {
+    const from = Math.max(2, last - RECENT + 1);
+    const recent = sheet.getRange(from, 1, last - from + 1, width).getValues();
+    const i = recent.findIndex(r => sameDay_(r[col[0]], values[0]) && String(r[col[2]]).trim().toUpperCase() === values[2].toUpperCase());
+    if (i >= 0) at = from + i;
+  }
+  if (at) sheet.getRange(at, 1, 1, width).setValues([row]);
+  else sheet.appendRow(row);
+}
+
+function sameDay_(cell, serialDay) {
+  if (cell instanceof Date) return serial_(cell.getFullYear(), cell.getMonth() + 1, cell.getDate()) === serialDay;
+  return Number(cell) === serialDay;
 }
 
 // 先補上之前對不到的設備，再找最近 7 天的張數信，沒寫過的加在「抄表」最下面；回傳 { count, fixed, at }
@@ -60,13 +227,32 @@ function checkMail() {
   }
 }
 
-function readMail_() {
+// 「抄表」分頁、它的欄位、序號 → 設備編號
+function sheets_() {
   const ss = SpreadsheetApp.getActive();
   const readings = ss.getSheetByName('抄表');
   const devices = ss.getSheetByName('設備');
   if (!readings || !devices) throw new Error('找不到「抄表」或「設備」分頁：這支程式要裝在 App 建立的「設備管理」試算表上');
-  const col = columns_(readings);
-  const codeOf = serialMap_(devices);
+  return { ss, readings, col: columns_(readings), codeOf: serialMap_(devices) };
+}
+
+// 在「抄表」最下面加一列，回傳設備編號；對不到設備的空白、備註寫序號（之後 fillDevices_ 補上）
+function append_(sheet, col, codeOf, { serial, y, m, d, bw, color, test, note }) {
+  const code = codeOf[serial.toUpperCase()] || '';
+  const row = new Array(sheet.getLastColumn()).fill('');
+  row[col['設備']] = code;
+  row[col['抄表日期']] = serial_(y, m, d);
+  row[col['結算月份']] = test ? '' : lastMonth_(y, m);
+  row[col['黑白張數']] = bw;
+  row[col['彩色張數']] = color;
+  row[col['備註']] = [note, code ? '' : `序號 ${serial} 對不到設備`].filter(Boolean).join('；');
+  sheet.appendRow(row);
+  sheet.getRange(sheet.getLastRow(), col['抄表日期'] + 1).setNumberFormat('yyyy/mm/dd');
+  return code;
+}
+
+function readMail_() {
+  const { ss, readings, col, codeOf } = sheets_();
   const props = PropertiesService.getScriptProperties();
   const done = JSON.parse(props.getProperty('done') || '{}');
   const now = Date.now();
@@ -88,16 +274,8 @@ function readMail_() {
   for (const { msg, r, when } of mails) {
     const [y, m, d] = when;
     const test = msg.getSubject().includes('[TEST]');
-    const code = codeOf[r.serial.toUpperCase()] || '';
-    const row = new Array(readings.getLastColumn()).fill('');
-    row[col['設備']] = code;
-    row[col['抄表日期']] = serial_(y, m, d);
-    row[col['結算月份']] = test ? '' : lastMonth_(y, m);
-    row[col['黑白張數']] = r.bw;
-    row[col['彩色張數']] = r.color;
-    row[col['備註']] = [test ? '自動抄表（測試）' : '自動抄表', code ? '' : `序號 ${r.serial} 對不到設備`].filter(Boolean).join('；');
-    readings.appendRow(row);
-    readings.getRange(readings.getLastRow(), col['抄表日期'] + 1).setNumberFormat('yyyy/mm/dd');
+    const note = test ? '自動抄表（測試）' : '自動抄表';
+    append_(readings, col, codeOf, { serial: r.serial, y, m, d, bw: r.bw, color: r.color, test, note });
     // 每寫一封就記下來：中途出錯時，下次不會重複寫
     done[msg.getId()] = now;
     props.setProperty('done', JSON.stringify(done));
