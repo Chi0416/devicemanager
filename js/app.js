@@ -204,6 +204,29 @@
     toast('已匯出 data.json');
   });
 
+  // ---------- 以哪邊為主（匯入 data.json、連結 Google） ----------
+  //   瀏覽器的「確定／取消」看不出按了會怎樣：每個按鈕寫出選哪邊、會做什麼
+  //   options：[{ key, label, note }]；回傳選的 key，按 cancel 那顆、點背景、按 Esc 是 null
+  const chooser = $('choose-sheet');
+  let chosen = null;
+  function choose({ title, text = '', options, cancel = '取消' }) {
+    chooser.querySelector('.sheet-title').textContent = title;
+    chooser.querySelector('.choose-text').textContent = text;
+    chooser.querySelector('.choose-btns').innerHTML = [
+      ...options.map(o => `<button type="button" class="wide-btn choice" data-key="${U.esc(o.key)}">
+        <b>${U.esc(o.label)}</b>${o.note ? `<small>${U.esc(o.note)}</small>` : ''}</button>`),
+      `<button type="button" class="wide-btn" data-key="">${U.esc(cancel)}</button>`,
+    ].join('');
+    chosen = null;
+    chooser.showModal();
+    return new Promise(resolve => chooser.addEventListener('close', () => resolve(chosen), { once: true }));
+  }
+  chooser.addEventListener('click', e => {
+    const btn = e.target.closest('[data-key]');
+    if (btn) chosen = btn.dataset.key || null;
+    if (btn || e.target === chooser) chooser.close(); // 點背景關閉＝取消
+  });
+
   const fileInput = $('file-import');
   $('btn-import').addEventListener('click', () => fileInput.click());
 
@@ -225,18 +248,30 @@
       return;
     }
 
-    const lines = Object.entries(SCHEMAS).map(([k, s]) => `${s.title}：${Store.list(k).length} → ${parsed[k].length} 筆`);
-    // 連結了試算表時，同步會整份改寫試算表：其他裝置或試算表裡新增、還沒同步到這台的資料也會不見
-    const cloudNote = Sync.state().linked
-      ? '\n\nGoogle 試算表也會整份換成這個檔案的內容。其他裝置或試算表裡新增、還沒同步到這台的資料也會不見。' : '';
-    if (!confirm(`匯入「${file.name}」會取代目前所有資料。${cloudNote}\n\n${lines.join('\n')}\n\n確定匯入？`)) return;
+    // 連結了 Google 時選哪邊為主：以檔案為主會整份改寫試算表（其他裝置或試算表裡新增、還沒同步到這台的也會不見）；
+    //   以 Google 為主只加入檔案裡多的（見 records.js 的 fileOnly）
+    const linked = Sync.state().linked;
+    const extra = linked ? Records.fileOnly(parsed) : [];
+    const count = of => Object.keys(SCHEMAS).reduce((n, k) => n + of(k).length, 0);
+    const pick = await choose({
+      title: '匯入 data.json',
+      text: `「${file.name}」有 ${count(k => parsed[k])} 筆資料，這台目前有 ${count(k => Store.list(k))} 筆。`,
+      options: linked ? [
+        { key: 'file', label: '以檔案為主', note: '這台和 Google 都換成檔案的內容。Google 有、檔案沒有的會不見' },
+        { key: 'cloud', label: '以 Google 為主', note: `Google 的資料不動，只加入檔案裡 Google 沒有的（${extra.length} 筆）` },
+      ] : [
+        { key: 'file', label: '匯入', note: '這台的資料換成檔案的內容' },
+      ],
+    });
+    if (!pick) return;
 
-    Store.replaceAll(parsed);
+    if (pick === 'file') Store.replaceAll(parsed);
+    else Store.addAll(extra);
     Records.upgrade();
     Object.values(lists).forEach(l => l.reset());
     renderListsMenu();
     renderBackupInfo();
-    toast('匯入完成');
+    toast(pick === 'file' ? '匯入完成' : extra.length ? `已加入 ${extra.length} 筆` : '檔案裡沒有 Google 沒有的資料');
   });
 
   // ---------- Google 雲端硬碟（同步的流程見 sync.js） ----------
@@ -577,6 +612,7 @@
   // 試算表的資料讀回來之後，全部重畫
   Sync.init({
     toast,
+    choose,
     notify: Inbox.add,
     onData() {
       refreshAll();

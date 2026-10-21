@@ -1028,3 +1028,19 @@ test('紀錄卡片下面那一排：和設備卡片一樣小標題在上（位�
   assert.deepEqual(plain(Records.recordCells('moves', mv).map(c => c.label)), ['機型', '名稱']);
   assert.deepEqual(plain(Records.recordCells('contracts', { locations: '' })), [{ label: '位置', value: '沒有填位置', warn: true }]);
 });
+
+test('匯入 data.json、以 Google 為主：用 id 比對，只加這台沒有的；清單（狀態、選項）裡同名的不加', () => {
+  const { Store, Records, add } = app();
+  const s = Store.list('statuses')[0];
+  add('options', { list: '類別', name: '投影機' });
+  const parsed = Store.parseImport({
+    devices: [{ id: 'd1', name: '筆電' }],
+    statuses: [{ ...s, color: '紅' }, { id: 'x1', name: s.name }, { id: 'x2', name: '外借' }],
+    options: [{ id: 'x3', list: '類別', name: ' 投影機 ' }, { id: 'x4', list: '品牌', name: '投影機' }, { id: 'x5', list: '品牌', name: '投影機' }],
+  });
+  const extra = Records.fileOnly(parsed);
+  assert.deepEqual(plain(extra.map(o => `${o.table}:${o.rec.id}`)), ['devices:d1', 'statuses:x2', 'options:x4']);
+  Store.addAll(extra);
+  assert.equal(Store.get('statuses', s.id).color, s.color); // 同一個 id 的照這台的
+  assert.equal(Store.pendingCount(), 4); // 加進來的要寫回試算表（還有前面新增的投影機）
+});

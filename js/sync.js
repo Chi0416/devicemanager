@@ -1,5 +1,6 @@
 // 和 Google 試算表同步：試算表是正本，這台裝置上存的是副本
 //   連結：第一次登入時找這個 App 之前建立的試算表；沒有就建立一份，寫入這台裝置的資料
+//         兩邊都有資料時選以哪邊為主（以 Google 為主：這台換成試算表的；以這台為主：試算表整份換成這台的）
 //   同步：確認試算表還在（不見了就用這台裝置的資料重建）→ 讀回全部分頁 →
 //         以試算表的資料為主、疊上這台裝置還沒送出的修改 → 把修改寫回試算表
 //         寫回時用 id 找到那一列再改，不靠列號；在試算表裡手動輸入、沒有 id 的列會補上 id
@@ -58,7 +59,8 @@ const Sync = (() => {
   let loggingOut = false;
   let idleWaiters = []; // 等同步跑完的人（登出用）
   // notify：重要的事留在提醒（{ title, body }）；onLogout：登出、清掉資料之後（app.js 重新載入頁面）
-  let hooks = { onData() {}, onStatus() {}, toast() {}, notify() {}, onLogout() {} };
+  // choose：連結時選以哪邊為主（app.js 的小視窗），回傳選的 key 或 null（不連結）
+  let hooks = { onData() {}, onStatus() {}, toast() {}, notify() {}, onLogout() {}, choose: o => Promise.resolve(confirm(o.text) ? o.options[0].key : null) };
 
   function state() {
     return {
@@ -542,10 +544,14 @@ const Sync = (() => {
 
       // 雲端還沒有資料時，這台裝置的資料會寫過去：先確認是這個帳號（例如之前留著別人的資料）
       const localCount = Store.ownCount();
-      const upload = () => !localCount || confirm(`這台裝置上有 ${localCount} 筆資料，會存到 ${email} 的 Google 試算表。\n\n`
-        + '按「確定」：存過去並連結。\n按「取消」：先不連結。');
+      const upload = async () => !localCount || !!await hooks.choose({
+        title: '連結 Google',
+        text: `這台裝置上有 ${localCount} 筆資料，會存到 ${email} 的 Google 試算表。`,
+        options: [{ key: 'upload', label: '存到 Google 並連結' }],
+        cancel: '先不連結',
+      });
       if (!meta) {
-        if (!upload()) return;
+        if (!await upload()) return;
         meta = await createSpreadsheet(local);
         Store.clearAllPending();
       } else {
@@ -554,21 +560,32 @@ const Sync = (() => {
         ({ meterUrl, meterReadAt, toner } = parsed);
         const remoteCount = countRecords(parsed.data);
         if (!remoteCount) {
-          if (!upload()) return;
+          if (!await upload()) return;
           await writeAll(meta.id, local);
           Store.clearAllPending();
         } else {
-          if (localCount) {
-            const lines = TABLES.map(t => [t, countRecords({ [t]: parsed.data[t] })]).filter(([, n]) => n)
-              .map(([t, n]) => `${SCHEMAS[t].title} ${n} 筆`).join('、');
-            const ok = confirm(`你的 Google 雲端硬碟裡已經有一份「${NAME}」（${lines}）。\n\n`
-              + `按「確定」改用雲端的資料，這台裝置目前的 ${localCount} 筆資料會被取代（建議先匯出 data.json 備份）。\n`
-              + '按「取消」先不連結。');
-            if (!ok) return;
-            hooks.notify({ title: '已改用雲端的資料', body: `連結時雲端已經有資料（${lines}），這台裝置原本的 ${localCount} 筆資料被取代了。` });
+          // 兩邊都有資料：選以哪邊為主，另一邊整份換掉
+          const lines = TABLES.map(t => [t, countRecords({ [t]: parsed.data[t] })]).filter(([, n]) => n)
+            .map(([t, n]) => `${SCHEMAS[t].title} ${n} 筆`).join('、');
+          const pick = !localCount ? 'cloud' : await hooks.choose({
+            title: '連結 Google',
+            text: `你的 Google 雲端硬碟裡已經有一份「${NAME}」（${lines}）。\n這台裝置上也有 ${localCount} 筆資料。`,
+            options: [
+              { key: 'cloud', label: '以 Google 為主', note: `這台換成 Google 的資料，這台目前的 ${localCount} 筆會被取代（建議先匯出 data.json 備份）` },
+              { key: 'local', label: '以這台為主', note: 'Google 整份換成這台的資料，Google 上這台沒有的會不見' },
+            ],
+            cancel: '先不連結',
+          });
+          if (!pick) return;
+          if (pick === 'local') {
+            await writeAll(meta.id, local);
+            Store.clearAllPending();
+            hooks.notify({ title: '已改用這台的資料', body: `連結時雲端已經有資料（${lines}），已整份換成這台裝置的 ${localCount} 筆資料。` });
+          } else {
+            if (localCount) hooks.notify({ title: '已改用雲端的資料', body: `連結時雲端已經有資料（${lines}），這台裝置原本的 ${localCount} 筆資料被取代了。` });
+            Store.loadRemote(parsed.data);
+            hooks.onData();
           }
-          Store.loadRemote(parsed.data);
-          hooks.onData();
         }
       }
       cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt, toner };

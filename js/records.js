@@ -951,6 +951,24 @@ const Records = (() => {
     return [...out.values()];
   }
 
+  // 匯入 data.json、以 Google 為主時要加的：這台（和 Google 同一份）沒有的，用 id 比對
+  //   清單（狀態、選項、人員、廠商）已經有同名的不加：資料寫的是名字，同名的就是同一個
+  //   在 Google 刪掉、檔案裡還有的分不出來，會加回去；回傳 [{ table, rec }]
+  function fileOnly(parsed) {
+    const named = ['statuses', 'options', 'people', 'vendors'];
+    const out = [];
+    Object.keys(SCHEMAS).forEach(t => {
+      const have = Store.list(t);
+      (parsed[t] || []).forEach(rec => {
+        const same = r => r.id === rec.id
+          || (named.includes(t) && key(r.name) && key(r.name) === key(rec.name) && (t !== 'options' || r.list === rec.list));
+        if (have.some(same) || out.some(o => o.table === t && same(o.rec))) return;
+        out.push({ table: t, rec });
+      });
+    });
+    return out;
+  }
+
   // ---------- 位置換成編號、舊資料轉換 ----------
   // 新增一個位置（名字有「倉庫」的勾倉庫）
   function addPlace(name, more = {}) {
@@ -1014,6 +1032,6 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
-    partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade,
+    partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
   };
 })();

@@ -805,6 +805,12 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .delete-note { margin: 10px 2px 0; font-size: 13px; line-height: 1.6; color: var(--danger); }
 /* 以這筆為底新增（合約的「重新簽約」）和它的說明：改了位置、日期、計費方式時說明變橘色 */
 .wide-btn.copy { margin-top: 24px; color: var(--accent-text); }
+/* 以哪邊為主（見 app.js 的 choose）：按鈕上一行寫選哪邊，下面小字寫會做什麼 */
+.choose-text { margin: 0 2px 4px; line-height: 1.6; white-space: pre-line; }
+.wide-btn.choice { height: auto; min-height: 48px; padding: 10px 14px; text-align: left; }
+.choice b { display: block; color: var(--accent-text); font-weight: 600; }
+.choice small { display: block; margin-top: 2px; color: var(--text-2); font-size: 13px; font-weight: 400; line-height: 1.5; }
+.choose-btns .wide-btn:last-child { margin-top: 20px; }
 .copy-note { margin: 8px 2px 0; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .copy-note.warn { color: var(--warn); font-weight: 600; }
 /* 修改紀錄（合約）：日期在前，改了什麼在後 */

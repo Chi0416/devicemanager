@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.21.13">
+  <link rel="manifest" href="manifest.json?v=2026.10.21.14">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.21.13">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.21.14">
 </head>
 <body>
   <div class="app">
@@ -205,12 +205,12 @@
       <p id="last-export" class="muted"></p>
       <button id="btn-export" type="button" class="wide-btn primary">匯出 data.json</button>
       <button id="btn-import" type="button" class="wide-btn">匯入 data.json</button>
-      <p class="note muted">匯入會以檔案內容取代目前所有資料。</p>
+      <p class="note muted">連結 Google 時，匯入前可以選以檔案或以 Google 為主。</p>
       <input id="file-import" type="file" accept=".json,application/json" hidden>
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.21.13</p>
+      <p class="note muted">版本 2026.10.21.14</p>
     </div>
   </dialog>
 
@@ -347,26 +347,39 @@
     </div>
   </dialog>
 
+  <!-- 以哪邊為主：匯入 data.json、連結 Google 時選，每個按鈕寫出會做什麼（見 app.js 的 choose） -->
+  <dialog id="choose-sheet" class="sheet choose">
+    <div class="sheet-head">
+      <span></span>
+      <h2 class="sheet-title"></h2>
+      <span></span>
+    </div>
+    <div class="sheet-body">
+      <p class="choose-text"></p>
+      <div class="choose-btns"></div>
+    </div>
+  </dialog>
+
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.21.13"></script>
-  <script src="js/schema.js?v=2026.10.21.13"></script>
-  <script src="js/storage.js?v=2026.10.21.13"></script>
-  <script src="js/refs.js?v=2026.10.21.13"></script>
-  <script src="js/records.js?v=2026.10.21.13"></script>
-  <script src="js/list.js?v=2026.10.21.13"></script>
-  <script src="js/form.js?v=2026.10.21.13"></script>
-  <script src="js/picker.js?v=2026.10.21.13"></script>
-  <script src="js/lists.js?v=2026.10.21.13"></script>
-  <script src="js/detail.js?v=2026.10.21.13"></script>
-  <script src="js/overview.js?v=2026.10.21.13"></script>
-  <script src="js/places.js?v=2026.10.21.13"></script>
-  <script src="js/config.js?v=2026.10.21.13"></script>
-  <script src="js/google.js?v=2026.10.21.13"></script>
-  <script src="js/sheet.js?v=2026.10.21.13"></script>
-  <script src="js/sync.js?v=2026.10.21.13"></script>
-  <script src="js/inbox.js?v=2026.10.21.13"></script>
-  <script src="js/app.js?v=2026.10.21.13"></script>
+  <script src="js/util.js?v=2026.10.21.14"></script>
+  <script src="js/schema.js?v=2026.10.21.14"></script>
+  <script src="js/storage.js?v=2026.10.21.14"></script>
+  <script src="js/refs.js?v=2026.10.21.14"></script>
+  <script src="js/records.js?v=2026.10.21.14"></script>
+  <script src="js/list.js?v=2026.10.21.14"></script>
+  <script src="js/form.js?v=2026.10.21.14"></script>
+  <script src="js/picker.js?v=2026.10.21.14"></script>
+  <script src="js/lists.js?v=2026.10.21.14"></script>
+  <script src="js/detail.js?v=2026.10.21.14"></script>
+  <script src="js/overview.js?v=2026.10.21.14"></script>
+  <script src="js/places.js?v=2026.10.21.14"></script>
+  <script src="js/config.js?v=2026.10.21.14"></script>
+  <script src="js/google.js?v=2026.10.21.14"></script>
+  <script src="js/sheet.js?v=2026.10.21.14"></script>
+  <script src="js/sync.js?v=2026.10.21.14"></script>
+  <script src="js/inbox.js?v=2026.10.21.14"></script>
+  <script src="js/app.js?v=2026.10.21.14"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

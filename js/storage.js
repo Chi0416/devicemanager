@@ -173,6 +173,16 @@ const Store = (() => {
       sync = { pending: {}, v: 0, full: false };
     },
 
+    // 匯入 data.json、以 Google 為主：加入檔案裡這台沒有的（[{ table, rec }]，見 records.js 的 fileOnly），標成待同步
+    addAll(items) {
+      items.forEach(({ table, rec }) => {
+        data[table].push(rec);
+        mark(table, rec.id);
+      });
+      persist();
+      changed();
+    },
+
     replaceAll(parsed) {
       const lastExportAt = data.lastExportAt;
       data = normalize(parsed);

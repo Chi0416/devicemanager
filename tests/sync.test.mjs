@@ -215,6 +215,11 @@ function device(fake, { storage = {}, token = true, confirmAnswer = true, clock 
   const app = vm.runInContext('({ Store, Sync, Sheet, Refs, Records })', ctx);
   app.Sync.init({
     toast: (msg, kind) => toasts.push(kind ? `${kind}:${msg}` : msg),
+    // 以哪邊為主的小視窗：answer 是 true 選第一個、false 是不選（先不連結）、字串是選那一個
+    choose: o => {
+      asked.messages.push(o.text);
+      return Promise.resolve(asked.answer === true ? o.options[0].key : asked.answer || null);
+    },
     notify: m => { notes.push(m.title); inbox.push(m); },
     onLogout: () => { loggedOut.count++; },
   });
@@ -721,6 +726,30 @@ test('兩邊都有資料時先詢問；選「取消」就不連結', async () =>
   await yes.Sync.startLink();
   assert.equal(yes.Sync.state().linked, true);
   assert.deepEqual(plain(yes.Store.list('devices').map(r => r.code)), ['NB-001']); // 改用雲端的資料
+});
+
+test('兩邊都有資料時選「以這台為主」：試算表整份換成這台的資料', async () => {
+  const { fake, id } = await linked();
+  const other = device(fake, { confirmAnswer: 'local' });
+  other.Store.add('devices', PRINTER);
+  await other.Sync.startLink();
+  assert.equal(other.Sync.state().linked, true);
+  assert.deepEqual(fake.values(id, '設備').slice(1).map(r => r[COL.code]), ['PR-001']);
+  assert.deepEqual(plain(other.Store.list('devices').map(r => r.code)), ['PR-001']);
+  assert.equal(other.Sync.state().pending, 0);
+  assert.ok(other.notes.includes('已改用這台的資料'));
+});
+
+test('匯入 data.json、以 Google 為主：只加入試算表沒有的，試算表上原本的不動', async () => {
+  const { fake, d, id } = await linked();
+  const nb = d.Store.list('devices')[0];
+  const file = d.Store.parseImport({ devices: [{ ...nb, name: '舊名字' }, { ...PRINTER, id: 'p9' }] });
+  const extra = d.Records.fileOnly(file);
+  assert.deepEqual(plain(extra.map(e => e.rec.id)), ['p9']);
+  d.Store.addAll(extra);
+  await d.Sync.syncNow();
+  assert.deepEqual(fake.values(id, '設備').slice(1).map(r => r[COL.name]), ['會議室筆電', '印表機']);
+  assert.equal(d.Sync.state().pending, 0);
 });
 
 test('匯入 data.json 後整份重寫試算表', async () => {
