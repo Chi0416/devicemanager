@@ -387,8 +387,8 @@ const SCHEMAS = {
   //     安裝當天抄的是起點，結算月份可以空白（不算帳，只當下一次的上一次）
   readings: {
     title: '抄表',
-    // 結算月份空白的（安裝當天的起點）：照抄表日期排，標題寫「起點（不算帳）」
-    period: { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '起點（不算帳）' },
+    // 結算月份空白的（安裝當天的起點）：照抄表日期排，標題寫「結算月份空白」
+    period: { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' },
     card: { title: r => Records.countsText(r) || '抄表', grid: [] },
     note: r => Records.readingNote(r),
     describe: r => Records.describe('readings', r),

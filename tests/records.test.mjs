@@ -497,7 +497,7 @@ test('抄表的結算月份：自己選、不預設，空白是安裝當天的�
   assert.equal(f.note({ device: '25-0001', month: '2026-09', id: null }), '');  // 別台
   assert.equal(f.note({ device: '24-0001', month: '', id: null }), '空白＝起點，不算帳');
   assert.deepEqual(plain(SCHEMAS.readings.period),
-    { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '起點（不算帳）' });
+    { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' });
   assert.deepEqual(plain(Records.readingNote(r2)), { text: '2026/10/28 抄・本期 黑白 500', warn: false });
   assert.equal(Records.describe('readings', r1), '#1001 2026/09 抄表');
 });
