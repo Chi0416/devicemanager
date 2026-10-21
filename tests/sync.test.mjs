@@ -606,21 +606,21 @@ test('上次讀信的時間：試算表上的程式寫在 _meta 第 3 列，同�
 
 });
 
-test('碳粉：試算表上沒有「碳粉」分頁時不讀、也不建；程式建了以後，同步、連結時讀回來', async () => {
+test('最新回報：試算表上沒有「最新回報」分頁時不讀、也不建；程式建了以後，同步、連結時讀回來', async () => {
   const { fake, d, id } = await linked();
   await d.Sync.syncNow();
   assert.equal(d.Sync.state().toner, null);
-  assert.equal(fake.files[id].sheets.some(s => s.title === '碳粉'), false);
+  assert.equal(fake.files[id].sheets.some(s => s.title === '最新回報'), false);
 
-  fake.files[id].sheets.push({ sheetId: 500, title: '碳粉', grid: [
-    ['序號', '設備', '主機板號碼', '日期', '時間', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'],
-    ['313CM615862', '26-0001', '', 46316, '08:30', 80, 40, 60, 10],
+  fake.files[id].sheets.push({ sheetId: 500, title: '最新回報', grid: [
+    ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'],
+    ['313CM615862', '26-0001', '', 46316, '08:30', 123490, 2866, 80, 40, 60, 10],
   ] });
   await d.Sync.syncNow();
-  const row = { serial: '313CM615862', device: '26-0001', date: '2026-10-21', time: '08:30', K: 80, Y: 40, M: 60, C: 10 };
+  const row = { serial: '313CM615862', device: '26-0001', date: '2026-10-21', time: '08:30', bw: 123490, color: 2866, K: 80, Y: 40, M: 60, C: 10 };
   assert.deepEqual(plain(d.Sync.state().toner), [row]);
   assert.deepEqual(JSON.parse(d.ls['devmgr.cloud']).toner, [row]);
-  assert.equal(fake.values(id, '碳粉').length, 2);
+  assert.equal(fake.values(id, '最新回報').length, 2);
 
   const phone = device(fake);
   await phone.Sync.startLink();
@@ -761,9 +761,9 @@ test('匯入 data.json 後整份重寫試算表', async () => {
   assert.equal(d.Sync.state().pending, 0);
 });
 
-test('匯入 data.json 裡的碳粉（假資料）：同步後還在、匯出也有；匯入沒有碳粉的檔案就清掉', async () => {
+test('匯入 data.json 裡的最新回報（假資料）：同步後還在、匯出也有；匯入沒有最新回報的檔案就清掉', async () => {
   const { d } = await linked();
-  const row = { serial: '3101R800451', device: 'PR-001', date: '2026-10-21', time: '08:12', K: 70, Y: 50, M: 60, C: 40 };
+  const row = { serial: '3101R800451', device: 'PR-001', date: '2026-10-21', time: '08:12', bw: 45678, color: 1234, K: 70, Y: 50, M: 60, C: 40 };
   d.Store.replaceAll(d.Store.parseImport({ devices: [{ ...PRINTER, id: 'p9' }], toner: [row] }));
   await d.Sync.syncNow();
   assert.deepEqual(plain(d.Store.toner()), [row]);

@@ -10,7 +10,7 @@ const Store = (() => {
   let available = true;
 
   // 全新的資料；有 seed 的表（類別的預設項目）先放好
-  //   toner：匯入的 data.json 裡的碳粉（假資料用；連結 Google 時用試算表「碳粉」分頁的，見 sync.js）
+  //   toner：匯入的 data.json 裡的最新回報（假資料用；連結 Google 時用試算表「最新回報」分頁的，見 sync.js）
   function blank() {
     const d = { version: 1, lastExportAt: null, toner: null };
     TABLES.forEach(t => { d[t] = SCHEMAS[t].seed ? SCHEMAS[t].seed() : []; });

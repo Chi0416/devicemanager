@@ -32,7 +32,7 @@ const Sync = (() => {
   // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, toner } ----------
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
   //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；同步前叫它讀信時也直接回傳）
-  //   toner：「碳粉」分頁（抄表程式每台最新一次的回報，試算表上的程式寫的），同步時讀回來；沒有這個分頁時是 null
+  //   toner：「最新回報」分頁（抄表程式每台最新一次的張數、碳粉，試算表上的程式寫的），同步時讀回來；沒有這個分頁時是 null
   let cloud = null;
   try { cloud = JSON.parse(localStorage.getItem(CLOUD_KEY)); } catch (_) {}
 
@@ -182,7 +182,7 @@ const Sync = (() => {
     return meta;
   }
 
-  // 「碳粉」分頁是試算表上的程式建的：有這個分頁才讀（讀不存在的分頁整次會失敗）
+  // 「最新回報」分頁是試算表上的程式建的：有這個分頁才讀（讀不存在的分頁整次會失敗）
   async function pull(meta) {
     const titles = [...Sheet.readRanges(), Sheet.META.title, ...(meta.sheetIds[Sheet.TONER] === undefined ? [] : [Sheet.TONER])];
     const ranges = titles.map(t => `ranges=${enc(a1(t))}`).join('&');

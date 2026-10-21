@@ -1,9 +1,9 @@
-// 產生測試用的假資料（data.json 的格式）：30 台事務機和它們的位置、異動、合約、抄表、保養、翻新、選配件、碳粉
+// 產生測試用的假資料（data.json 的格式）：30 台事務機和它們的位置、異動、合約、抄表、保養、翻新、選配件、最新回報
 //   設備的名稱是機身號碼（#1001…），編號是系統給的（畫面上不顯示）
 //   位置存編號（L0001…）：一個位置放一台，公司倉庫是倉庫；合約綁位置（鼎泰國際 3F、4F、5F 是同一份合約）
 //   有幾台跟著客戶搬到新辦公室：新的位置另簽一份合約，舊的那份提前結束
 //   用法：node tools/make-demo.mjs > data-demo.json，再到 App 的設定 → 匯入 data.json
-//   每次產生的內容都一樣（固定的亂數種子）；日期以 2026-10-11 為準（碳粉回報的日期照產生那天）
+//   每次產生的內容都一樣（固定的亂數種子）；日期以 2026-10-11 為準（最新回報的日期照產生那天）
 //   data-demo.json 符合 .gitignore 的 data*.json，不會推上 GitHub
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -229,9 +229,10 @@ if (focus) {
   data.readings.push(rec('readings', { device: code, date: '2026-08-20', month: '', ...countsAt(t('2026-08-20')), note: '假資料（順便抄）' }));
 }
 
-// ---------- 碳粉：抄表程式回報的剩幾 %（試算表的「碳粉」分頁；沒連結 Google 時 App 用這份） ----------
+// ---------- 最新回報：抄表程式回報的張數、碳粉剩幾 %（試算表的「最新回報」分頁；沒連結 Google 時 App 用這份） ----------
 //   [設備編號, 幾天前回報, 時間, K, Y, M, C]；讀不到的是 null，黑白機只有 K
-//   日期照產生那天往回推（固定日期的話，過幾天全部變成「N 天沒回報」）
+//   張數：這台最後一次抄表的再多印一點（越久以前回報的多得越少），黑白機沒有彩色
+//   日期照產生那天往回推（固定日期的話，過幾天全部變成「N 天前」）
 const TONER = [
   ['26-0001', 0, '08:12', 70, 50, 60, 40], ['25-0001', 0, '08:20', 90, 80, 10, 70], ['25-0002', 0, '08:31', 20, 60, 50, 60],
   ['23-0001', 0, '08:05', 60, 30, 40, 50], ['24-0001', 1, '17:45', 40, 70, 70, 80], ['23-0002', 0, '07:58', 80, 90, 90, 90],
@@ -245,8 +246,11 @@ const TONER = [
 const NOW = iso(new Date(Date.now() - new Date().getTimezoneOffset() * 60000));
 data.toner = TONER.map(([device, ago, time, K, Y, M, C]) => {
   const d = data.devices.find(x => x.code === device);
-  if (!d) throw new Error(`碳粉：找不到設備 ${device}`);
-  return { serial: d.serial, device, date: addDays(NOW, -ago), time, K, Y, M, C };
+  if (!d) throw new Error(`最新回報：找不到設備 ${device}`);
+  const last = data.readings.filter(r => r.device === device).sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+  const bw = last ? Number(last.bw) + 1200 - ago * 60 : null;
+  const color = last && Y !== null ? Number(last.color || 0) + 300 - ago * 15 : null;
+  return { serial: d.serial, device, date: addDays(NOW, -ago), time, bw, color, K, Y, M, C };
 });
 
 // 合約修改紀錄：第一份合約的抄表日期打錯過

@@ -350,7 +350,7 @@
     }
   });
 
-  // ---------- 自動抄表：機器把張數寄到 Gmail，或客戶電腦上的抄表程式每天回報，試算表上的小程式（apps-script/meter.gs）寫進「抄表」 ----------
+  // ---------- 自動抄表：機器把張數寄到 Gmail，試算表上的小程式（apps-script/meter.gs）寫進「抄表」；客戶電腦上的抄表程式每天回報，寫進「最新回報」 ----------
   //   「說明」打開 index.html 的 #meter-help：兩種送法、抄表程式怎麼用、出問題時
   //   每個人貼在自己的試算表上：App 只能碰自己建立的檔案，沒辦法替使用者裝；按鈕直接複製程式，不會貼到舊版
   const meterEl = $('meter');
@@ -377,7 +377,7 @@
     loadMeterCode().catch(() => {});
     const ready = !!st.meterUrl;
     meterEl.innerHTML = `
-      <p class="note muted cloud-intro">機器自己寄信，或客戶電腦上的抄表程式每天回報，試算表上的小程式寫進「抄表」。${help}</p>
+      <p class="note muted cloud-intro">機器自己寄信，試算表上的小程式寫進「抄表」；客戶電腦上的抄表程式每天回報，寫進「最新回報」。${help}</p>
       <details class="steps-box" ${ready ? '' : 'open'}>
         <summary>設定步驟（用電腦做）</summary>
         <ol class="steps muted">

@@ -1,5 +1,5 @@
 // 詳情頁：設備詳情（Detail）、位置詳情（Place）共用 createDetail
-//   上面：資訊卡（設備下面接碳粉、耗材，位置下面接用量）；下面：一張表一列，寫最新的狀況和筆數
+//   上面：資訊卡（設備下面接最新回報、耗材，位置下面接用量）；下面：一張表一列，寫最新的狀況和筆數
 //     點一列打開那張表的頁面（只列這台設備、這個位置的紀錄，右上角新增）；右邊的「＋」直接新增
 //   右上角「編輯」打開那一筆的表單；那一筆被刪掉時這一頁跟著關
 //   設備：點設備卡片打開（見 app.js）；標題、資訊卡寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
@@ -165,21 +165,31 @@ const Detail = (() => {
         ${w ? `<span class="card-note${w.warn ? ' warn' : ''}">${U.esc(w.text)}</span>` : ''}
         ${p ? `<button type="button" class="detail-link" data-place="${U.esc(p.id)}"><small>位置</small><span>${U.esc(p.name)}</span><span class="go" aria-hidden="true">›</span></button>` : ''}
       </div>
-      ${tonerHTML(d)}
+      ${latestHTML(d)}
       ${consumablesHTML(d)}`;
   }
 
-  // 碳粉：抄表程式最新一次回報的（試算表的「碳粉」分頁，同步時讀回來，見 sync.js）；先用序號找，找不到再用設備編號
-  //   沒有碳粉分頁時用匯入的 data.json 裡的（假資料，見 tools/make-demo.mjs）
-  //   K Y M C 四格（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）；20% 以下紅字；百分比下面一條碳粉顏色的細條（讀不到的只有灰色底條）
-  //   右上角回報的時間，超過 3 天沒回報寫「N 天沒回報」灰字
-  //   沒回報過的也顯示：四格「—」、灰色底條，右上角「還沒有回報」
+  // 最新回報：抄表程式最新一次回報的張數、碳粉（試算表的「最新回報」分頁，同步時讀回來，見 sync.js）；先用序號找，找不到再用設備編號
+  //   沒有這個分頁時用匯入的 data.json 裡的（假資料，見 tools/make-demo.mjs）
+  //   右上角回報的日期時間和幾天前（今天、昨天、N 天前），抄表跟客戶確認日期時一眼看得出多舊；3 天內綠字，超過灰字
+  //   黑白、彩色張數兩格；K Y M C 四格（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）；20% 以下紅字；百分比下面一條碳粉顏色的細條（讀不到的只有灰色底條）
+  //   有張數時最下面一個「抄表」：打開抄表表單，帶入這台、回報的日期和張數，結算月份自己選
+  //   沒回報過的也顯示：張數、四格「—」、灰色底條，右上角「還沒有回報」
   const LOW = 20;
   const STALE = 3;
-  function tonerHTML(d) {
+  function latestOf(d) {
     const norm = v => Refs.norm(v);
     const list = Sync.state().toner || Store.toner() || [];
-    const t = (norm(d.serial) && list.find(x => norm(x.serial) === norm(d.serial))) || list.find(x => norm(x.device) === norm(d.code));
+    return (norm(d.serial) && list.find(x => norm(x.serial) === norm(d.serial))) || list.find(x => norm(x.device) === norm(d.code)) || null;
+  }
+  const daysAgo = t => (t?.date ? Math.round((Date.parse(U.today()) - Date.parse(t.date)) / 86400000) : null);
+  const agoText = n => (n <= 0 ? '今天' : n === 1 ? '昨天' : `${n} 天前`);
+  const whenText = t => `${U.fmtDate(t.date)} ${t.time}`.trim() + `・${agoText(daysAgo(t))}`;
+
+  function latestHTML(d) {
+    const t = latestOf(d);
+    const count = v => (v === null || v === undefined ? '<span class="muted">—</span>' : `<span>${U.fmtNum(v)}</span>`);
+    const counts = [['黑白', t?.bw], ['彩色', t?.color]].map(([label, v]) => `<span class="cell"><small>${label}</small>${count(v)}</span>`).join('');
     const colors = !t || ['Y', 'M', 'C'].some(c => t[c] !== null) ? ['K', 'Y', 'M', 'C'] : ['K'];
     const cells = colors.map(c => {
       const v = t ? t[c] : null;
@@ -187,13 +197,25 @@ const Detail = (() => {
       const bar = `<i class="toner-bar t-${c.toLowerCase()}" aria-hidden="true"><b style="width:${v ?? 0}%"></b></i>`;
       return `<span class="cell"><small>${c}</small><span class="${cls}">${v === null ? '—' : `${v}%`}</span>${bar}</span>`;
     }).join('');
-    const days = t?.date ? Math.round((Date.parse(U.today()) - Date.parse(t.date)) / 86400000) : null;
-    const when = !t ? '還沒有回報' : days === null ? '—' : days > STALE ? `${days} 天沒回報` : `${U.fmtDate(t.date)} ${t.time}`.trim();
+    const days = daysAgo(t);
+    const when = !t ? '還沒有回報' : days === null ? '—' : whenText(t);
+    const read = Number.isInteger(t?.bw) && t.date
+      ? `<button type="button" class="detail-link" data-read="${U.esc(d.id)}"><small>抄表</small><span>帶入這次的日期和張數</span><span class="go" aria-hidden="true">›</span></button>` : '';
     return `
       <div class="detail-card toner-card">
-        <span class="uc-head"><b>碳粉</b><span class="${days === null || days > STALE ? '' : 'fresh'}">${U.esc(when)}</span></span>
+        <span class="uc-head"><b>最新回報</b><span class="${days === null || days > STALE ? '' : 'fresh'}">${U.esc(when)}</span></span>
+        <span class="card-grid latest-counts">${counts}</span>
         <span class="card-grid toner-grid">${cells}</span>
+        ${read}
       </div>`;
+  }
+
+  // 「抄表」：日期、張數用回報的，結算月份空著自己選；日期跟客戶確認過不一樣時再改
+  function readFromLatest(d) {
+    const t = latestOf(d);
+    if (!t) return;
+    Form.open('readings', null, { device: d.code, date: t.date, bw: t.bw, color: t.color ?? '' },
+      { message: `已帶入最新回報（${whenText(t)}），結算月份自己選` });
   }
 
   // 耗材：這台的碳粉、感光鼓…，從裝進現在這個位置那天算（見 records.js 的 consumablesAt）；在倉庫、一格放好幾台的不算
@@ -253,6 +275,8 @@ const Detail = (() => {
     onInfoClick(e) {
       const link = e.target.closest('[data-place]');
       if (link) Place.open(link.dataset.place);
+      const read = e.target.closest('[data-read]');
+      if (read && Store.get('devices', read.dataset.read)) readFromLatest(Store.get('devices', read.dataset.read));
     },
     rows: [
       { key: 'moves', label: '位置', summary: locationRow, records: mine('moves'), preset: moveOf },

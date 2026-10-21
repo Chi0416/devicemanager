@@ -13,7 +13,7 @@
 //   備註「自動抄表 09:50」（測試的「自動抄表（測試）09:50」），時間是信裡寫的機器寄出時間；抄表日期欄只有日期
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
-//   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「回報」和「碳粉」，每月第一次順便算帳（見 doPost），要帶密語
+//   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「最新回報」，不算帳（見 doPost），要帶密語
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
@@ -71,12 +71,11 @@ function doGet() {
 
 // 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, date: '2026-10-21', time: '08:30', test }] }
 //   客戶電腦上背景每天一次、客戶在視窗按「提交計數器」都送這個；密語對不上就不收
-//   回報：寫進「回報」分頁，一台一天一列（同一天再送的蓋過那一列）；沒有這個分頁時自己建
-//   碳粉：寫進「碳粉」分頁，一台一列，只留最新一次（再送的蓋過那一列）；沒有這個分頁時自己建；App 同步時讀這個分頁（碳粉頁）
-//   算帳：每月 1 號以後第一次回報，在「抄表」寫一筆上個月的帳（備註「自動抄表（腳本）08:30」，時間是讀機器的時間），一台一個月一筆；
-//     上個月已經有帳的（不管是寄信、腳本還是手動抄的）不再寫；這個月已經有抄表的（例如月中安裝的起點）也不寫，下個月才開始算
-//   回 { results: [{ serial, device: 設備編號（對不到時空白）, bill: 'new' 寫了帳／'has' 已經有了／'later' 下個月才算, month: '2026/09' }] }，出錯回 { error }
-//   測試（test: true）照舊只在「抄表」寫一筆起點（結算月份空白，App 不算帳），備註「自動抄表（腳本測試）08:30」，不寫回報
+//   寫進「最新回報」分頁：一台一列，只留最新一次（再送的蓋過那一列），試算表不會越來越大；沒有這個分頁時自己建
+//     App 同步時讀這個分頁（設備詳情的最新回報卡），要抄表時從那裡帶入張數
+//   不寫「抄表」、不算帳；不留每天的紀錄（以前的「回報」「碳粉」分頁不再寫，可以刪掉）
+//   回 { results: [{ serial, device: 設備編號（對不到時空白） }] }，出錯回 { error }
+//   測試（test: true）照舊只在「抄表」寫一筆起點（結算月份空白，App 不算帳），備註「自動抄表（腳本測試）08:30」，不寫最新回報
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
@@ -99,20 +98,15 @@ function json_(data) {
   return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
 }
 
-const REPORT = '回報';
-const REPORT_HEAD = ['日期', '時間', '序號', '設備', '主機板號碼', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
-const RECENT = 3000; // 找同一天的回報只看最後這幾列（一天最多一台一列，600 台也夠）
-const TONER = '碳粉';
-const TONER_HEAD = ['序號', '設備', '主機板號碼', '日期', '時間', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
+const LATEST = '最新回報';
+const LATEST_HEAD = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
 
 function writePosted_(list) {
   const { ss, readings, col, codeOf } = sheets_();
   const tz = Session.getScriptTimeZone();
   const now = Utilities.formatDate(new Date(), tz, 'yyyy-M-d-HH:mm').split('-');
   const today = now.slice(0, 3).map(Number);
-  const books = books_(readings, col, tz);
-  let report = null;
-  let toner = null;
+  let latest = null;
   return list.map(r => {
     const serial = String(r.serial || '').trim();
     const bw = Number(r.bw);
@@ -125,24 +119,10 @@ function writePosted_(list) {
     if (r.test === true) {
       return { serial, device: append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: true, note: `自動抄表（腳本測試）${time}` }) };
     }
-    report = report || tab_(ss, REPORT, REPORT_HEAD, { 'A:A': 'yyyy/mm/dd', 'B:C': '@' });
-    toner = toner || tab_(ss, TONER, TONER_HEAD, { 'A:C': '@', 'D:D': 'yyyy/mm/dd', 'E:E': '@' });
+    latest = latest || tab_(ss, LATEST, LATEST_HEAD, { 'A:C': '@', 'D:D': 'yyyy/mm/dd', 'E:E': '@' });
     const t = 'KYMC'.split('').map(c => count_((r.toner || {})[c]));
-    writeReport_(report, [serial_(y, m, day), time, serial, code, String(r.rnp || ''), bw, color, ...t]);
-    writeToner_(toner, [serial, code, String(r.rnp || ''), serial_(y, m, day), time, ...t]);
-
-    const keys = [code, serial.toUpperCase()].filter(Boolean);
-    const month = lastMonth_(y, m);
-    const prev = ym_(month, tz);
-    const cur = `${y}-${String(m).padStart(2, '0')}`;
-    let bill = 'new';
-    if (keys.some(k => books.billed.has(`${k}|${prev}`))) bill = 'has';
-    else if (keys.some(k => books.dated.has(`${k}|${cur}`))) bill = 'later';
-    else {
-      append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: false, note: `自動抄表（腳本）${time}` });
-      keys.forEach(k => { books.billed.add(`${k}|${prev}`); books.dated.add(`${k}|${cur}`); });
-    }
-    return { serial, device: code, bill, month, skipped: bill === 'has' };
+    writeLatest_(latest, [serial, code, String(r.rnp || ''), serial_(y, m, day), time, bw, color, ...t]);
+    return { serial, device: code };
   });
 }
 
@@ -151,39 +131,8 @@ function count_(v) {
   return Number.isInteger(v) && v >= 0 ? v : '';
 }
 
-// 「抄表」裡已經有的：billed＝「設備|結算月份」、dated＝「設備|抄表日期的年月」（不管是誰抄的、測試也算）
-//   設備用設備編號，對不到設備的用序號（備註裡寫的）；年月都寫成 2026-09
-function books_(sheet, col, tz) {
-  const billed = new Set();
-  const dated = new Set();
-  const last = sheet.getLastRow();
-  if (last < 2) return { billed, dated };
-  sheet.getRange(2, 1, last - 1, sheet.getLastColumn()).getValues().forEach(r => {
-    const m = String(r[col['備註']]).match(/序號 (\S+) 對不到設備/);
-    const keys = [String(r[col['設備']]).trim(), m ? m[1].toUpperCase() : ''].filter(Boolean);
-    const month = ym_(r[col['結算月份']], tz);
-    const date = ym_(r[col['抄表日期']], tz);
-    keys.forEach(k => {
-      if (month) billed.add(`${k}|${month}`);
-      if (date) dated.add(`${k}|${date}`);
-    });
-  });
-  return { billed, dated };
-}
-
-// 年月 → 2026-09：試算表的日期（Date）、日期序號（數字）、文字 2026/09、2026/09/01 都認得
-function ym_(v, tz) {
-  if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM');
-  if (typeof v === 'number' && v > 0) {
-    const d = new Date(Date.UTC(1899, 11, 30) + v * 864e5);
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-  }
-  const m = String(v).trim().match(/^(\d{4})[-/](\d{1,2})/);
-  return m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
-}
-
-// 「回報」「碳粉」分頁和它的欄位；沒有時建一個，formats 是各欄的格式（{ 'A:A': 'yyyy/mm/dd' }）
-//   App 不讀「回報」；「碳粉」只讀不寫，同步都不會動到
+// 「最新回報」分頁和它的欄位；沒有時建一個，formats 是各欄的格式（{ 'A:A': 'yyyy/mm/dd' }）
+//   App 只讀不寫，同步不會動到
 function tab_(ss, name, heads, formats) {
   let sheet = ss.getSheetByName(name);
   if (!sheet) {
@@ -201,24 +150,8 @@ function tab_(ss, name, heads, formats) {
   return { sheet, col, width: head.length };
 }
 
-// 寫一列回報：同一台同一天已經有的蓋過去，沒有的加在最下面
-function writeReport_({ sheet, col, width }, values) {
-  const row = new Array(width).fill('');
-  values.forEach((v, i) => { row[col[i]] = v; });
-  const last = sheet.getLastRow();
-  let at = 0;
-  if (last >= 2) {
-    const from = Math.max(2, last - RECENT + 1);
-    const recent = sheet.getRange(from, 1, last - from + 1, width).getValues();
-    const i = recent.findIndex(r => sameDay_(r[col[0]], values[0]) && String(r[col[2]]).trim().toUpperCase() === values[2].toUpperCase());
-    if (i >= 0) at = from + i;
-  }
-  if (at) sheet.getRange(at, 1, 1, width).setValues([row]);
-  else sheet.appendRow(row);
-}
-
-// 寫一列碳粉：同一台（序號）已經有的蓋過去，沒有的加在最下面
-function writeToner_({ sheet, col, width }, values) {
+// 寫一列最新回報：同一台（序號）已經有的蓋過去，沒有的加在最下面
+function writeLatest_({ sheet, col, width }, values) {
   const row = new Array(width).fill('');
   values.forEach((v, i) => { row[col[i]] = v; });
   const last = sheet.getLastRow();
@@ -230,11 +163,6 @@ function writeToner_({ sheet, col, width }, values) {
   }
   if (at) sheet.getRange(at, 1, 1, width).setValues([row]);
   else sheet.appendRow(row);
-}
-
-function sameDay_(cell, serialDay) {
-  if (cell instanceof Date) return serial_(cell.getFullYear(), cell.getMonth() + 1, cell.getDate()) === serialDay;
-  return Number(cell) === serialDay;
 }
 
 // 先補上之前對不到的設備，再找最近 7 天的張數信，沒寫過的加在「抄表」最下面；回傳 { count, fixed, at }
