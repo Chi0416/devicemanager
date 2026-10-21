@@ -812,6 +812,37 @@ const Records = (() => {
       : `${head}\n到現在約 ${fmt(pages)} 張`;
   }
 
+  // ---------- 最新回報：抄表程式每台最新一次的張數、碳粉（設備卡片、設備詳情） ----------
+  //   連結 Google 時是試算表「最新回報」分頁讀回來的（見 sync.js）；沒有時用匯入的 data.json 裡的（假資料，見 tools/make-demo.mjs）
+  //   先用序號找，找不到再用設備編號
+  //   多久以前：3 天內綠字（fresh）、超過 30 天橘字（old，抄表程式可能停了），中間灰字
+  const TONER_LOW = 20; // 碳粉幾 % 以下紅字
+  const REPORT_FRESH = 3;
+  const REPORT_OLD = 30;
+  const reports = () => (typeof Sync !== 'undefined' && Sync.state().toner) || Store.toner() || [];
+  function latestReport(d, list = reports()) {
+    return (key(d.serial) && list.find(x => key(x.serial) === key(d.serial))) || list.find(x => key(x.device) === key(d.code)) || null;
+  }
+  const reportDays = t => (t?.date ? Math.round((Date.parse(U.today()) - Date.parse(t.date)) / 86400000) : null);
+  const agoText = n => (n <= 0 ? '今天' : n === 1 ? '昨天' : `${n} 天前`);
+  const reportTone = n => (n === null ? '' : n <= REPORT_FRESH ? 'fresh' : n > REPORT_OLD ? 'old' : '');
+  // 設備詳情右上角：2026/10/21 08:30・今天
+  const reportWhen = t => `${U.fmtDate(t.date)} ${t.time}`.trim() + `・${agoText(reportDays(t))}`;
+
+  // 設備卡片序號那一行的右邊（「出租中」下面）：{ text: '今天 08:30', tone, low: '碳粉 M 10%' }；沒回報過的 null
+  //   今天、昨天寫時間，再早的只寫 N 天前；有一色 20% 以下時 low 寫哪幾色（紅字）
+  function reportNote(d, list) {
+    const t = latestReport(d, list);
+    const n = reportDays(t);
+    if (n === null) return null;
+    const low = ['K', 'Y', 'M', 'C'].filter(c => typeof t[c] === 'number' && t[c] <= TONER_LOW).map(c => `${c} ${t[c]}%`);
+    return {
+      text: n <= 1 && t.time ? `${agoText(n)} ${t.time}` : agoText(n),
+      tone: reportTone(n),
+      low: low.length ? `碳粉 ${low.join('、')}` : '',
+    };
+  }
+
   // ---------- 保養、翻新 ----------
   // 保養卡片最下面一行：張數、備註的第一行
   function workNote(r) {
@@ -1031,6 +1062,7 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
+    TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
   };
 })();

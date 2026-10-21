@@ -152,6 +152,9 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     const st = statusOf(r);
     const tag = badge ? r[badge] && { label: r[badge], cls: tone(r[badge]) } : st;
     const note = schema.note ? schema.note(r) : null;
+    const sub = card.sub?.(r) || '';
+    const side = card.side?.(r);
+    const sideHTML = side ? `<span class="card-side ${side.tone}">${U.esc(side.text)}${side.low ? `・<span class="low">${U.esc(side.low)}</span>` : ''}</span>` : '';
     const dev = device ? device(r) : [];
     const devCells = dev.map(c => `<span class="cell"><small>${U.esc(c.label)}</small><span class="${c.warn ? 'warn' : ''}">${U.esc(c.value) || '—'}</span></span>`).join('');
     return `
@@ -162,7 +165,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
           ${tag ? `<span class="badge ${tag.cls}">${U.esc(tag.label)}</span>` : ''}
           ${pf ? `<span class="card-primary"><small>${cardLabel(pf)}</small><b>${show(pf, r[primary])}</b></span>` : ''}
         </span>
-        ${card.sub?.(r) ? `<span class="card-sub">${U.esc(card.sub(r))}</span>` : ''}
+        ${sideHTML ? `<span class="card-sub split"><span>${U.esc(sub)}</span>${sideHTML}</span>` : sub ? `<span class="card-sub">${U.esc(sub)}</span>` : ''}
         ${cells ? `<span class="card-grid">${cells}</span>` : ''}
         ${note ? `<span class="card-note${note.warn ? ' warn' : ''}">${U.esc(note.text)}</span>` : ''}
       </button>`;

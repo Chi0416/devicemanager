@@ -50,6 +50,7 @@
 //   （資料表）describe:  一筆資料的簡短說明（儲存後的提示、提醒裡用）：describe(列)；沒有時用 card 的編號、名稱、標籤
 //   （資料表）unit:      筆數的單位（「3 台設備」），被清單引用時的說明用
 //   （資料表）card:      列表卡片：code 灰色小字、title 名稱（可以是函式：title(列)）、sub(列) 名稱下面一行小字、badge 標籤、primary 右上角、
+//                       side(列) sub 那一行的右邊（標籤下面）：{ text, tone, low } 或 null，tone 是 fresh 綠字／old 橘字，low 接在後面的紅字
 //                       grid 卡片下方的欄位（沒有時列出其餘全部）
 //   （資料表）status:    沒有 badge 時的標籤：status(列) 回傳 { label, cls } 或 null（目前的合約、已拆除）
 //   （資料表）note:      卡片最下面的一行：note(列) 回傳 { text, warn } 或 null
@@ -235,7 +236,8 @@ const SCHEMAS = {
     searchText: r => Records.placeText(r.location),
     searchHint: '搜尋序號、名稱或位置',
     // 標題寫機型＋名稱（IMC6000 #1001），下面一行寫機器序號（查機器、印紀錄時最常用）
-    card: { title: r => Records.label(r), sub: r => (r.serial ? `序號 ${r.serial}` : ''), badge: 'status', grid: ['location', 'keeper'] },
+    //   序號那一行的右邊（狀態標籤下面）寫最新回報多久以前（今天 08:30、5 天前），碳粉 20% 以下接紅字；沒回報過的不寫（見 records.js 的 reportNote）
+    card: { title: r => Records.label(r), sub: r => (r.serial ? `序號 ${r.serial}` : ''), side: r => Records.reportNote(r), badge: 'status', grid: ['location', 'keeper'] },
     note: warrantyNote,
     describe: r => Records.label(r),
     unique: [['code'], ['board']],

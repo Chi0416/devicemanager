@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.21.18">
+  <link rel="manifest" href="manifest.json?v=2026.10.21.19">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.21.18">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.21.19">
 </head>
 <body>
   <div class="app">
@@ -210,7 +210,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.21.18</p>
+      <p class="note muted">版本 2026.10.21.19</p>
     </div>
   </dialog>
 
@@ -295,6 +295,7 @@
         <li><span class="member-info"><b>每天</b><small>背景回報一次張數和碳粉，存在試算表的「最新回報」分頁，一台一列，只留最新一次</small></span></li>
         <li><span class="member-info"><b>提交計數器</b><small>客戶按了就馬上回報一次</small></span></li>
         <li><span class="member-info"><b>抄表</b><small>設備詳情的「最新回報」寫張數和幾天前，按「抄表」帶入日期和張數，結算月份自己選</small></span></li>
+        <li><span class="member-info"><b>設備清單</b><small>序號右邊寫多久以前回報，超過 30 天橘字</small></span></li>
       </ul>
       <p class="machine-path">燈號</p>
       <ul class="member-list kv">
@@ -361,24 +362,24 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.21.18"></script>
-  <script src="js/schema.js?v=2026.10.21.18"></script>
-  <script src="js/storage.js?v=2026.10.21.18"></script>
-  <script src="js/refs.js?v=2026.10.21.18"></script>
-  <script src="js/records.js?v=2026.10.21.18"></script>
-  <script src="js/list.js?v=2026.10.21.18"></script>
-  <script src="js/form.js?v=2026.10.21.18"></script>
-  <script src="js/picker.js?v=2026.10.21.18"></script>
-  <script src="js/lists.js?v=2026.10.21.18"></script>
-  <script src="js/detail.js?v=2026.10.21.18"></script>
-  <script src="js/overview.js?v=2026.10.21.18"></script>
-  <script src="js/places.js?v=2026.10.21.18"></script>
-  <script src="js/config.js?v=2026.10.21.18"></script>
-  <script src="js/google.js?v=2026.10.21.18"></script>
-  <script src="js/sheet.js?v=2026.10.21.18"></script>
-  <script src="js/sync.js?v=2026.10.21.18"></script>
-  <script src="js/inbox.js?v=2026.10.21.18"></script>
-  <script src="js/app.js?v=2026.10.21.18"></script>
+  <script src="js/util.js?v=2026.10.21.19"></script>
+  <script src="js/schema.js?v=2026.10.21.19"></script>
+  <script src="js/storage.js?v=2026.10.21.19"></script>
+  <script src="js/refs.js?v=2026.10.21.19"></script>
+  <script src="js/records.js?v=2026.10.21.19"></script>
+  <script src="js/list.js?v=2026.10.21.19"></script>
+  <script src="js/form.js?v=2026.10.21.19"></script>
+  <script src="js/picker.js?v=2026.10.21.19"></script>
+  <script src="js/lists.js?v=2026.10.21.19"></script>
+  <script src="js/detail.js?v=2026.10.21.19"></script>
+  <script src="js/overview.js?v=2026.10.21.19"></script>
+  <script src="js/places.js?v=2026.10.21.19"></script>
+  <script src="js/config.js?v=2026.10.21.19"></script>
+  <script src="js/google.js?v=2026.10.21.19"></script>
+  <script src="js/sheet.js?v=2026.10.21.19"></script>
+  <script src="js/sync.js?v=2026.10.21.19"></script>
+  <script src="js/inbox.js?v=2026.10.21.19"></script>
+  <script src="js/app.js?v=2026.10.21.19"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>
