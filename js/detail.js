@@ -6,7 +6,7 @@
 //   設備：點設備卡片打開（見 app.js）；標題、資訊卡寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
 //     在這裡新增紀錄時自動帶入這台設備；合約是它現在所在位置的，新增時帶入這個位置
 //   位置：位置頁點一張卡片打開（見 places.js）；標題寫位置名稱；資訊卡上點現在放著的機器打開設備詳情
-//     異動：這裡放過哪些機器，一台待過一段一張卡片（那一列寫現在放著哪台、右邊寫幾段）；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
+//     異動：這裡放過哪些機器，一台待過一段一張卡片（那一列寫最近一次進出、右邊寫幾段）；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
 //     新增抄表、保養、翻新時，這裡只放著一台的話帶入那一台
 function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = () => {} }) {
   const titleEl = dlg.querySelector('.sheet-title');
@@ -112,7 +112,8 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
   return { init, open: show, changed, refresh: () => changed(null, null) };
 }
 
-// 兩個詳情共用的列：合約（目前的合約到期日、合約內容第一行）、保養和翻新（最近一次那天做了什麼）
+// 兩個詳情共用的列：合約（目前的合約到期日、合約內容第一行）、抄表（最近一次哪天抄、哪個月的帳）、保養和翻新（最近一次那天做了什麼）
+//   粗體那行有日期時，日期寫在最前面，不加括號
 const DetailRows = {
   // c：目前的合約；all：這個位置所有的合約（提前結束、到期之後沒有新的，寫最後那一份怎麼結束的）
   contract(c, all = []) {
@@ -126,8 +127,8 @@ const DetailRows = {
     const r = [...list].sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')) || String(a.id).localeCompare(String(b.id))).at(-1);
     if (!r) return { main: '還沒有抄表' };
     const use = Records.readingUse(r);
-    const main = r.month ? `${U.fmtMonth(r.month)} 帳（${U.fmtDate(r.date)} 抄）` : U.fmtDate(r.date);
-    return { main, sub: use?.text || '', warn: !!use?.warn };
+    const sub = [r.month && `${U.fmtMonth(r.month)} 帳`, use?.text].filter(Boolean).join('・');
+    return { main: `${U.fmtDate(r.date)} 抄表`.trim(), sub, warn: !!use?.warn };
   },
 
   // 同一趟換了好幾樣，全部列出來
@@ -367,13 +368,15 @@ const Place = (() => {
       </div>`;
   }
 
-  // 異動那一列：現在放著哪台、最近一次進出
-  function machineRow(p) {
-    const on = Records.machinesAt(p.code);
+  // 異動那一列：最近一次進出（日期 類型 機器），下面寫從哪裡來（進來的）、到哪裡去（離開的）
+  function moveRow(p) {
     const m = Records.lastMoveAt(p.code);
+    if (!m) return { main: '還沒有異動' };
+    const came = Refs.norm(m.to) === Refs.norm(p.code);
+    const other = Records.placeName(came ? m.from : m.to);
     return {
-      main: on.length > 1 ? `${on.length} 台` : on.length ? Records.label(on[0]) : '現在沒有機器',
-      sub: m ? `${U.fmtDate(m.date)} ${m.type} ${Records.label(Records.device(m.device))}`.trim() : '',
+      main: `${U.fmtDate(m.date)} ${m.type || ''} ${Records.label(Records.device(m.device))}`.replace(/\s+/g, ' ').trim(),
+      sub: other ? `${came ? '從' : '到'}${other}` : '',
     };
   }
 
@@ -448,7 +451,7 @@ const Place = (() => {
       }
     },
     rows: [
-      { key: 'moves', label: '異動', summary: machineRow, records: p => Records.staysAt(p.code), preset: moveHere, view: staysView },
+      { key: 'moves', label: '異動', summary: moveRow, records: p => Records.staysAt(p.code), preset: moveHere, view: staysView },
       { key: 'contracts', label: '合約', summary: p => DetailRows.contract(Records.currentContract(p.code), Records.contractsAt(p.code)),
         records: p => Records.contractsAt(p.code), preset: p => ({ locations: p.code }) },
       { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, device: machine },

@@ -408,8 +408,8 @@ test('合約綁位置：一個位置目前的合約是簽約日最新的那一�
   assert.equal(Records.currentContract(WH), null);
   assert.equal(Records.isCurrentContract(old), false);
   assert.equal(Records.isCurrentContract(now), true);
-  assert.deepEqual(plain(Records.contractNote(now)), { text: '剩 19 天到期（2026/10/30）・抄表 每月 25 日', warn: true });
-  assert.deepEqual(plain(Records.contractNote(old)), { text: '到期 2025/12/31', warn: false });
+  assert.deepEqual(plain(Records.contractNote(now)), { text: '2026/10/30 到期・剩 19 天・抄表 每月 25 日', warn: true });
+  assert.deepEqual(plain(Records.contractNote(old)), { text: '2025/12/31 到期', warn: false });
   assert.equal(SCHEMAS.contracts.card.title(now), '月租 3,000');
   assert.deepEqual(plain(Records.contractsAt(DH).map(c => c.id)), [old.id, now.id]);
   // 機器：放在大華就是大華的合約；故障換機，新的那台放進大華，直接是同一份
@@ -429,13 +429,13 @@ test('合約綁位置：一個位置目前的合約是簽約日最新的那一�
 test('合約：目前的合約已經過了到期日；提前結束了就沒有目前的合約', () => {
   const { Records, add } = withDevices();
   const c = add('contracts', { locations: DH, signDate: '2025-01-01', endDate: '2026-09-30' });
-  assert.deepEqual(plain(Records.endText(c)), { text: '已到期（2026/09/30）', warn: true });
+  assert.deepEqual(plain(Records.endText(c)), { text: '2026/09/30 已到期', warn: true });
   const early = add('contracts', { locations: AX, signDate: '2025-01-01', endDate: '2027-12-31', earlyEnd: '2026-06-30' });
   assert.equal(Records.currentContract(AX), null);
-  assert.deepEqual(plain(Records.endText(early)), { text: '已提前結束（2026/06/30）', warn: false });
+  assert.deepEqual(plain(Records.endText(early)), { text: '2026/06/30 已提前結束', warn: false });
   const later = add('contracts', { locations: WH, signDate: '2025-01-01', endDate: '2027-12-31', earlyEnd: '2026-12-31' });
   assert.equal(Records.currentContract(WH).id, later.id); // 還沒到提前結束那天
-  assert.deepEqual(plain(Records.endText(later)), { text: '提前結束（2026/12/31）', warn: false });
+  assert.deepEqual(plain(Records.endText(later)), { text: '2026/12/31 提前結束', warn: false });
 });
 
 test('合約：「重新簽約」新增一份，帶入位置、內容、計費方式、抄表日期；改了什麼記在修改紀錄，刪掉合約時一起刪', () => {

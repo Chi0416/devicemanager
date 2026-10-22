@@ -426,15 +426,16 @@ const Records = (() => {
   const isCurrentContract = r => placesOf(r).some(p => currentContract(p)?.id === r.id);
 
   // 到期日：目前的合約已經到期或快到期時標色；舊的合約只寫日期；提前結束的寫提前結束日
+  //   日期寫在最前面，不加括號（2026/10/30 到期・剩 19 天）
   function endText(r) {
-    if (r.earlyEnd) return { text: `${endedEarly(r) ? '已提前結束' : '提前結束'}（${U.fmtDate(r.earlyEnd)}）`, warn: false };
+    if (r.earlyEnd) return { text: `${U.fmtDate(r.earlyEnd)} ${endedEarly(r) ? '已提前結束' : '提前結束'}`, warn: false };
     if (!r.endDate) return null;
     const days = daysTo(r.endDate);
     const date = U.fmtDate(r.endDate);
-    if (!isCurrentContract(r)) return { text: `到期 ${date}`, warn: false };
-    if (days < 0) return { text: `已到期（${date}）`, warn: true };
-    if (days <= CONTRACT_SOON) return { text: days ? `剩 ${days} 天到期（${date}）` : `今天到期（${date}）`, warn: true };
-    return { text: `到期 ${date}`, warn: false };
+    if (!isCurrentContract(r)) return { text: `${date} 到期`, warn: false };
+    if (days < 0) return { text: `${date} 已到期`, warn: true };
+    if (days <= CONTRACT_SOON) return { text: days ? `${date} 到期・剩 ${days} 天` : `${date} 今天到期`, warn: true };
+    return { text: `${date} 到期`, warn: false };
   }
 
   function contractNote(r) {
