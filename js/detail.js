@@ -368,15 +368,14 @@ const Place = (() => {
       </div>`;
   }
 
-  // 異動那一列：最近一次進出（日期 類型 機器），下面寫從哪裡來（進來的）、到哪裡去（離開的）
+  // 異動那一列：最近一次進出的機器，下面寫日期、類型（跟設備詳情的位置那一列一樣）；離開的接到哪裡去（2026/04/21 移機到 XX）
   function moveRow(p) {
     const m = Records.lastMoveAt(p.code);
     if (!m) return { main: '還沒有異動' };
-    const came = Refs.norm(m.to) === Refs.norm(p.code);
-    const other = Records.placeName(came ? m.from : m.to);
+    const left = Refs.norm(m.to) !== Refs.norm(p.code) && Records.placeName(m.to);
     return {
-      main: `${U.fmtDate(m.date)} ${m.type || ''} ${Records.label(Records.device(m.device))}`.replace(/\s+/g, ' ').trim(),
-      sub: other ? `${came ? '從' : '到'}${other}` : '',
+      main: Records.label(Records.device(m.device)) || m.device,
+      sub: `${U.fmtDate(m.date)} ${m.type || ''}${left ? `到${left}` : ''}`.trim(),
     };
   }
 
