@@ -381,8 +381,8 @@ const Place = (() => {
   }
 
   // 異動那一頁：這裡放過哪些機器，一台待過一段一張卡片（見 records.js 的 staysAt），現在放著的在最上面
-  //   卡片：機型＋名稱（現在放著的接「現在」）、哪天到哪天待了多久；下面「進來」「離開」兩行寫類型、從哪裡來、到哪裡去、備註第一行
-  //   點「進來」「離開」那一行打開那筆異動；開始記異動之前就在這裡的，進來寫「沒有紀錄」
+  //   卡片：機型＋名稱，右邊待了多久；下面左右兩格「進來」「離開」：小標題旁邊寫日期，下面寫類型、從哪裡來／到哪裡去、備註第一行
+  //   點一格打開那筆異動；開始記異動之前就在這裡的，進來寫「沒有紀錄」；還在這裡的，離開寫「還在這裡」（綠字）
   function staysView({ rows, openForm }) {
     const el = document.createElement('section');
     el.className = 'panel';
@@ -396,31 +396,27 @@ const Place = (() => {
     });
 
     const where = (m, dir, p) => [m.type, Records.placeName(p) && `${dir}${Records.placeName(p)}`].filter(Boolean).join('，') || '異動';
-    const line = (label, m, text) => `
-      <button type="button" class="detail-link" data-move="${U.esc(m.id)}">
-        <small>${label}</small>
-        <span>${U.esc(text)}${Records.firstLine(m.note) ? `<span class="stay-note">${U.esc(Records.firstLine(m.note))}</span>` : ''}</span>
-        <span class="go" aria-hidden="true">›</span>
+    const cell = (label, m, text) => `
+      <button type="button" class="stay-cell" data-move="${U.esc(m.id)}">
+        <small>${label} ${U.esc(U.fmtDate(m.date))}</small>
+        <b>${U.esc(text)}<span class="go" aria-hidden="true">›</span></b>
+        ${Records.firstLine(m.note) ? `<span class="stay-note">${U.esc(Records.firstLine(m.note))}</span>` : ''}
       </button>`;
+    const plain = (label, text, cls) => `<span class="stay-cell ${cls}"><small>${label}</small><b>${text}</b></span>`;
     function cardHTML(s) {
-      const now = !s.out;
       const d = Records.device(s.device);
-      const range = s.in
-        ? `${U.fmtDate(s.in.date)} → ${now ? '現在' : U.fmtDate(s.out.date)}（${Records.spanText(s.in.date, now ? U.today() : s.out.date)}）`
-        : now ? '' : `到 ${U.fmtDate(s.out.date)}`;
-      const lines = !s.in && !s.out ? '<span class="card-note">沒有異動紀錄</span>' : [
-        s.in ? line('進來', s.in, where(s.in, '從', s.in.from)) : '<span class="detail-link none"><small>進來</small><span>沒有紀錄</span></span>',
-        s.out ? line('離開', s.out, where(s.out, '到', s.out.to)) : '',
-      ].join('');
+      const span = s.in ? Records.spanText(s.in.date, s.out ? s.out.date : U.today()) : '';
       const flash = flashId && [s.in?.id, s.out?.id].includes(flashId);
       return `
         <div class="card stay-card${flash ? ' flash' : ''}">
           <span class="card-top">
             <span class="card-title">${U.esc(Records.label(d) || s.device)}</span>
-            ${now ? '<span class="badge green">現在</span>' : ''}
+            ${span ? `<span class="card-side">${U.esc(span)}</span>` : ''}
           </span>
-          ${range ? `<span class="card-sub">${U.esc(range)}</span>` : ''}
-          ${lines}
+          <span class="stay-grid">
+            ${s.in ? cell('進來', s.in, where(s.in, '從', s.in.from)) : plain('進來', '沒有紀錄', 'none')}
+            ${s.out ? cell('離開', s.out, where(s.out, '到', s.out.to)) : plain('離開', '還在這裡', 'now')}
+          </span>
         </div>`;
     }
 
