@@ -1096,7 +1096,7 @@ test('在試算表裡改了合約：記在合約修改紀錄，同一次寫回�
   });
   await d.Sync.syncNow();
   assert.equal(d.Store.list('contractLog').length, 0);
-  // 合約的欄：位置、簽約日、到期日、提前結束日、合約內容、計費方式、抄表日期、id
+  // 合約的欄：位置、簽約日、到期日、提前結束日、合約內容、計費方式、抄表日期、抄表週期、id
   fake.setCell(id, '合約', 2, 6, '每月 5 號');
   await d.Sync.syncNow();
   assert.equal(d.Store.get('contracts', c.id).readDay, '每月 5 號');

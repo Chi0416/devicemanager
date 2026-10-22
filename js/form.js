@@ -191,9 +191,10 @@ const Form = (() => {
         const opts = f.toggle || f.choices.map(c => ({ value: c, label: c, tone: '' }));
         const seg = document.createElement('div');
         seg.className = `seg toggle${f.type === 'multi' ? ' multi' : ''}`;
-        // 選項多的（選項的清單有 6 份）排成兩排，一排 3 個
-        seg.style.gridTemplateColumns = `repeat(${opts.length > 4 ? 3 : opts.length}, 1fr)`;
-        if (opts.length > 4) seg.classList.add('rows');
+        // 選項多的排成兩排，一排 3 個（選項的清單、狀態的顏色）；5 個都是兩個字以內的放一排（抄表週期）
+        const rows = opts.length > 5 || (opts.length > 4 && opts.some(o => String(o.label).length > 2));
+        seg.style.gridTemplateColumns = `repeat(${rows ? 3 : opts.length}, 1fr)`;
+        if (rows) seg.classList.add('rows');
         seg.setAttribute('role', 'group');
         seg.setAttribute('aria-label', f.label);
         seg.innerHTML = opts.map(o => `<button type="button" class="${U.esc(o.tone || 'plain')}" data-${f.type === 'multi' ? 'multi' : 'toggle'}="${i}"` +

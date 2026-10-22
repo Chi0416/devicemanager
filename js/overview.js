@@ -1,7 +1,8 @@
 // 總覽：最上面寫共幾台、幾種機型；下面是狀態方塊、要處理、各機型有幾台（計算見 records.js）
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
-//   要處理：合約到期、快到期，保固 30 天內到期，耗材快到了（預估 14 天內），空著的位置；依資料算，處理掉就自己不見，沒有的那一列不列
-//     合約、保固：點一列打開那份清單（#todo-sheet），點一項打開那份合約、那台設備；空著的位置：到位置頁、篩好空著的（onPlaces）
+//   要處理：合約到期、快到期，保固 30 天內到期，耗材快到了（預估 14 天內），該抄表了，回報停了（超過 7 天），空著的位置；
+//     依資料算，處理掉就自己不見，沒有的那一列不列
+//     合約、保固…：點一列打開那份清單（#todo-sheet），點一項打開那份合約、那台設備；空著的位置：到位置頁、篩好空著的（onPlaces）
 //   機型：依世代分組（機型清單的「世代」，空白時照型號猜），標題寫「IM C 系列」和小計，下面一條線；組裡一行一個、照機型清單的順序，細長條是台數
 //     點一個到設備頁，篩好狀態和機型（onPick，見 app.js）
 function createOverview({ onPick, onPlaces }) {
@@ -27,7 +28,11 @@ function createOverview({ onPick, onPlaces }) {
     shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/>',
     pin: '<path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.4"/>',
     drop: '<path d="M12 3.5s6 6.4 6 10.8a6 6 0 0 1-12 0C6 9.9 12 3.5 12 3.5z"/>',
+    meter: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+    signal: '<path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.2" r="1"/><path d="M4 4l16 16"/>',
   };
+  // 結算月份：今年的寫「9 月」，其他年寫「2025/12 月」
+  const monthText = m => `${m.slice(0, 4) === U.today().slice(0, 4) ? '' : `${m.slice(0, 4)}/`}${Number(m.slice(5, 7))} 月`;
   const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
   // 要處理的每一種：list 算出來的資料；summary 總覽那一列的小字；row 清單裡一項的大字、小字；open 點了打開什麼
@@ -58,6 +63,20 @@ function createOverview({ onPick, onPlaces }) {
         return `預估 14 天內・${[...by].map(([k, v]) => `${k} ${v}`).join('、')}`;
       },
       row: x => ({ title: `${x.place.name} · ${x.item}`, sub: [Records.label(x.device), x.over ? '已經超過了' : `預估 ${Records.etaText(x.eta)}`].join('・') }),
+      open: x => Detail.open(x.device.id),
+    },
+    {
+      key: 'readings', title: '該抄表了', icon: 'meter', tone: 'warn',
+      list: () => Records.readingsDue(),
+      summary: () => '照合約的抄表週期，過了 10 天還沒抄',
+      row: x => ({ title: `${x.place.name} · ${Records.label(x.device)}`, sub: [x.last ? `上次 ${monthText(x.last)}` : '還沒抄過', x.cycle, `${monthText(x.due)}該抄`].join('・') }),
+      open: x => Detail.open(x.device.id),
+    },
+    {
+      key: 'reports', title: '回報停了', icon: 'signal', tone: 'warn',
+      list: () => Records.reportsDue(),
+      summary: list => `超過 7 天沒回報・最久 ${list[0].days} 天`,
+      row: x => ({ title: `${x.place.name} · ${Records.label(x.device)}`, sub: `最後回報 ${Records.reportWhen(x.report)}` }),
       open: x => Detail.open(x.device.id),
     },
     {

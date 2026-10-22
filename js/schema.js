@@ -125,6 +125,8 @@ const toggleOf = list => list.map(o => ({ value: o.value, label: o.value, tone: 
 const MOVE_TYPES = [{ value: '安裝', tone: 'blue' }, { value: '撤機', tone: 'gray' }, { value: '移機', tone: 'purple' }, { value: '其他', tone: '' }];
 const COUNTRIES = [{ value: '美', tone: '' }, { value: '日', tone: '' }]; // 翻新的國別
 const PAGE_KINDS = [{ value: '全部', tone: '' }, { value: '彩色', tone: '' }]; // 保養項目算哪種張數（全部＝黑白加彩色）
+// 合約的抄表週期（總覽的「該抄表了」照它算，空白當每月，見 records.js 的 readingsDue）
+const READ_CYCLES = ['每月', '雙月', '每季', '半年', '每年'].map(value => ({ value, tone: '' }));
 
 // 設備的編號：年份兩位數＋流水號四位數（26-0001），年份照購買日期，沒填購買日期用今年
 //   同一年的取最大的號碼往下編；舊的、自己打的編號（NB-001）不影響
@@ -337,7 +339,7 @@ const SCHEMAS = {
   // 合約：綁位置、不綁機器（一次租三台是一份合約寫三個位置）；機器目前的合約＝它現在所在位置的合約，換機時不用改
   //   一個位置目前的合約：包含它的合約裡簽約日最新的那一份（提前結束了的話沒有）
   //   重簽、續約、改條件都按「重新簽約」新增一份；修改只用來改打錯的，改了什麼記在合約修改紀錄（見 records.js）
-  //   兩個日期之外都是自由輸入的文字
+  //   兩個日期、抄表週期之外都是自由輸入的文字
   contracts: {
     title: '合約',
     once: true,
@@ -351,7 +353,7 @@ const SCHEMAS = {
     searchHint: '搜尋位置或合約內容',
     copy: {
       label: '重新簽約',
-      keys: ['locations', 'content', 'billing', 'readDay'],
+      keys: ['locations', 'content', 'billing', 'readDay', 'cycle'],
       watch: ['locations', 'signDate', 'endDate', 'billing'],
       note: '重新簽約、續約、改條件都按這裡，會新增一份；上面只用來改打錯的地方',
     },
@@ -366,6 +368,7 @@ const SCHEMAS = {
       { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true },
       { key: 'billing', label: '計費方式', type: 'text', optional: true, full: true, multiline: true },
       { key: 'readDay', label: '抄表日期', type: 'text', optional: true, full: true },
+      { key: 'cycle', label: '抄表週期', type: 'text', optional: true, full: true, toggle: toggleOf(READ_CYCLES), hint: '空白＝每月' },
     ],
   },
 

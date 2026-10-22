@@ -440,7 +440,8 @@ const Records = (() => {
 
   function contractNote(r) {
     const end = endText(r);
-    const text = [end?.text, r.readDay && `抄表 ${firstLine(r.readDay)}`].filter(Boolean).join('・');
+    const read = [r.cycle, firstLine(r.readDay)].filter(Boolean).join(' ');
+    const text = [end?.text, read && `抄表 ${read}`].filter(Boolean).join('・');
     return text ? { text, warn: !!end?.warn } : null;
   }
 
@@ -859,10 +860,10 @@ const Records = (() => {
   // ---------- 最新回報：抄表程式每台最新一次的張數、碳粉（設備卡片、設備詳情） ----------
   //   連結 Google 時是試算表「最新回報」分頁讀回來的（見 sync.js）；沒有時用匯入的 data.json 裡的（假資料，見 tools/make-demo.mjs）
   //   先用序號找，找不到再用設備編號
-  //   多久以前：3 天內綠字（fresh）、超過 30 天橘字（old，抄表程式可能停了），中間灰字
+  //   多久以前：3 天內綠字（fresh）、超過 7 天橘字（old，抄表程式可能停了，總覽的「回報停了」也是），中間灰字
   const TONER_LOW = 20; // 碳粉幾 % 以下紅字
   const REPORT_FRESH = 3;
-  const REPORT_OLD = 30;
+  const REPORT_OLD = 7;
   const reports = () => (typeof Sync !== 'undefined' && Sync.state().toner) || Store.toner() || [];
   function latestReport(d, list = reports()) {
     return (key(d.serial) && list.find(x => key(x.serial) === key(d.serial))) || list.find(x => key(x.device) === key(d.code)) || null;
@@ -880,6 +881,58 @@ const Records = (() => {
     const n = reportDays(t);
     if (n === null) return null;
     return { text: n <= 1 && t.time ? `${agoText(n)} ${t.time}` : agoText(n), tone: reportTone(n) };
+  }
+
+  // ---------- 總覽的要處理：回報停了、該抄表了 ----------
+  // 只看現在放在客戶那裡的機器：不是倉庫、沒停用的位置；報廢這類（狀態勾「不用提醒」）的不算
+  function placedDevices() {
+    const quiet = quietSet();
+    return Store.list('devices').map(d => ({ device: d, place: place(d.location) }))
+      .filter(x => x.place && !x.place.stock && !x.place.disabled && !quiet.has(key(x.device.status)));
+  }
+  const byPlaceName = (a, b) => String(a.place.name ?? '').localeCompare(String(b.place.name ?? ''), 'zh-Hant');
+
+  // 回報停了：回報過、超過 7 天沒回報（沒裝抄表程式的不列）；越久的越上面
+  //   [{ id, device, place, report, days }]
+  function reportsDue(list = reports()) {
+    return placedDevices().map(x => {
+      const report = latestReport(x.device, list);
+      return { ...x, id: x.device.id, report, days: reportDays(report) };
+    }).filter(x => x.days !== null && x.days > REPORT_OLD).sort((a, b) => b.days - a.days || byPlaceName(a, b));
+  }
+
+  // 該抄表了：照合約的抄表週期，該抄的結算月份過完再 10 天還沒有抄表（每月 5 日抄上個月的來得及）
+  //   週期：這個位置目前的合約的抄表週期；空白、沒有合約的當每月
+  //   該抄的結算月份：這個位置最後一次算帳的抄表（有結算月份的，哪一台機器抄的都算，自動抄表寫進來的也算）＋週期
+  //     現在這台搬進來之後還沒算過帳的（剛裝、剛換機，或很久以前別的客戶留下的）：搬進來那天的起點當那個月算過
+  //   沒有搬進來的異動、也沒抄過的算不出來，不列
+  //   [{ id, device, place, cycle, last: 上次結算月份（現在這台還沒算過帳的空白）, due: 該抄的結算月份 }]；越早該抄的越上面
+  const READ_GRACE = 10;
+  const CYCLE_MONTHS = { 每月: 1, 雙月: 2, 每季: 3, 半年: 6, 每年: 12 };
+  const cycleOf = c => (CYCLE_MONTHS[String(c?.cycle ?? '').trim()] ? String(c.cycle).trim() : '每月');
+  function readingsDue() {
+    const at = locator();
+    const billed = new Map(); // 位置編號 → 最後一次算帳的結算月份
+    Store.list('readings').forEach(r => {
+      if (!r.month || !key(r.device)) return;
+      const p = key(at(r.device, r.date));
+      if (String(r.month) > (billed.get(p) || '')) billed.set(p, String(r.month));
+    });
+    const contracts = currentContracts();
+    const deadline = `-${String(READ_GRACE).padStart(2, '0')}`;
+    return placedDevices().flatMap(x => {
+      const pk = key(x.place.code);
+      const cycle = cycleOf(contracts.get(pk));
+      const arrive = of('moves', x.device.code).filter(m => key(m.to) === pk)
+        .reduce((v, m) => (String(m.date ?? '') > v ? String(m.date) : v), '').slice(0, 7);
+      const billedAt = billed.get(pk) || '';
+      const last = billedAt && billedAt >= arrive ? billedAt : '';
+      const from = last || arrive;
+      if (!from) return [];
+      const due = monthIndex(from) + CYCLE_MONTHS[cycle];
+      if (U.today() <= monthKey(due + 1) + deadline) return [];
+      return [{ ...x, id: x.device.id, cycle, last, due: monthKey(due) }];
+    }).sort((a, b) => cmp(a.due, b.due) || byPlaceName(a, b));
   }
 
   // ---------- 保養、翻新 ----------
@@ -1101,7 +1154,7 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
-    TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote,
+    TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
   };
 })();

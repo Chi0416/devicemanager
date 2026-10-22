@@ -410,6 +410,7 @@ test('合約綁位置：一個位置目前的合約是簽約日最新的那一�
   assert.equal(Records.isCurrentContract(now), true);
   assert.deepEqual(plain(Records.contractNote(now)), { text: '2026/10/30 到期・剩 19 天・抄表 每月 25 日', warn: true });
   assert.deepEqual(plain(Records.contractNote(old)), { text: '2025/12/31 到期', warn: false });
+  assert.deepEqual(plain(Records.contractNote({ ...old, readDay: '25 日', cycle: '每季' })), { text: '2025/12/31 到期・抄表 每季 25 日', warn: false });
   assert.equal(SCHEMAS.contracts.card.title(now), '月租 3,000');
   assert.deepEqual(plain(Records.contractsAt(DH).map(c => c.id)), [old.id, now.id]);
   // 機器：放在大華就是大華的合約；故障換機，新的那台放進大華，直接是同一份
@@ -438,12 +439,12 @@ test('合約：目前的合約已經過了到期日；提前結束了就沒有�
   assert.deepEqual(plain(Records.endText(later)), { text: '2026/12/31 提前結束', warn: false });
 });
 
-test('合約：「重新簽約」新增一份，帶入位置、內容、計費方式、抄表日期；改了什麼記在修改紀錄，刪掉合約時一起刪', () => {
+test('合約：「重新簽約」新增一份，帶入位置、內容、計費方式、抄表日期、抄表週期；改了什麼記在修改紀錄，刪掉合約時一起刪', () => {
   const { Store, Records, SCHEMAS, add } = withDevices();
   const s = SCHEMAS.contracts;
-  assert.deepEqual(plain(s.copy.keys), ['locations', 'content', 'billing', 'readDay']);
+  assert.deepEqual(plain(s.copy.keys), ['locations', 'content', 'billing', 'readDay', 'cycle']);
   assert.deepEqual(plain(s.copy.watch), ['locations', 'signDate', 'endDate', 'billing']);
-  assert.deepEqual(plain(s.fields.map(f => f.label)), ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期']);
+  assert.deepEqual(plain(s.fields.map(f => f.label)), ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期', '抄表週期']);
   const c = add('contracts', { locations: DH, signDate: '2026-01-05', endDate: '2028-12-31', readDay: '每月 25 號', billing: '每張 0.4' });
   // 新增時不記
   assert.deepEqual(plain(s.afterSave(null, c)), []);
@@ -944,6 +945,82 @@ test('要處理：合約到期、快到期（重新簽約、提前結束、位�
   assert.equal(Records.lastMoveAt(AX), null);
 });
 
+test('要處理：該抄表了（照合約的抄表週期，空白當每月；該抄的結算月份過完再 10 天還沒抄），回報停了（超過 7 天）', () => {
+  const setup = today => {
+    const a = app({ today });
+    a.add('locations', { code: WH, name: '公司倉庫', stock: true });
+    a.add('locations', { code: DH, name: '大華貿易 3F' });
+    a.add('locations', { code: AX, name: '安心診所 櫃台' });
+    a.add('locations', { code: 'L0004', name: '晨光設計' });
+    a.add('locations', { code: 'L0005', name: '舊客戶', disabled: true });
+    a.add('locations', { code: 'L0006', name: '和平藥局' });
+    a.add('locations', { code: 'L0007', name: '青山國小' });
+    const dev = (code, location, more = {}) => a.add('devices', { code, name: `#${code}`, serial: `S${code}`, status: '出租中', location, ...more });
+    const move = (device, date, type, from, to) => a.add('moves', { device, date, type, from, to });
+    const read = (device, date, month, bw) => a.add('readings', { device, date, month, bw });
+    // 大華：沒有合約（每月），9 月抄過
+    dev('24-0001', DH);
+    move('24-0001', '2026-03-01', '安裝', WH, DH);
+    read('24-0001', '2026-03-01', '', 1000);
+    read('24-0001', '2026-09-25', '2026-09', 5000);
+    // 安心：合約每季，9 月抄過
+    dev('24-0002', AX);
+    move('24-0002', '2026-03-01', '安裝', WH, AX);
+    read('24-0002', '2026-09-30', '2026-09', 3000);
+    a.add('contracts', { locations: AX, signDate: '2026-02-20', endDate: '2028-02-20', cycle: '每季' });
+    // 晨光：10/05 剛裝，只有起點
+    dev('24-0003', 'L0004');
+    move('24-0003', '2026-10-05', '安裝', WH, 'L0004');
+    read('24-0003', '2026-10-05', '', 2000);
+    // 和平藥局：以前的客戶抄到 2025/06 撤機，10/20 裝了新的一台（從搬進來那天算）
+    dev('24-0004', WH, { status: '庫存' });
+    move('24-0004', '2025-01-01', '安裝', WH, 'L0006');
+    read('24-0004', '2025-07-01', '2025-06', 8000);
+    move('24-0004', '2025-07-01', '撤機', 'L0006', WH);
+    dev('24-0005', 'L0006');
+    move('24-0005', '2026-10-20', '安裝', WH, 'L0006');
+    // 不列：倉庫、停用的位置、報廢、沒有異動也沒抄過的
+    dev('24-0006', 'L0005');
+    move('24-0006', '2025-01-01', '安裝', WH, 'L0005');
+    dev('24-0007', 'L0007', { status: '報廢' });
+    move('24-0007', '2025-01-01', '安裝', WH, 'L0007');
+    dev('24-0008', 'L0007');
+    return a;
+  };
+  const due = a => plain(a.Records.readingsDue().map(x => [x.place.code, x.device.code, x.cycle, x.last, x.due]));
+  // 10 月的帳：11/10 還來得及，11/11 就列
+  assert.deepEqual(due(setup('2026-11-10')), []);
+  assert.deepEqual(due(setup('2026-11-11')), [[DH, '24-0001', '每月', '2026-09', '2026-10']]);
+  // 12/11：晨光（10 月裝，11 月該抄）、和平藥局（10 月裝）也列；越早該抄的越上面，同一個月照位置名稱
+  assert.deepEqual(due(setup('2026-12-11')), [
+    [DH, '24-0001', '每月', '2026-09', '2026-10'],
+    ['L0006', '24-0005', '每月', '', '2026-11'],
+    ['L0004', '24-0003', '每月', '', '2026-11'],
+  ]);
+  // 每季的安心：9 月抄過，12 月該抄，2027/01/11 才列
+  const a = setup('2027-01-11');
+  assert.deepEqual(due(a).find(x => x[0] === AX), [AX, '24-0002', '每季', '2026-09', '2026-12']);
+  // 抄了就不見（自動抄表寫進來的也一樣）；換成雙月：9 月抄過，11 月該抄
+  a.add('readings', { device: '24-0002', date: '2027-01-02', month: '2026-12', bw: 4000 });
+  assert.ok(!due(a).some(x => x[0] === AX));
+  const b = setup('2026-12-11');
+  b.add('contracts', { locations: DH, signDate: '2026-02-20', endDate: '2028-02-20', cycle: '雙月' });
+  assert.deepEqual(due(b).find(x => x[0] === DH), [DH, '24-0001', '雙月', '2026-09', '2026-11']);
+  // 換機：換機那天抄了原來那台的帳（算大華的），新的那台從搬進來那天算
+  b.add('moves', { device: '24-0001', date: '2026-12-01', type: '撤機', from: DH, to: WH });
+  b.add('devices', { code: '25-0001', name: '#25-0001', status: '出租中', location: DH });
+  b.add('moves', { device: '25-0001', date: '2026-12-01', type: '安裝', from: WH, to: DH });
+  b.Records.syncLocations();
+  b.add('readings', { device: '24-0001', date: '2026-12-01', month: '2026-11', bw: 6000 });
+  assert.ok(!due(b).some(x => x[0] === DH)); // 12 月搬進來、雙月，下一次 2027/02
+
+  // 回報停了：超過 7 天（8 天起），越久的越上面；倉庫、沒回報過的不列
+  const c = setup('2026-10-21');
+  const rep = (code, date) => ({ serial: `S${code}`, device: code, date, time: '08:00' });
+  const list = [rep('24-0001', '2026-10-13'), rep('24-0002', '2026-10-14'), rep('24-0003', '2026-09-01'), rep('24-0004', '2026-01-01')];
+  assert.deepEqual(plain(c.Records.reportsDue(list).map(x => [x.place.code, x.device.code, x.days])), [['L0004', '24-0003', 50], [DH, '24-0001', 8]]);
+});
+
 test('設備：編號不顯示，認機器看機型＋名稱；名稱下面寫序號；同機型同名稱時提醒；列表照機型清單的順序', () => {
   const { Store, SCHEMAS, Records, field, add } = withDevices();
   const s = SCHEMAS.devices;
@@ -1071,7 +1148,7 @@ test('匯入 data.json、以 Google 為主：用 id 比對，只加這台沒有�
   assert.equal(Store.pendingCount(), 4); // 加進來的要寫回試算表（還有前面新增的投影機）
 });
 
-test('最新回報：設備卡片序號那一行的右邊寫多久以前（今天、昨天寫時間），3 天內綠字、超過 30 天橘字；不寫碳粉；沒回報過的不寫', () => {
+test('最新回報：設備卡片序號那一行的右邊寫多久以前（今天、昨天寫時間），3 天內綠字、超過 7 天橘字；不寫碳粉；沒回報過的不寫', () => {
   const { Records, Store } = app({ today: '2026-10-21' });
   const at = (date, more = {}) => [{ serial: ' a1 ', device: '', date, time: '08:30', K: 80, Y: null, M: null, C: null, ...more }];
   const d = { serial: 'A1', code: '26-0001' };
@@ -1080,8 +1157,8 @@ test('最新回報：設備卡片序號那一行的右邊寫多久以前（今�
   assert.equal(Records.reportNote(d, at('2026-10-18')).text, '3 天前');
   assert.equal(Records.reportNote(d, at('2026-10-18')).tone, 'fresh');
   assert.deepEqual(plain(Records.reportNote(d, at('2026-10-17'))), { text: '4 天前', tone: '' });
-  assert.equal(Records.reportNote(d, at('2026-09-21')).tone, ''); // 30 天
-  assert.deepEqual(plain(Records.reportNote(d, at('2026-09-20'))), { text: '31 天前', tone: 'old' });
+  assert.equal(Records.reportNote(d, at('2026-10-14')).tone, ''); // 7 天
+  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-13'))), { text: '8 天前', tone: 'old' });
   assert.equal(Records.reportNote(d, at('')), null);
   assert.equal(Records.reportNote(d, []), null);
   // 沒有序號的用設備編號找
