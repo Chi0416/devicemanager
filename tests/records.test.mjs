@@ -482,6 +482,8 @@ test('抄表：本期用量＝這次減上一次，保養、翻新填的張數�
   assert.deepEqual(plain(Records.usageNote(r1)), { text: '第一次抄表', warn: false });
   assert.deepEqual(plain(Records.usageNote(r2)), { text: '本期 黑白 700・彩色 120', warn: false }); // 黑白跟保養時的 10,800 比
   assert.deepEqual(plain(Records.usageNote(r3)), { text: '黑白比上一次少（上次 11,500，2026/08/25）', warn: true });
+  // 卡片的黑白、彩色兩格：比上一次少的橘字（順便抄也提醒）
+  assert.deepEqual(plain(Records.readingCols(r3))[0], { label: '黑白', main: '比上次少', tone: 'warn', sub: '計數器 11,200' });
   assert.equal(Records.countsText(s1), '黑白 10,800');
   assert.equal(Records.latest('readings', '24-0001', 'date').id, r3.id);
 });
@@ -534,7 +536,12 @@ test('抄表的結算月份：自己選、不預設，空白是安裝當天的�
   assert.equal(f.note({ device: '25-0001', date: '2026-11-15', month: '', id: null }), '空白＝起點，不算帳');
   assert.deepEqual(plain(SCHEMAS.readings.period),
     { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' });
-  assert.deepEqual(plain(Records.readingNote(r2)), { text: '2026/10/28 抄・本期 黑白 500', warn: false });
+  assert.equal(SCHEMAS.readings.card.title(r2), '2026/10/28 抄');
+  assert.deepEqual(plain(Records.readingCols(r2)), [{ label: '黑白', main: '本期 500', tone: '', sub: '計數器 1,500' }]);
+  assert.equal(Records.readingTag(r2), null);
+  // 第一次抄表：本期寫「—」，右上角標籤
+  assert.deepEqual(plain(Records.readingTag(r1)), { label: '第一次抄表', cls: 'gray' });
+  assert.deepEqual(plain(Records.readingCols(r1)), [{ label: '黑白', main: '—', tone: 'muted', sub: '計數器 1,000' }]);
   assert.equal(Records.describe('readings', r1), '#1001 2026/09 抄表');
 });
 
@@ -548,8 +555,9 @@ test('結算月份空白：機器放到這個位置後第一次抄的是起點�
   const a1 = read('24-0001', '2026-08-01', '', 1000);
   read('24-0001', '2026-09-01', '2026-08', 2000);
   const a3 = read('24-0001', '2026-09-10', '', 2500);
-  assert.deepEqual(plain(Records.readingNote(a1)), { text: '2026/08/01 抄・起點', warn: false });
-  assert.deepEqual(plain(Records.readingNote(a3)), { text: '2026/09/10 抄・順便抄', warn: false });
+  assert.deepEqual(plain(Records.readingTag(a1)), { label: '起點', cls: 'gray' });
+  assert.deepEqual(plain(Records.readingTag(a3)), { label: '順便抄', cls: 'gray' });
+  assert.deepEqual(plain(Records.readingCols(a3)), [{ label: '黑白', main: '—', tone: 'muted', sub: '計數器 2,500' }]);
   // 9/15 換機：#1001 撤機那天的抄表空白時提醒要填；換上去的 #1002 那天抄的是起點
   moved('24-0001', '2026-09-15', '撤機', DH, WH);
   moved('25-0001', '2026-09-15', '安裝', WH, DH);
@@ -584,6 +592,12 @@ test('保養、翻新：卡片標題和最下面一行；保養的張數算進�
   assert.deepEqual(plain(Records.workNote(k)), { text: '黑白 12,000・彩色 100・客戶說卡紙', warn: false });
   assert.deepEqual(plain(Records.refurbNote(f)), { text: '2026/09/25 入庫・陳志明・日・噴漆・廠商或來源 日本拍賣', warn: false });
   assert.equal(Records.workNote(p), null);
+  // 保養卡片：標題下面寫計數器，備註另外一行
+  assert.equal(SCHEMAS.maintenance.card.sub(k), '計數器 黑白 12,000・彩色 100');
+  assert.deepEqual(plain(SCHEMAS.maintenance.note(k)), { text: '客戶說卡紙', warn: false });
+  assert.equal(SCHEMAS.maintenance.card.sub(p), '');
+  // 列表同一個月裡照日期排（不是照新增的先後）
+  for (const t of ['moves', 'contracts', 'maintenance', 'refurbs']) assert.equal(SCHEMAS[t].period.then, SCHEMAS[t].period.key, t);
   assert.deepEqual(plain(Records.usageNote(r)), { text: '本期 黑白 600', warn: false });
   assert.equal(Records.describe('maintenance', k), '#1001 2026/09/10 碳粉 K');
   assert.equal(Records.describe('refurbs', f), '#1001 2026/09/20 翻新');

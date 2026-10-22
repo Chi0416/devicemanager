@@ -517,7 +517,7 @@ const Records = (() => {
     return { k, label, prev, diff: prev ? rec[k] - prev[k] : null };
   });
 
-  // 抄表卡片最下面一行：本期用量；比上一次少時提醒
+  // 本期用量寫成一行（詳情的抄表那一列）；比上一次少時提醒
   function usageNote(rec) {
     const u = usage(rec);
     const less = u.filter(x => x.diff !== null && x.diff < 0);
@@ -550,11 +550,23 @@ const Records = (() => {
     return use?.warn ? { text: `${kind}・${use.text}`, warn: true } : { text: kind, warn: false };
   }
 
-  // 抄表卡片最下面一行：哪天抄的、本期用量（列表依結算月份分組，日期寫在這裡）
-  function readingNote(rec) {
-    const use = readingUse(rec);
-    const text = [rec.date && `${U.fmtDate(rec.date)} 抄`, use?.text].filter(Boolean).join('・');
-    return text ? { text, warn: !!use?.warn } : null;
+  // 抄表卡片的黑白、彩色兩格：本期粗體在上、計數器灰字在下 [{ label, main, sub, tone }]
+  //   起點、順便抄、第一次抄表的本期寫「—」（右上角標籤寫是哪一種，見 readingTag）；比上一次少時橘字
+  function readingCols(rec) {
+    const kind = readingKind(rec);
+    return usage(rec).map(x => ({
+      label: x.label,
+      ...(x.diff !== null && x.diff < 0 ? { main: '比上次少', tone: 'warn' }
+        : kind || x.diff === null ? { main: '—', tone: 'muted' } : { main: `本期 ${fmt(x.diff)}`, tone: '' }),
+      sub: `計數器 ${fmt(rec[x.k])}`,
+    }));
+  }
+  // 抄表卡片右上角的標籤：起點、順便抄、第一次抄表（都不算本期）
+  function readingTag(rec) {
+    const kind = readingKind(rec);
+    const u = usage(rec);
+    const label = kind || (u.length && u.every(x => x.diff === null) ? '第一次抄表' : '');
+    return label ? { label, cls: 'gray' } : null;
   }
 
   // 表單上結算月份下面：這台設備這個月已經抄過了（重抄、換機時還是可以存）
@@ -941,6 +953,8 @@ const Records = (() => {
     const text = [countsText(r), firstLine(r.note)].filter(Boolean).join('・');
     return text ? { text, warn: false } : null;
   }
+  // 保養卡片標題下面：那時候的計數器（備註另外一行，見 schema.js）
+  const counterText = r => (countsText(r) ? `計數器 ${countsText(r)}` : '');
 
   // 翻新卡片最下面一行：入庫日、工程師、國別、噴漆、廠商或來源
   function refurbNote(r) {
@@ -1152,8 +1166,8 @@ const Records = (() => {
     moveDateNote, moveToNote, isStock, disableCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
-    countsText, usage, usageNote, readingKind, readingUse, readingNote, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
-    workNote, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
+    countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
+    workNote, counterText, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
   };

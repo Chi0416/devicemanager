@@ -215,7 +215,8 @@ const noteField = () => ({ key: 'note', label: '備註', type: 'text', optional:
 const countField = (key, label, more = {}) => ({
   key, label, type: 'number', optional: true, note: v => Records.countNote(v, key), noteLines: 2, ...more,
 });
-const recordMonth = key => ({ key, unit: 'month', label: '月份' });
+// 紀錄列表上方選月份；同一個月裡照日期排，新的在上面（同一天的照新增的先後）
+const recordMonth = key => ({ key, unit: 'month', label: '月份', then: key });
 // 位置：存位置編號（L0001），畫面上寫名稱（見 records.js 的 placeName）
 const placeField = (key, label, more = {}) => ({
   key, label, type: 'ref', ref: 'locations', format: v => Records.placeName(v), ...more,
@@ -394,8 +395,10 @@ const SCHEMAS = {
     once: true,
     // 結算月份空白的（起點、順便抄）：照抄表日期排，標題寫「結算月份空白」
     period: { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' },
-    card: { title: r => Records.countsText(r) || '抄表', grid: [] },
-    note: r => Records.readingNote(r),
+    // 卡片：標題寫哪天抄（列表依結算月份分組），右上角起點、順便抄；下面黑白、彩色兩格（本期、計數器），最下面備註
+    card: { title: r => (r.date ? `${U.fmtDate(r.date)} 抄` : '抄表'), grid: [], cols: r => Records.readingCols(r) },
+    status: r => Records.readingTag(r),
+    note: r => Records.noteLine(r.note),
     describe: r => Records.describe('readings', r),
     search: ['device', 'note'],
     searchText: r => Records.deviceText(r.device, r.date),
@@ -414,8 +417,8 @@ const SCHEMAS = {
   maintenance: {
     title: '保養',
     period: recordMonth('date'),
-    card: { title: r => r.item || '保養', grid: [] },
-    note: r => Records.workNote(r),
+    card: { title: r => r.item || '保養', grid: [], sub: r => Records.counterText(r) },
+    note: r => Records.noteLine(r.note),
     describe: r => Records.describe('maintenance', r),
     search: ['device', 'item', 'note'],
     searchText: r => Records.deviceText(r.device, r.date),
