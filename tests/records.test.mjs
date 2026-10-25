@@ -579,6 +579,98 @@ test('結算月份空白：機器放到這個位置後第一次抄的是起點�
     [['2026-08', 1, 1000], ['2026-09', 1, 1800], ['2026-10', 1, 700], ['2026-11', 1, 500]]);
 });
 
+test('結算月份選錯：日期比較晚的月份反而早、同一個位置兩筆一樣的月份，卡片右上角橘色標籤、表單提醒；改好就沒了；同一個月搬到別的客戶的不算', () => {
+  const { Store, Records, field, add } = withDevices();
+  const note = field('readings', 'month').note;
+  const read = (date, month, bw) => add('readings', { device: '24-0001', date, month, bw });
+  const tag = r => plain(Records.readingTag(Store.get('readings', r.id)));
+  read('2026-06-25', '2026-06', 16000);
+  const jul = read('2026-07-25', '2026-08', 19000); // 7 月的帳選成 8 月
+  const aug = read('2026-08-25', '2026-07', 22000); // 8 月的帳選成 7 月
+  // 張數一直變多，「比上次少」抓不到
+  assert.deepEqual(tag(aug), { label: '月份順序不對', cls: 'orange' });
+  assert.equal(tag(jul), null);
+  assert.deepEqual(plain(Records.readingUse(aug)), { text: '月份順序不對・本期 黑白 3,000', warn: true });
+  assert.deepEqual(plain(note(aug)), { text: '比 07/25 那筆的月份早', warn: true });
+  assert.deepEqual(plain(note(jul)), { text: '比 08/25 那筆的月份晚', warn: true });
+  Store.update('readings', jul.id, { month: '2026-07' });
+  Store.update('readings', aug.id, { month: '2026-08' });
+  assert.equal(tag(aug), null);
+  assert.equal(note(Store.get('readings', aug.id)), '');
+  // 9 月的帳又選成 8 月：兩筆都標
+  const sep = read('2026-09-25', '2026-08', 25000);
+  assert.deepEqual(tag(aug), { label: '月份重複', cls: 'orange' });
+  assert.deepEqual(tag(sep), { label: '月份重複', cls: 'orange' });
+  assert.deepEqual(plain(note({ device: '24-0001', date: '2026-09-25', month: '2026-08', id: null })), { text: '這個月已經抄過了（08/25）', warn: true });
+  // #1002 10/15 在大華撤機結 10 月的帳，10/20 裝到安心診所，10/31 也結 10 月的帳：不同位置，不算重複
+  const moved = (date, type, from, to) => { add('moves', { device: '25-0001', date, type, from, to }); Records.syncLocations(); };
+  moved('2026-09-01', '安裝', WH, DH);
+  add('readings', { device: '25-0001', date: '2026-09-01', month: '', bw: 100 });
+  const out = add('readings', { device: '25-0001', date: '2026-10-15', month: '2026-10', bw: 900 });
+  moved('2026-10-15', '撤機', DH, WH);
+  moved('2026-10-20', '安裝', WH, AX);
+  add('readings', { device: '25-0001', date: '2026-10-20', month: '', bw: 950 });
+  const inn = add('readings', { device: '25-0001', date: '2026-10-31', month: '2026-10', bw: 1400 });
+  assert.equal(tag(out), null);
+  assert.equal(tag(inn), null);
+  assert.equal(note(inn), '');
+});
+
+test('一次整理好的資料（每台的紀錄、異動、張數）：新增、補登、修改、刪除、改設備編號、匯入之後都跟著變；拿到的陣列改了不影響', () => {
+  const { Store, Records, add, d1 } = withDevices();
+  add('readings', { device: '24-0001', date: '2026-07-25', bw: 1000 });
+  const r3 = add('readings', { device: '24-0001', date: '2026-09-25', bw: 3000 });
+  assert.equal(Records.usageNote(r3).text, '本期 黑白 2,000');
+  const r2 = add('readings', { device: '24-0001', date: '2026-08-25', bw: 2400 }); // 補登中間那筆
+  assert.equal(Records.usageNote(r3).text, '本期 黑白 600');
+  Store.update('readings', r2.id, { bw: 2500 });
+  assert.equal(Records.usageNote(r3).text, '本期 黑白 500');
+  Store.remove('readings', r2.id);
+  assert.equal(Records.usageNote(r3).text, '本期 黑白 2,000');
+  Records.of('readings', '24-0001').reverse();
+  assert.deepEqual(plain(Records.of('readings', '24-0001').map(r => r.bw)), [1000, 3000]);
+  // 設備改了編號：紀錄還寫舊的，找不到設備
+  Store.update('devices', d1.id, { code: '24-0009' });
+  assert.equal(Records.device('24-0001'), null);
+  assert.equal(Records.device('24-0009').id, d1.id);
+  assert.equal(Records.of('readings', '24-0009').length, 0);
+  add('moves', { device: '24-0009', date: '2026-08-01', type: '安裝', from: WH, to: DH });
+  assert.equal(Records.locationAt('24-0009', '2026-08-02'), DH);
+  assert.deepEqual(plain(Records.machinesAt(WH).map(d => d.id)), [d1.id]); // 設備的位置還沒跟著改（syncLocations 才改）
+  // 匯入整份、改用試算表的
+  Store.replaceAll({ devices: [{ id: 'x', code: '24-0001' }], readings: [] });
+  assert.equal(Records.device('24-0009'), null);
+  assert.equal(Records.device('24-0001').id, 'x');
+  assert.equal(Records.of('readings', '24-0001').length, 0);
+  Store.loadRemote({ devices: [] });
+  assert.equal(Records.device('24-0001'), null);
+});
+
+test('抄表列表的速度：100 台每月抄、兩年（2,500 筆），每張卡片要算的 2 秒內算完（以前每張卡片都從頭找全部的抄表，要 11 秒）', () => {
+  const { Store, Records, SCHEMAS } = app();
+  const data = { locations: [{ id: 'w', code: 'L0000', name: '公司倉庫', stock: true }], devices: [], moves: [], readings: [] };
+  for (let i = 1; i <= 100; i++) {
+    const code = `24-${String(i).padStart(4, '0')}`, loc = `L${String(i).padStart(4, '0')}`;
+    data.locations.push({ id: `l${i}`, code: loc, name: `客戶 ${i}` });
+    data.devices.push({ id: `d${i}`, code, name: `#${1000 + i}`, location: loc });
+    data.moves.push({ id: `m${i}`, device: code, date: '2024-12-20', type: '安裝', from: 'L0000', to: loc });
+    data.readings.push({ id: `r${i}-0`, device: code, date: '2024-12-20', month: '', bw: 1000 });
+    for (let m = 1; m <= 24; m++) {
+      const ym = `${2024 + Math.ceil(m / 12)}-${String((m - 1) % 12 + 1).padStart(2, '0')}`;
+      data.readings.push({ id: `r${i}-${m}`, device: code, date: `${ym}-25`, month: ym, bw: 1000 + m * 3000 });
+    }
+  }
+  Store.replaceAll(data);
+  const t = Date.now();
+  Store.list('readings').forEach(r => {
+    Records.recordCells('readings', r);
+    SCHEMAS.readings.card.cols(r);
+    SCHEMAS.readings.status(r);
+  });
+  assert.ok(Date.now() - t < 2000, `${Date.now() - t} ms`);
+  assert.equal(Records.readingCols(Store.list('readings').at(-1))[0].main, '本期 3,000');
+});
+
 // ---------- 保養、翻新 ----------
 test('保養、翻新：卡片標題和最下面一行；保養的張數算進抄表用量', () => {
   const { Records, SCHEMAS, add } = withDevices();

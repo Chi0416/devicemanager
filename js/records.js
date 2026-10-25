@@ -7,6 +7,7 @@
 //   異動帶的狀態：撤機先帶庫存、安裝先帶出租中，存了最新一筆時設備的狀態跟著改
 //   目前的合約：合約綁位置；一個位置目前的合約是包含它的合約裡簽約日最新的那一份，機器目前的合約是它所在位置的
 //   抄表用量：這次減上一次；保養填的張數一起排
+//   每台設備的紀錄、異動、張數一次整理好（cached），資料沒改就直接用；抄表列表每張卡片都要找，一張一張從頭找太慢
 const Records = (() => {
   const TABLES = ['moves', 'contracts', 'readings', 'maintenance', 'refurbs', 'parts'];
   // 有「設備」欄的紀錄（合約綁位置，沒有）
@@ -30,9 +31,48 @@ const Records = (() => {
   const meterTotal = r => (isNum(r.bw) ? r.bw : 0) + (isNum(r.color) ? r.color : 0);
   const byMeter = (a, b) => cmp(String(a.date ?? ''), String(b.date ?? '')) || (meterTotal(a) - meterTotal(b)) || cmp(String(a.id), String(b.id));
 
-  const device = code => (key(code) ? Store.list('devices').find(d => key(d.code) === key(code)) || null : null);
+  // ---------- 一次整理好的資料：Store 的版本號沒變就直接用，改了資料下次用到時才重新整理 ----------
+  //   拿到的陣列不能改（要排序的先複製一份）
+  const memo = new Map();
+  function cached(name, build) {
+    const hit = memo.get(name);
+    if (hit && hit.v === Store.version) return hit.value;
+    const value = build();
+    memo.set(name, { v: Store.version, value });
+    return value;
+  }
+  // 依 field 分好：Map(編號 → [紀錄])，每一組照原本的順序，order 有給時各自排好
+  function groupBy(rows, field, order = null) {
+    const m = new Map();
+    rows.forEach(r => {
+      const k = key(r[field]);
+      if (!k) return;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(r);
+    });
+    if (order) m.forEach(l => l.sort(order));
+    return m;
+  }
+  // 依編號找：Map(編號 → 一筆)；同一個編號有兩筆時是前面那一筆
+  function byCode(rows) {
+    const m = new Map();
+    rows.forEach(r => { const k = key(r.code); if (k && !m.has(k)) m.set(k, r); });
+    return m;
+  }
+  const NONE = [];
+  // 每台設備的紀錄（照原本的順序）、異動（依日期）、張數（抄表和有填張數的保養，見 byMeter）
+  const rowsOf = (table, code) => cached(`of:${table}`, () => groupBy(Store.list(table), 'device')).get(key(code)) || NONE;
+  const moveLines = () => cached('moves', () => groupBy(Store.list('moves'), 'device', byDate('date')));
+  const movesOf = code => moveLines().get(key(code)) || NONE;
+  const meterLines = () => cached('meter', () => groupBy([...Store.list('readings'), ...WORKS.flatMap(t => Store.list(t))
+    .filter(r => COUNTS.some(([k]) => isNum(r[k])))], 'device', byMeter));
+  const readingLines = () => cached('readings', () => groupBy(Store.list('readings'), 'device', byMeter));
+  // 現在放在每個位置的設備：Map(位置編號 → [設備])
+  const devicesAt = () => cached('devicesAt', () => groupBy(Store.list('devices'), 'location'));
+
+  const device = code => (key(code) ? cached('devices', () => byCode(Store.list('devices'))).get(key(code)) || null : null);
   // 這台設備的紀錄（還沒有編號的設備沒有紀錄）
-  const of = (table, code) => (key(code) ? Store.list(table).filter(r => key(r.device) === key(code)) : []);
+  const of = (table, code) => [...rowsOf(table, code)];
   const latest = (table, code, k) => of(table, code).sort(byDate(k)).at(-1) || null;
 
   // 認一台機器：機型＋名稱（IMC4500 #1234）；編號只在系統裡用，畫面上不顯示
@@ -51,7 +91,7 @@ const Records = (() => {
   }
 
   // ---------- 位置 ----------
-  const place = code => (key(code) ? Store.list('locations').find(p => key(p.code) === key(code)) || null : null);
+  const place = code => (key(code) ? cached('places', () => byCode(Store.list('locations'))).get(key(code)) || null : null);
   // 位置編號 → 名稱；找不到時照原本的字（看得出是哪個編號對不上）
   const placeName = code => place(code)?.name || String(code ?? '').trim();
   // 搜尋用：名稱和以前的名字
@@ -60,7 +100,7 @@ const Records = (() => {
     return p ? [p.name, p.oldNames].filter(Boolean).join(' ') : String(code ?? '');
   };
   // 現在放在這個位置的設備
-  const machinesAt = code => (key(code) ? Store.list('devices').filter(d => key(d.location) === key(code)) : []);
+  const machinesAt = code => [...(devicesAt().get(key(code)) || NONE)];
 
   // 下拉選單、清單裡位置名稱下面的小字：現在放著哪台（好幾台時寫幾台）
   function placeSub(p) {
@@ -96,19 +136,6 @@ const Records = (() => {
     return all.find(p => key(p.name) === n) || all.find(p => oldNameList(p).some(x => key(x) === n)) || null;
   }
 
-  // 一次算好每台設備的異動，很多筆紀錄一起算「那時候在哪裡」時用（不用每一筆都重新找）
-  //   回傳 (設備編號, 日期) → 位置編號
-  function locator() {
-    const moves = new Map();
-    [...Store.list('moves')].sort(byDate('date')).forEach(m => {
-      const k = key(m.device);
-      if (!moves.has(k)) moves.set(k, []);
-      moves.get(k).push(m);
-    });
-    const here = new Map(Store.list('devices').map(d => [key(d.code), d.location]));
-    return (code, date) => placeOn(moves.get(key(code)) || [], here.get(key(code)), date);
-  }
-
   // 某一天設備在哪裡：那天之前最後一筆異動的新位置；那天之前還沒有異動時是第一筆異動的原位置；沒有異動時是設備現在的位置
   //   那天有異動（搬機器那天）：那天待過的位置裡，算客戶那邊（不是倉庫）的最後一個；都是倉庫時算那天最後的位置
   //     撤機那天抄的最後一次表算原客戶、安裝那天抄的算新客戶；客戶搬家（兩邊都是客戶）算新位置
@@ -120,7 +147,7 @@ const Records = (() => {
     const day = [before ? before.to : moves[0].from || '', ...moves.filter(m => String(m.date ?? '') === d).map(m => m.to)];
     return day.filter(p => key(p) && !place(p)?.stock).at(-1) ?? day.at(-1);
   }
-  const locationAt = (code, date) => placeOn(of('moves', code).sort(byDate('date')), device(code)?.location, date);
+  const locationAt = (code, date) => placeOn(movesOf(code), device(code)?.location, date);
 
   // 進出這個位置的異動（新位置或原位置是它）
   const movesAt = code => (key(code) ? Store.list('moves').filter(m => key(m.to) === key(code) || key(m.from) === key(code)) : []);
@@ -170,8 +197,7 @@ const Records = (() => {
   // 機器放在這個位置的期間做的紀錄（抄表、保養、翻新）
   function recordsAt(table, code) {
     if (!key(code)) return [];
-    const at = locator();
-    return Store.list(table).filter(r => key(at(r.device, r.date)) === key(code));
+    return Store.list(table).filter(r => key(locationAt(r.device, r.date)) === key(code));
   }
 
   // 「紀錄」分頁的卡片最上面那一排（下面才是紀錄的內容），和設備卡片一樣小標題在上、內容在下：[{ label, value, warn }]
@@ -500,8 +526,7 @@ const Records = (() => {
   const countsText = r => COUNTS.filter(([k]) => isNum(r[k])).map(([k, label]) => `${label} ${fmt(r[k])}`).join('・');
 
   // 這台設備的張數：抄表和有填張數的保養，由舊到新（同一天照張數，見 byMeter）
-  const meterLine = code => [...of('readings', code), ...WORKS.flatMap(t => of(t, code)).filter(r => COUNTS.some(([k]) => isNum(r[k])))]
-    .sort(byMeter);
+  const meterLine = code => meterLines().get(key(code)) || NONE;
 
   // 這一筆之前（日期較早；同一天張數較少的）最後一次有填這個張數的
   //   rec 還沒存（新增中，沒有 id）時，同一天的都算之前：同一天打了比較少的張數會提醒
@@ -542,10 +567,33 @@ const Records = (() => {
   }
   const readingKind = rec => (rec.month || !key(rec.device) ? '' : isStart(rec) ? '起點' : '順便抄');
 
-  // 抄表的用量那一段：結算月份空白的寫「起點」「順便抄」，不寫本期；比上一次少時照樣提醒
+  // 結算月份選錯（日期、張數都對，「比上次少」抓不到，用量會算到別的月份）：Map(抄表的 id → '月份重複' 或 '月份順序不對')
+  //   月份重複：這台在同一個位置有兩筆一樣的結算月份（撤機那天在原客戶結帳、同一個月裝到新客戶結帳的不算）
+  //   月份順序不對：日期比較晚的那筆（同一天照張數，見 byMeter），結算月份反而比之前的早
+  const monthFlags = () => cached('monthFlags', () => {
+    const out = new Map();
+    readingLines().forEach(line => {
+      const billed = line.filter(r => r.month);
+      const slot = r => `${key(locationAt(r.device, r.date))}|${r.month}`;
+      const count = new Map();
+      billed.forEach(r => count.set(slot(r), (count.get(slot(r)) || 0) + 1));
+      let max = '';
+      billed.forEach(r => {
+        const m = String(r.month);
+        if (m < max) out.set(r.id, '月份順序不對');
+        else if (count.get(slot(r)) > 1) out.set(r.id, '月份重複');
+        if (m > max) max = m;
+      });
+    });
+    return out;
+  });
+
+  // 抄表的用量那一段：結算月份空白的寫「起點」「順便抄」，不寫本期；比上一次少、結算月份選錯時照樣提醒
   function readingUse(rec) {
+    const flag = monthFlags().get(rec.id);
     const use = usageNote(rec);
     const kind = readingKind(rec);
+    if (flag) return { text: [flag, use?.text].filter(Boolean).join('・'), warn: true };
     if (!kind) return use;
     return use?.warn ? { text: `${kind}・${use.text}`, warn: true } : { text: kind, warn: false };
   }
@@ -561,15 +609,17 @@ const Records = (() => {
       sub: `計數器 ${fmt(rec[x.k])}`,
     }));
   }
-  // 抄表卡片右上角的標籤：起點、順便抄、第一次抄表（都不算本期）
+  // 抄表卡片右上角的標籤：結算月份選錯（橘色，見 monthFlags）；起點、順便抄、第一次抄表（都不算本期）
   function readingTag(rec) {
+    const flag = monthFlags().get(rec.id);
+    if (flag) return { label: flag, cls: 'orange' };
     const kind = readingKind(rec);
     const u = usage(rec);
     const label = kind || (u.length && u.every(x => x.diff === null) ? '第一次抄表' : '');
     return label ? { label, cls: 'gray' } : null;
   }
 
-  // 表單上結算月份下面：這台設備這個月已經抄過了（重抄、換機時還是可以存）
+  // 表單上結算月份下面：這台設備在這個位置這個月已經抄過了；比之前那筆的月份早、比之後那筆的月份晚（都還是可以存）
   //   空白時：寫這筆是起點還是順便抄；撤機那天的順便抄提醒要填（撤機前最後一次要結帳，不然這一段不算）
   function monthNote(values) {
     if (!values.month) {
@@ -580,8 +630,16 @@ const Records = (() => {
       return kind ? `空白＝${kind}，不算帳` : '空白＝不算帳';
     }
     if (!values.device) return '';
-    const dup = of('readings', values.device).find(r => r.id !== values.id && r.month === values.month);
-    return dup ? { text: `這個月已經抄過了（${shortDate(dup.date)}）`, warn: true } : '';
+    const date = String(values.date ?? '');
+    const here = key(locationAt(values.device, date));
+    const others = readingLines().get(key(values.device))?.filter(r => r.id !== values.id && r.month) || [];
+    const dup = others.find(r => r.month === values.month && key(locationAt(r.device, r.date)) === here);
+    if (dup) return { text: `這個月已經抄過了（${shortDate(dup.date)}）`, warn: true };
+    if (!date) return '';
+    const before = others.filter(r => String(r.date ?? '') < date && r.month > values.month).at(-1);
+    if (before) return { text: `比 ${shortDate(before.date)} 那筆的月份早`, warn: true };
+    const after = others.find(r => String(r.date ?? '') > date && r.month < values.month);
+    return after ? { text: `比 ${shortDate(after.date)} 那筆的月份晚`, warn: true } : '';
   }
 
   // 表單上張數欄位下面（兩行）：上次的張數，打了這次的張數後寫本期用量；比上次少時提醒（還是可以存）
@@ -601,17 +659,10 @@ const Records = (() => {
   //   同一個位置同一個結算月份有好幾筆（換機那個月、倉庫）加起來；第一次抄表、比上次少的（換主機板）不算
   //   一次把全部的位置算好（位置頁每張卡片都要，一個一個找太慢）：Map(位置編號 → [{ month, months, bw, color, total }]，舊到新)
   const monthIndex = m => { const [y, mo] = String(m).split('-').map(Number); return y * 12 + mo - 1; };
-  function usageByPlace() {
-    const at = locator();
-    const lines = new Map();
-    [...Store.list('readings')].sort(byMeter).forEach(r => {
-      const k = key(r.device);
-      if (!k) return;
-      if (!lines.has(k)) lines.set(k, []);
-      lines.get(k).push(r);
-    });
+  const usageByPlace = () => cached('usage', placeUsages);
+  function placeUsages() {
     const out = new Map();
-    lines.forEach(line => {
+    readingLines().forEach(line => {
       const last = {}; // 每一種張數上一次抄表的那一筆
       line.forEach(r => {
         if (!r.month && !isStart(r)) return;
@@ -621,7 +672,7 @@ const Records = (() => {
           const prev = diffs[0][2];
           const months = prev.month ? monthIndex(r.month) - monthIndex(prev.month)
             : Math.round((Date.parse(r.date) - Date.parse(prev.date)) / (30.44 * 86400000));
-          const place = key(at(r.device, r.date));
+          const place = key(locationAt(r.device, r.date));
           if (!out.has(place)) out.set(place, new Map());
           const byMonth = out.get(place);
           if (!byMonth.has(r.month)) byMonth.set(r.month, { month: r.month, months: 0, bw: null, color: null });
@@ -750,34 +801,14 @@ const Records = (() => {
     return before ? { bw: before.bw, color: before.color, approx: true } : null;
   }
 
-  // 一次準備好每台機器的張數、保養、異動（總覽每個位置都要算）
-  function consumeContext() {
-    const byDevice = (rows, order = byDate('date')) => {
-      const m = new Map();
-      rows.forEach(r => {
-        const k = key(r.device);
-        if (!k) return;
-        if (!m.has(k)) m.set(k, []);
-        m.get(k).push(r);
-      });
-      m.forEach(l => l.sort(order));
-      return m;
-    };
-    const devicesAt = new Map();
-    Store.list('devices').forEach(d => {
-      const k = key(d.location);
-      if (!k) return;
-      if (!devicesAt.has(k)) devicesAt.set(k, []);
-      devicesAt.get(k).push(d);
-    });
-    return {
-      points: byDevice([...Store.list('readings'), ...WORKS.flatMap(t => Store.list(t)).filter(r => COUNTS.some(([c]) => isNum(r[c])))], byMeter),
-      works: byDevice(Store.list('maintenance')),
-      moves: byDevice(Store.list('moves')),
-      devicesAt,
-      items: Store.list('options').filter(o => o.list === '保養項目'),
-    };
-  }
+  // 每台機器的張數、保養、異動（總覽每個位置都要算）
+  const consumeContext = () => cached('consume', () => ({
+    points: meterLines(),
+    works: groupBy(Store.list('maintenance'), 'device', byDate('date')),
+    moves: moveLines(),
+    devicesAt: devicesAt(),
+    items: Store.list('options').filter(o => o.list === '保養項目'),
+  }));
 
   // 這個位置現在那台機器的耗材：[{ item, kind, life, lifeSet, avg, count, start, used, pct, eta, over, soon, approx }]
   //   只列換過的、或有設定壽命的；倉庫、空著的位置、一格放好幾台的不算
@@ -923,11 +954,10 @@ const Records = (() => {
   const CYCLE_MONTHS = { 每月: 1, 雙月: 2, 每季: 3, 半年: 6, 每年: 12 };
   const cycleOf = c => (CYCLE_MONTHS[String(c?.cycle ?? '').trim()] ? String(c.cycle).trim() : '每月');
   function readingsDue() {
-    const at = locator();
     const billed = new Map(); // 位置編號 → 最後一次算帳的結算月份
     Store.list('readings').forEach(r => {
       if (!r.month || !key(r.device)) return;
-      const p = key(at(r.device, r.date));
+      const p = key(locationAt(r.device, r.date));
       if (String(r.month) > (billed.get(p) || '')) billed.set(p, String(r.month));
     });
     const contracts = currentContracts();

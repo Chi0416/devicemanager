@@ -2,6 +2,7 @@
 //   連結 Google 試算表時（見 sync.js）：試算表是正本，這裡是副本
 //     每次修改都記在待同步清單（哪張表的哪一筆、新增修改或刪除），同步成功後清掉
 //     onChange() 註冊的函式在每次修改後立刻呼叫（還在使用者點擊的當下，可以跳出登入視窗）
+//   版本號（version）：資料每改一次加 1；records.js 一次整理好的資料（每台設備的紀錄…）看它要不要重新整理
 const Store = (() => {
   const PREFIX = 'devmgr.'; // 這台裝置上存的東西都用這個開頭（和同一個網址底下的其他 App 分開，登出時一起清掉）
   const KEY = `${PREFIX}v1`;
@@ -85,11 +86,13 @@ const Store = (() => {
   }
 
   const listeners = [];
-  const changed = () => listeners.forEach(fn => fn());
+  let version = 0;
+  const changed = () => { version++; listeners.forEach(fn => fn()); };
 
   return {
     PREFIX,
     get available() { return available; },
+    get version() { return version; },
 
     list(table) {
       return data[table];
@@ -171,6 +174,7 @@ const Store = (() => {
       } catch (_) {}
       data = blank();
       sync = { pending: {}, v: 0, full: false };
+      version++;
     },
 
     // 匯入 data.json、以 Google 為主：加入檔案裡這台沒有的（[{ table, rec }]，見 records.js 的 fileOnly），標成待同步
@@ -257,6 +261,7 @@ const Store = (() => {
       out.lastExportAt = data.lastExportAt;
       out.toner = data.toner;
       data = normalize(out);
+      version++;
       persist();
     },
 
@@ -266,6 +271,7 @@ const Store = (() => {
       data = normalize(remote);
       Object.assign(data, { lastExportAt, toner });
       sync = { pending: {}, v: sync.v, full: false };
+      version++;
       persist();
     },
   };

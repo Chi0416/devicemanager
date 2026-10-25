@@ -60,9 +60,13 @@
   Object.values(lists).forEach(l => $('panels').appendChild(l.el));
   let current = 'devices';
 
+  // 沒在看的頁先記著，切過去時才重畫（每存一筆不用把每一頁都畫一次）
+  const stale = new Set();
+  const refreshList = (k, l) => (l.el.hidden ? stale.add(k) : l.refresh());
+
   // 新增、修改、刪除之後：那一頁重畫，剛改的那筆閃一下；其他頁也重畫（清單改名時設備跟著改、異動改了設備的位置跟著改）
   function onChanged(key, rec) {
-    Object.entries(lists).forEach(([k, l]) => (k === key ? l.changed(rec) : l.refresh()));
+    Object.entries(lists).forEach(([k, l]) => (k === key ? l.changed(rec) : refreshList(k, l)));
     Detail.changed(key, rec);
     Place.changed(key, rec);
     Lists.refresh();
@@ -111,6 +115,7 @@
     }
     tabBtns.forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === group.key)));
     Object.entries(lists).forEach(([k, l]) => { l.el.hidden = k !== key; });
+    if (stale.delete(key)) lists[key].refresh();
     try { localStorage.setItem(TAB_KEY, key); } catch (_) {}
   }
 
@@ -127,7 +132,7 @@
   addBtn.addEventListener('click', () => { if (ADD[current]) Form.open(ADD[current][0], null); });
 
   const refreshAll = () => {
-    Object.values(lists).forEach(l => l.refresh());
+    Object.entries(lists).forEach(([k, l]) => refreshList(k, l));
     Detail.refresh();
     Place.refresh();
   };

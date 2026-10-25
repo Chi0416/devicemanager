@@ -1,4 +1,6 @@
 // 共用小工具：格式轉換、跳脫、產生 id
+// 千分位的格式（依最少小數位各建一個重複用；每次 toLocaleString 都會重建一個，列表一長就慢）
+const NUM_FORMATS = new Map();
 const U = {
   pad2(n) {
     return String(n).padStart(2, '0');
@@ -58,10 +60,13 @@ const U = {
   // 千分位顯示；minDigits 為最少小數位，最多顯示 4 位
   fmtNum(n, minDigits = 0) {
     if (typeof n !== 'number' || !Number.isFinite(n)) return '';
-    return n.toLocaleString('zh-TW', {
-      minimumFractionDigits: minDigits,
-      maximumFractionDigits: Math.max(minDigits, 4),
-    });
+    if (!NUM_FORMATS.has(minDigits)) {
+      NUM_FORMATS.set(minDigits, new Intl.NumberFormat('zh-TW', {
+        minimumFractionDigits: minDigits,
+        maximumFractionDigits: Math.max(minDigits, 4),
+      }));
+    }
+    return NUM_FORMATS.get(minDigits).format(n);
   },
 
   weekday(iso) {
