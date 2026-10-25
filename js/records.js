@@ -297,7 +297,7 @@ const Records = (() => {
   // 存了異動之後，設備的狀態改成這一筆的狀態；回傳改到的設備 [{ table, id }]
   //   只有這台設備最新的一筆才改（補登以前的異動不會改）
   //   新增、改了狀態或設備時才改：只改備註時不會蓋掉後來自己改的狀態
-  //   刪掉異動時不會改回去（位置會），要自己改
+  //   刪掉異動時不會改回去（位置會），要自己改（對不上的總覽「要處理」會列，見 statusMismatch）
   function applyMoveStatus(before, after) {
     const s = String(after?.status ?? '').trim();
     if (!s) return [];
@@ -926,7 +926,7 @@ const Records = (() => {
     return { text: n <= 1 && t.time ? `${agoText(n)} ${t.time}` : agoText(n), tone: reportTone(n) };
   }
 
-  // ---------- 總覽的要處理：回報停了、該抄表了 ----------
+  // ---------- 總覽的要處理：回報停了、該抄表了、狀態和位置對不上 ----------
   // 只看現在放在客戶那裡的機器：不是倉庫、沒停用的位置；報廢這類（狀態勾「不用提醒」）的不算
   function placedDevices() {
     const quiet = quietSet();
@@ -942,6 +942,17 @@ const Records = (() => {
       const report = latestReport(x.device, list);
       return { ...x, id: x.device.id, report, days: reportDays(report) };
     }).filter(x => x.days !== null && x.days > REPORT_OLD).sort((a, b) => b.days - a.days || byPlaceName(a, b));
+  }
+
+  // 狀態和位置對不上：出租中卻放在倉庫、庫存卻放在客戶那裡（照異動帶的狀態：安裝帶出租中、撤機帶庫存）
+  //   刪掉異動、在試算表裡改了異動時，位置會跟著算，狀態不會（見 applyMoveStatus），列出來自己改
+  //   維修中、報廢這類放在哪裡都可以；沒有位置的（剛買的）不算；依位置名稱排
+  //   [{ id, device, place, status }]
+  function statusMismatch() {
+    const atStock = new Map([[MOVE_STATUS.安裝, false], [MOVE_STATUS.撤機, true]]); // 這個狀態的機器該放在倉庫嗎
+    return Store.list('devices').map(d => ({ id: d.id, device: d, place: place(d.location), status: statusOf(d) }))
+      .filter(x => x.place && atStock.has(x.status) && atStock.get(x.status) !== !!x.place.stock)
+      .sort(byPlaceName);
   }
 
   // 該抄表了：照合約的抄表週期，該抄的結算月份過完再 10 天還沒有抄表（每月 5 日抄上個月的來得及）
@@ -1198,7 +1209,7 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, counterText, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
-    TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue,
+    TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
   };
 })();
