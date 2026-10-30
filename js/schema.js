@@ -399,7 +399,7 @@ const SCHEMAS = {
     once: true,
     // 結算月份空白的（起點、順便抄）：照抄表日期排，標題寫「結算月份空白」
     period: { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' },
-    // 卡片：標題寫哪天抄（列表依結算月份分組），右上角起點、順便抄；下面黑白、彩色兩欄（使用量、計數器），最下面備註
+    // 卡片：標題寫哪天抄（列表依結算月份分組），右上角裝機抄表、順便抄；下面黑白、彩色兩欄（使用量、計數器），最下面備註
     card: { title: r => (r.date ? `${U.fmtDate(r.date)} 抄` : '抄表'), grid: [], cols: r => Records.readingCols(r) },
     status: r => Records.readingTag(r),
     note: r => Records.noteLine(r.note),

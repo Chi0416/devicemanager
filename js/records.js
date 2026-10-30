@@ -387,7 +387,7 @@ const Records = (() => {
     return {
       table: 'readings',
       preset: { device: r.device, date: r.date },
-      message: r.type === '安裝' ? '已存好安裝。接著抄表：這天的張數是起點，結算月份可以空白' : '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份',
+      message: r.type === '安裝' ? '已存好安裝。接著抄表：這天是裝機抄表，結算月份可以空白' : '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份',
     };
   }
 
@@ -572,11 +572,11 @@ const Records = (() => {
     }
     const has = u.filter(x => x.diff !== null);
     if (has.length) return { text: `使用量 ${has.map(x => `${x.label} ${fmt(x.diff)}`).join('・')}`, warn: false };
-    return u.length ? { text: '第一次抄表', warn: false } : null;
+    return u.length ? { text: '沒有上次', warn: false } : null;
   }
 
   // 結算月份空白的抄表（都不算帳）：起點或順便抄
-  //   起點：機器放到這個位置之後的第一筆抄表（安裝、移機、換機進來那天抄的；沒有異動的是這台的第一筆），下一次抄表從它算起
+  //   起點（標籤寫「裝機抄表」）：機器放到這個位置之後的第一筆抄表（安裝、移機、換機進來那天抄的；沒有異動的是這台的第一筆），下一次抄表從它算起
   //   順便抄：其他空白的（路過順便抄、自動抄表的測試）；跟保養填的張數一樣只是記下來，一期不會被切成兩段
   function isStart(rec) {
     const date = String(rec.date ?? '');
@@ -586,7 +586,7 @@ const Records = (() => {
     const before = rec.id ? r => byMeter(r, rec) < 0 : r => cmp(String(r.date ?? ''), date) <= 0;
     return !of('readings', rec.device).some(r => r.id !== rec.id && String(r.date ?? '') >= arrive && before(r));
   }
-  const readingKind = rec => (rec.month || !key(rec.device) ? '' : isStart(rec) ? '起點' : '順便抄');
+  const readingKind = rec => (rec.month || !key(rec.device) ? '' : isStart(rec) ? '裝機抄表' : '順便抄');
 
   // 結算月份選錯（日期、張數都對，「比上次少」抓不到，用量會算到別的月份）：Map(抄表的 id → '月份重複' 或 '月份順序不對')
   //   月份重複：這台在同一個位置有兩筆一樣的結算月份（撤機那天在原客戶結帳、同一個月裝到新客戶結帳的不算）
@@ -624,7 +624,7 @@ const Records = (() => {
     : diff < 0 ? { use: '比上次少', tone: 'warn' } : { use: `${approx ? '約 ' : ''}${fmt(diff)}`, tone: '' });
 
   // 抄表卡片的黑白、彩色兩欄（使用量粗體、計數器灰字，見 list.js）[{ label, use, tone, count }]
-  //   使用量跟算帳一樣（見 usage）；起點、順便抄、第一次抄表寫「—」（右上角標籤寫是哪一種，見 readingTag）
+  //   使用量跟算帳一樣（見 usage）；裝機抄表、順便抄、沒有上次寫「—」（右上角標籤寫是哪一種，見 readingTag）
   //   比之前有記張數的任何一筆少時橘字（保養填的也算）
   function readingCols(rec) {
     const kind = readingKind(rec);
@@ -634,13 +634,13 @@ const Records = (() => {
       count: fmt(rec[x.k]),
     }));
   }
-  // 抄表卡片右上角的標籤：結算月份選錯（橘色，見 monthFlags）；起點、順便抄、第一次抄表（都不算本期）
+  // 抄表卡片右上角的標籤：結算月份選錯（橘色，見 monthFlags）；裝機抄表、順便抄、沒有上次（填了結算月份，但這台之前沒有抄表可以比；都算不出使用量）
   function readingTag(rec) {
     const flag = monthFlags().get(rec.id);
     if (flag) return { label: flag, cls: 'orange' };
     const kind = readingKind(rec);
     const u = usage(rec);
-    const label = kind || (u.length && u.every(x => x.diff === null) ? '第一次抄表' : '');
+    const label = kind || (u.length && u.every(x => x.diff === null) ? '沒有上次' : '');
     return label ? { label, cls: 'gray' } : null;
   }
 
