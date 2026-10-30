@@ -472,7 +472,7 @@ test('合約：「重新簽約」新增一份，帶入位置、內容、計費�
 });
 
 // ---------- 抄表 ----------
-test('抄表：本期用量＝這次減上一次，保養、翻新填的張數一起排；比上一次少時提醒', () => {
+test('抄表：使用量跟算帳一樣，這次減上一次抄表（保養填的張數不算）；比上一次少時提醒（保養填的也算）', () => {
   const { Records, add } = withDevices();
   const r1 = add('readings', { device: '24-0001', date: '2026-07-25', bw: 10000, color: 500 });
   const s1 = add('maintenance', { device: '24-0001', date: '2026-08-10', item: '碳粉 K', bw: 10800 });
@@ -480,10 +480,10 @@ test('抄表：本期用量＝這次減上一次，保養、翻新填的張數�
   const r3 = add('readings', { device: '24-0001', date: '2026-09-25', bw: 11200, color: 700 });
   add('readings', { device: '25-0001', date: '2026-08-01', bw: 1 }); // 別台的不算
   assert.deepEqual(plain(Records.usageNote(r1)), { text: '第一次抄表', warn: false });
-  assert.deepEqual(plain(Records.usageNote(r2)), { text: '本期 黑白 700・彩色 120', warn: false }); // 黑白跟保養時的 10,800 比
+  assert.deepEqual(plain(Records.usageNote(r2)), { text: '使用量 黑白 1,500・彩色 120', warn: false }); // 跟 07/25 抄表比，中間保養的 10,800 不算
   assert.deepEqual(plain(Records.usageNote(r3)), { text: '黑白比上一次少（上次 11,500，2026/08/25）', warn: true });
   // 卡片的黑白、彩色兩格：比上一次少的橘字（順便抄也提醒）
-  assert.deepEqual(plain(Records.readingCols(r3))[0], { label: '黑白', main: '比上次少', tone: 'warn', sub: '計數器 11,200' });
+  assert.deepEqual(plain(Records.readingCols(r3))[0], { label: '黑白', use: '比上次少', tone: 'warn', count: '11,200' });
   assert.equal(Records.countsText(s1), '黑白 10,800');
   assert.equal(Records.latest('readings', '24-0001', 'date').id, r3.id);
 });
@@ -495,20 +495,21 @@ test('抄表：同一天好幾筆（自動抄表一天寄好幾封）照張數�
   const c = add('readings', { id: 'm1', device: '24-0001', date: '2026-10-20', bw: 122962, color: 2862 });
   const b = add('readings', { id: 'm2', device: '24-0001', date: '2026-10-20', bw: 122961, color: 2862 });
   const a = add('readings', { id: 'm3', device: '24-0001', date: '2026-10-20', bw: 122957, color: 2862 });
-  assert.deepEqual(plain(Records.usageNote(a)), { text: '本期 黑白 957・彩色 62', warn: false });
-  assert.deepEqual(plain(Records.usageNote(b)), { text: '本期 黑白 4・彩色 0', warn: false });
-  assert.deepEqual(plain(Records.usageNote(c)), { text: '本期 黑白 1・彩色 0', warn: false });
-  assert.equal(Records.countNote({ ...b, bw: '122961' }, 'bw'), '上次 122,957（10/20）\n本期 4');
+  assert.deepEqual(plain(Records.usageNote(a)), { text: '使用量 黑白 957・彩色 62', warn: false });
+  // 同一天的是順便抄：使用量都跟 10/01 結算的那筆比；照張數排才不會說比上次少
+  assert.deepEqual(plain(Records.usageNote(b)), { text: '使用量 黑白 961・彩色 62', warn: false });
+  assert.deepEqual(plain(Records.usageNote(c)), { text: '使用量 黑白 962・彩色 62', warn: false });
+  assert.equal(Records.countNote({ ...b, bw: '122961' }, 'bw'), '上次 122,000（10/01）\n使用量 961');
   // 新增：同一天的都算之前，打得比較少就提醒
   assert.deepEqual(plain(Records.countNote({ device: '24-0001', date: '2026-10-20', bw: '122950', id: null }, 'bw')),
     { text: '上次 122,962（10/20）\n比上次少', warn: true });
 });
 
-test('抄表：表單上寫上次的張數和本期用量；新增時同一天的都算之前，編輯時不跟自己比', () => {
+test('抄表：表單上寫上次的張數和使用量；新增時同一天的都算之前，編輯時不跟自己比', () => {
   const { Records, add } = withDevices();
   const r1 = add('readings', { device: '24-0001', date: '2026-08-25', bw: 11500, color: 620 });
-  // 兩行：上次（今年的日期不寫年）／本期或比上次少
-  assert.equal(Records.countNote({ device: '24-0001', date: '2026-09-25', bw: '12,000', id: null }, 'bw'), '上次 11,500（08/25）\n本期 500');
+  // 兩行：上次（今年的日期不寫年）／使用量或比上次少
+  assert.equal(Records.countNote({ device: '24-0001', date: '2026-09-25', bw: '12,000', id: null }, 'bw'), '上次 11,500（08/25）\n使用量 500');
   assert.deepEqual(plain(Records.countNote({ device: '24-0001', date: '2026-08-25', bw: '11000', id: null }, 'bw')),
     { text: '上次 11,500（08/25）\n比上次少', warn: true });
   assert.equal(Records.countNote({ device: '24-0001', date: '2026-09-25', color: '', id: null }, 'color'), '上次 620（08/25）');
@@ -537,11 +538,11 @@ test('抄表的結算月份：自己選、不預設，空白是安裝當天的�
   assert.deepEqual(plain(SCHEMAS.readings.period),
     { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' });
   assert.equal(SCHEMAS.readings.card.title(r2), '2026/10/28 抄');
-  assert.deepEqual(plain(Records.readingCols(r2)), [{ label: '黑白', main: '本期 500', tone: '', sub: '計數器 1,500' }]);
+  assert.deepEqual(plain(Records.readingCols(r2)), [{ label: '黑白', use: '500', tone: '', count: '1,500' }]);
   assert.equal(Records.readingTag(r2), null);
   // 第一次抄表：本期寫「—」，右上角標籤
   assert.deepEqual(plain(Records.readingTag(r1)), { label: '第一次抄表', cls: 'gray' });
-  assert.deepEqual(plain(Records.readingCols(r1)), [{ label: '黑白', main: '—', tone: 'muted', sub: '計數器 1,000' }]);
+  assert.deepEqual(plain(Records.readingCols(r1)), [{ label: '黑白', use: '—', tone: 'muted', count: '1,000' }]);
   assert.equal(Records.describe('readings', r1), '#1001 2026/09 抄表');
 });
 
@@ -557,7 +558,7 @@ test('結算月份空白：機器放到這個位置後第一次抄的是起點�
   const a3 = read('24-0001', '2026-09-10', '', 2500);
   assert.deepEqual(plain(Records.readingTag(a1)), { label: '起點', cls: 'gray' });
   assert.deepEqual(plain(Records.readingTag(a3)), { label: '順便抄', cls: 'gray' });
-  assert.deepEqual(plain(Records.readingCols(a3)), [{ label: '黑白', main: '—', tone: 'muted', sub: '計數器 2,500' }]);
+  assert.deepEqual(plain(Records.readingCols(a3)), [{ label: '黑白', use: '—', tone: 'muted', count: '2,500' }]);
   // 9/15 換機：#1001 撤機那天的抄表空白時提醒要填；換上去的 #1002 那天抄的是起點
   moved('24-0001', '2026-09-15', '撤機', DH, WH);
   moved('25-0001', '2026-09-15', '安裝', WH, DH);
@@ -590,7 +591,7 @@ test('結算月份選錯：日期比較晚的月份反而早、同一個位置�
   // 張數一直變多，「比上次少」抓不到
   assert.deepEqual(tag(aug), { label: '月份順序不對', cls: 'orange' });
   assert.equal(tag(jul), null);
-  assert.deepEqual(plain(Records.readingUse(aug)), { text: '月份順序不對・本期 黑白 3,000', warn: true });
+  assert.deepEqual(plain(Records.readingUse(aug)), { text: '月份順序不對・使用量 黑白 3,000', warn: true });
   assert.deepEqual(plain(note(aug)), { text: '比 07/25 那筆的月份早', warn: true });
   assert.deepEqual(plain(note(jul)), { text: '比 08/25 那筆的月份晚', warn: true });
   Store.update('readings', jul.id, { month: '2026-07' });
@@ -619,14 +620,14 @@ test('結算月份選錯：日期比較晚的月份反而早、同一個位置�
 test('一次整理好的資料（每台的紀錄、異動、張數）：新增、補登、修改、刪除、改設備編號、匯入之後都跟著變；拿到的陣列改了不影響', () => {
   const { Store, Records, add, d1 } = withDevices();
   add('readings', { device: '24-0001', date: '2026-07-25', bw: 1000 });
-  const r3 = add('readings', { device: '24-0001', date: '2026-09-25', bw: 3000 });
-  assert.equal(Records.usageNote(r3).text, '本期 黑白 2,000');
-  const r2 = add('readings', { device: '24-0001', date: '2026-08-25', bw: 2400 }); // 補登中間那筆
-  assert.equal(Records.usageNote(r3).text, '本期 黑白 600');
+  const r3 = add('readings', { device: '24-0001', date: '2026-09-25', month: '2026-09', bw: 3000 });
+  assert.equal(Records.usageNote(r3).text, '使用量 黑白 2,000');
+  const r2 = add('readings', { device: '24-0001', date: '2026-08-25', month: '2026-08', bw: 2400 }); // 補登中間那筆
+  assert.equal(Records.usageNote(r3).text, '使用量 黑白 600');
   Store.update('readings', r2.id, { bw: 2500 });
-  assert.equal(Records.usageNote(r3).text, '本期 黑白 500');
+  assert.equal(Records.usageNote(r3).text, '使用量 黑白 500');
   Store.remove('readings', r2.id);
-  assert.equal(Records.usageNote(r3).text, '本期 黑白 2,000');
+  assert.equal(Records.usageNote(r3).text, '使用量 黑白 2,000');
   Records.of('readings', '24-0001').reverse();
   assert.deepEqual(plain(Records.of('readings', '24-0001').map(r => r.bw)), [1000, 3000]);
   // 設備改了編號：紀錄還寫舊的，找不到設備
@@ -668,11 +669,11 @@ test('抄表列表的速度：100 台每月抄、兩年（2,500 筆），每張�
     SCHEMAS.readings.status(r);
   });
   assert.ok(Date.now() - t < 2000, `${Date.now() - t} ms`);
-  assert.equal(Records.readingCols(Store.list('readings').at(-1))[0].main, '本期 3,000');
+  assert.equal(Records.readingCols(Store.list('readings').at(-1))[0].use, '3,000');
 });
 
 // ---------- 保養、翻新 ----------
-test('保養、翻新：卡片標題和最下面一行；保養的張數算進抄表用量', () => {
+test('保養、翻新：卡片標題和最下面一行；保養填的張數不算進抄表的使用量（跟算帳一樣）', () => {
   const { Records, SCHEMAS, add } = withDevices();
   const k = add('maintenance', { device: '24-0001', date: '2026-09-10', item: '碳粉 K', bw: 12000, color: 100, note: '客戶說卡紙\n第二行' });
   const p = add('maintenance', { device: '24-0001', date: '2026-09-10', item: '感光鼓' }); // 同一趟換的第二樣
@@ -684,18 +685,98 @@ test('保養、翻新：卡片標題和最下面一行；保養的張數算進�
   assert.deepEqual(plain(Records.workNote(k)), { text: '黑白 12,000・彩色 100・客戶說卡紙', warn: false });
   assert.deepEqual(plain(Records.refurbNote(f)), { text: '2026/09/25 入庫・陳志明・日・噴漆・廠商或來源 日本拍賣', warn: false });
   assert.equal(Records.workNote(p), null);
-  // 保養卡片：標題下面寫計數器，備註另外一行
-  assert.equal(SCHEMAS.maintenance.card.sub(k), '計數器 黑白 12,000・彩色 100');
+  // 保養卡片：標題下面黑白、彩色兩欄（第一次換碳粉 K，使用量寫「—」），備註另外一行；沒填張數的不寫
+  assert.deepEqual(plain(SCHEMAS.maintenance.card.cols(k)), [
+    { label: '黑白', use: '—', tone: 'muted', count: '12,000' }, { label: '彩色', use: '—', tone: 'muted', count: '100' }]);
   assert.deepEqual(plain(SCHEMAS.maintenance.note(k)), { text: '客戶說卡紙', warn: false });
-  assert.equal(SCHEMAS.maintenance.card.sub(p), '');
+  assert.deepEqual(plain(SCHEMAS.maintenance.card.cols(p)), []);
   // 列表同一個月裡照日期排（不是照新增的先後）
   for (const t of ['moves', 'contracts', 'maintenance', 'refurbs']) assert.equal(SCHEMAS[t].period.then, SCHEMAS[t].period.key, t);
-  assert.deepEqual(plain(Records.usageNote(r)), { text: '本期 黑白 600', warn: false });
+  assert.deepEqual(plain(Records.usageNote(r)), { text: '第一次抄表', warn: false }); // 之前只有保養填的 12,000，不算
   assert.equal(Records.describe('maintenance', k), '#1001 2026/09/10 碳粉 K');
   assert.equal(Records.describe('refurbs', f), '#1001 2026/09/20 翻新');
   // 保養只記在哪裡換了哪個：沒有廠商、費用；連續新增時日期留著
   assert.deepEqual(plain(SCHEMAS.maintenance.fields.map(x => x.key)), ['device', 'date', 'item', 'bw', 'color', 'note']);
   assert.deepEqual(plain(SCHEMAS.maintenance.fields.filter(x => x.keep).map(x => x.key)), ['date']);
+});
+
+test('保養卡片的使用量：裝到這裡之後還沒換過的從安裝那天的讀數算；在別的客戶那裡換的不算；倉庫、裝進來當天換的寫「—」；補登了跟著變', () => {
+  const { Records, SCHEMAS, add } = withDevices();
+  const use = r => plain(SCHEMAS.maintenance.card.cols(r)).map(c => c.use);
+  // 先在安心診所，換過碳粉 K；08/05 移機到大華（起點 185,000）
+  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: AX });
+  add('maintenance', { device: '24-0001', date: '2026-05-01', item: '碳粉 K', bw: 150000 });
+  add('moves', { device: '24-0001', date: '2026-08-05', type: '移機', from: AX, to: DH });
+  Records.syncLocations();
+  add('readings', { device: '24-0001', date: '2026-08-05', bw: 185000 });
+  const k = add('maintenance', { device: '24-0001', date: '2026-10-05', item: '碳粉 K', bw: 190000 });
+  assert.deepEqual(use(k), ['5,000']); // 不是跟 05/01 在安心換的 150,000 比
+  assert.equal(Records.itemNote(k), '安裝 08/05\n到現在約 5,000 張');
+  // 補登 09/01 在大華換過：改成跟它比
+  add('maintenance', { device: '24-0001', date: '2026-09-01', item: '碳粉 K', bw: 187000 });
+  assert.deepEqual(use(k), ['3,000']);
+  // 別的項目也一樣，從安裝那天算
+  const drum = add('maintenance', { device: '24-0001', date: '2026-10-06', item: '感光鼓', bw: 190100 });
+  assert.deepEqual(use(drum), ['5,100']);
+  // 裝進來當天換的、在倉庫換的：沒有起點
+  const same = add('maintenance', { device: '24-0001', date: '2026-08-05', item: '廢粉盒', bw: 185000 });
+  assert.deepEqual(use(same), ['—']);
+  add('moves', { device: '24-0001', date: '2026-10-20', type: '撤機', from: DH, to: WH });
+  Records.syncLocations();
+  const wh = add('maintenance', { device: '24-0001', date: '2026-10-25', item: '清潔保養', bw: 191000 });
+  assert.deepEqual(use(wh), ['—']);
+  // 25-0001 沒有異動、也沒換過：「—」；補登 09/01 安裝：那天沒抄表，照前後兩次推算（約 4,273），寫「約」
+  const other = add('maintenance', { device: '25-0001', date: '2026-10-05', item: '碳粉 K', bw: 5000 });
+  assert.deepEqual(use(other), ['—']);
+  add('moves', { device: '25-0001', date: '2026-09-01', type: '安裝', from: WH, to: AX });
+  Records.syncLocations();
+  add('readings', { device: '25-0001', date: '2026-08-20', bw: 4000 });
+  add('readings', { device: '25-0001', date: '2026-09-11', bw: 4500 });
+  assert.deepEqual(use(other), ['約 727']);
+});
+
+test('抄表卡片的使用量跟算帳一樣：中間保養填的張數、順便抄都不算；同一天先記保養也不會變 0', () => {
+  const { Records, SCHEMAS, add } = withDevices();
+  add('moves', { device: '24-0001', date: '2026-08-05', type: '安裝', from: WH, to: DH });
+  Records.syncLocations();
+  add('readings', { device: '24-0001', date: '2026-08-05', bw: 185000 }); // 安裝當天的起點
+  const b = add('readings', { device: '24-0001', date: '2026-09-05', month: '2026-08', bw: 187600 });
+  add('maintenance', { device: '24-0001', date: '2026-09-20', item: '碳粉 K', bw: 189000 });
+  add('readings', { device: '24-0001', date: '2026-09-25', bw: 189500 }); // 順便抄
+  add('maintenance', { device: '24-0001', date: '2026-10-05', item: '感光鼓', bw: 190000 }); // 同一天先記保養，張數一樣
+  const c = add('readings', { device: '24-0001', date: '2026-10-05', month: '2026-09', bw: 190000 });
+  assert.equal(Records.readingCols(b)[0].use, '2,600');
+  assert.equal(Records.readingCols(c)[0].use, '2,400');
+  assert.equal(Records.placeUsage(DH).at(-1).bw, 2400);
+  assert.deepEqual(plain(Records.usageNote(c)), { text: '使用量 黑白 2,400', warn: false });
+  // 表單（10/04 新增）：上次寫 09/05 那筆結算的，使用量跟卡片一樣；比順便抄、保養填的少照樣提醒
+  const bw = SCHEMAS.readings.fields.find(f => f.key === 'bw');
+  assert.equal(bw.note({ device: '24-0001', date: '2026-10-04', bw: '190,300', id: null }), '上次 187,600（09/05）\n使用量 2,700');
+  assert.deepEqual(plain(bw.note({ device: '24-0001', date: '2026-10-04', bw: '189,400', id: null })), { text: '上次 189,500（09/25）\n比上次少', warn: true });
+});
+
+test('保養卡片的使用量：上次換同一項到這次（黑白、彩色分開）；上次沒填張數的照抄表推算寫「約」；比上次少橘字；表單張數下面不寫使用量', () => {
+  const { Records, SCHEMAS, add } = withDevices();
+  const cols = r => plain(SCHEMAS.maintenance.card.cols(r)).map(c => [c.label, c.use, c.tone, c.count]);
+  add('readings', { device: '24-0001', date: '2026-06-01', bw: 100000, color: 5000 });
+  add('readings', { device: '24-0001', date: '2026-08-01', month: '2026-07', bw: 108000, color: 6000 });
+  const k1 = add('maintenance', { device: '24-0001', date: '2026-05-01', item: '碳粉 K', bw: 98000, color: 4800 });
+  add('maintenance', { device: '24-0001', date: '2026-07-01', item: '碳粉 C', bw: 104000, color: 5500 }); // 別的項目不算
+  const k2 = add('maintenance', { device: '24-0001', date: '2026-07-16', item: '碳粉 K', bw: 106000, color: 5800 });
+  assert.deepEqual(cols(k1), [['黑白', '—', 'muted', '98,000'], ['彩色', '—', 'muted', '4,800']]);
+  assert.deepEqual(cols(k2), [['黑白', '8,000', '', '106,000'], ['彩色', '1,000', '', '5,800']]);
+  // 上次沒填張數：照前後的張數推算（07/17 在 07/16 保養的 106,000 和 08/01 抄表的 108,000 中間：約 106,125）
+  const k3 = add('maintenance', { device: '24-0001', date: '2026-07-17', item: '感光鼓' });
+  const k4 = add('maintenance', { device: '24-0001', date: '2026-09-01', item: '感光鼓', bw: 110000 });
+  assert.deepEqual(cols(k3), []);
+  assert.deepEqual(cols(k4), [['黑白', '約 3,875', '', '110,000']]);
+  // 比上次少：橘字
+  const k5 = add('maintenance', { device: '24-0001', date: '2026-09-20', item: '碳粉 K', bw: 100000 });
+  assert.deepEqual(cols(k5), [['黑白', '比上次少', 'warn', '100,000']]);
+  // 表單：張數下面只寫上次的（抄表照樣寫使用量）；項目下面寫上次換到現在幾張
+  const typed = { device: '24-0001', date: '2026-08-15', item: '碳粉 K', bw: '112,000', id: null };
+  assert.equal(SCHEMAS.maintenance.fields.find(f => f.key === 'bw').note(typed), '上次 108,000（08/01）');
+  assert.equal(SCHEMAS.readings.fields.find(f => f.key === 'bw').note(typed), '上次 108,000（08/01）\n使用量 4,000');
 });
 
 test('翻新：翻新日期、入庫日、工程師（人員）、序號、國別（美／日）、廠商或來源、噴漆；沒有費用、張數', () => {
@@ -1010,7 +1091,8 @@ test('耗材：安裝那天當新的、每次換之間印幾張的平均、已�
     { text: '上次換 09/16，約 2,000 張\n比平均 7,000 少很多', warn: true });
   assert.equal(Records.itemNote({ device: '24-0001', item: '碳粉 K', date: '2026-10-10', bw: '120000', color: '0' }),
     '上次換 09/16\n到現在約 6,000 張');
-  assert.equal(Records.itemNote({ device: '24-0001', item: '碳粉 C', date: '2026-10-10' }), '');
+  // 還沒換過碳粉 C：從安裝那天算（這台彩色一直是 0）
+  assert.equal(Records.itemNote({ device: '24-0001', item: '碳粉 C', date: '2026-10-10' }), '安裝 06/01\n到現在約 0 張');
 });
 
 test('要處理：合約到期、快到期（重新簽約、提前結束、位置停用了就不算），保固 30 天內到期（報廢的不算），空著的位置', () => {

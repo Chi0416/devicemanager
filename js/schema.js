@@ -30,7 +30,7 @@
 //   note:        依表單目前填的內容，顯示在欄位下方的提醒：note(values) 回傳文字或 { text, warn }，不用提醒時回傳空字串
 //                values 是各欄位目前填的內容，另外 values.id 是正在編輯的那一筆的 id（新增時是 null）
 //                位置先留好，沒有提醒時也空著（提醒出現時表單不會跳）；文字要放得進 noteLines 行，多的會被截掉
-//   noteLines:   提醒留幾行（預設 1；張數的「上次…／本期…」是 2 行，用 \n 換行）
+//   noteLines:   提醒留幾行（預設 1；張數的「上次…／使用量…」是 2 行，用 \n 換行）
 //   clean:       存檔前整理打的字：clean(打的字, values) 回傳要存的值（主機板號碼補上 RNP、轉大寫；機型轉大寫）
 //                清單的名字：下拉選單的「＋ 新增」也照它整理（見 refs.js 的 quickAdd）
 //   calc:        依表單目前填的內容先填好：calc(values) 回傳要填的值，沒有時回傳空字串
@@ -213,7 +213,7 @@ const deviceField = (more = {}) => ({
 });
 const dateField = (key, label, more = {}) => ({ key, label, type: 'date', default: () => U.today(), ...more });
 const noteField = () => ({ key: 'note', label: '備註', type: 'text', optional: true, full: true, multiline: true });
-// 張數：下面寫上一次的張數和本期用量，比上一次少時提醒
+// 張數：下面寫上一次的張數和使用量，比上一次少時提醒
 const countField = (key, label, more = {}) => ({
   key, label, type: 'number', optional: true, note: v => Records.countNote(v, key), noteLines: 2, ...more,
 });
@@ -399,7 +399,7 @@ const SCHEMAS = {
     once: true,
     // 結算月份空白的（起點、順便抄）：照抄表日期排，標題寫「結算月份空白」
     period: { key: 'month', unit: 'month', label: '結算月份', then: 'date', fallback: 'date', emptyHead: '結算月份空白' },
-    // 卡片：標題寫哪天抄（列表依結算月份分組），右上角起點、順便抄；下面黑白、彩色兩格（本期、計數器），最下面備註
+    // 卡片：標題寫哪天抄（列表依結算月份分組），右上角起點、順便抄；下面黑白、彩色兩欄（使用量、計數器），最下面備註
     card: { title: r => (r.date ? `${U.fmtDate(r.date)} 抄` : '抄表'), grid: [], cols: r => Records.readingCols(r) },
     status: r => Records.readingTag(r),
     note: r => Records.noteLine(r.note),
@@ -421,7 +421,8 @@ const SCHEMAS = {
   maintenance: {
     title: '保養',
     period: recordMonth('date'),
-    card: { title: r => r.item || '保養', grid: [], sub: r => Records.counterText(r) },
+    // 卡片：標題寫項目；下面黑白、彩色兩欄（使用量：上次換同一項到這次，計數器），跟抄表卡片一樣排；最下面備註
+    card: { title: r => r.item || '保養', grid: [], cols: r => Records.workCols(r) },
     note: r => Records.noteLine(r.note),
     describe: r => Records.describe('maintenance', r),
     search: ['device', 'item', 'note'],
@@ -432,8 +433,9 @@ const SCHEMAS = {
       dateField('date', '日期', { keep: true }),
       // 下面寫這台上次換這一項是哪天、到現在印了幾張（換得太快時提醒）
       { key: 'item', label: '項目', type: 'ref', ref: 'options', list: '保養項目', note: v => Records.itemNote(v), noteLines: 2 },
-      countField('bw', '黑白張數'),
-      countField('color', '彩色張數'),
+      // 張數下面只寫上次的（使用量看項目下面的，見 records.js 的 countNote）
+      countField('bw', '黑白張數', { note: v => Records.countNote(v, 'bw', false) }),
+      countField('color', '彩色張數', { note: v => Records.countNote(v, 'color', false) }),
       noteField(),
     ],
   },

@@ -4,7 +4,8 @@
 //   schema.filter：上方一排篩選按鈕（依那個欄位的 toggle 或清單，例如設備的狀態），寫著每一種有幾筆
 //   schema.groups：上方的分組選單（不分組、依類別、依位置…），這台裝置記住上次選的
 //   schema.note：卡片最下面的一行（例如保固快到期）
-//   schema.card.cols(列)：標題下面左右兩格 [{ label, main, sub, tone }]（抄表的黑白、彩色：本期粗體、計數器灰字）
+//   schema.card.cols(列)：標題下面的小表格，一欄一種張數 [{ label, use, tone, count }]（抄表、保養的黑白、彩色）
+//     最上面一列寫黑白、彩色；下面兩列是使用量（粗體）、計數器（灰字），左邊寫是哪一列
 //   schema.total 存在時，列表上方顯示合計
 //   rows：要列的資料（設備詳情裡只列這台設備的紀錄）；沒有時列整張表
 //   detail：放在設備詳情裡，不要搜尋框和月份、分組選單（篩選按鈕照常）
@@ -158,8 +159,11 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     const sideHTML = side ? `<span class="card-side ${side.tone}">${U.esc(side.text)}</span>` : '';
     const dev = device ? device(r) : [];
     const devCells = dev.map(c => `<span class="cell"><small>${U.esc(c.label)}</small><span class="${c.warn ? 'warn' : ''}">${U.esc(c.value) || '—'}</span></span>`).join('');
-    const cols = (card.cols?.(r) || []).map(c =>
-      `<span class="cell"><small>${U.esc(c.label)}</small><b class="${U.esc(c.tone || '')}">${U.esc(c.main)}</b><em>${U.esc(c.sub)}</em></span>`).join('');
+    const cols = card.cols?.(r) || [];
+    const each = f => cols.map(f).join('');
+    const counts = cols.length ? `<span class="count-table cols-${cols.length}"><span></span>${each(c => `<small>${U.esc(c.label)}</small>`)}` +
+      `<small>使用量</small>${each(c => `<b class="${U.esc(c.tone || '')}">${U.esc(c.use)}</b>`)}` +
+      `<small>計數器</small>${each(c => `<em>${U.esc(c.count)}</em>`)}</span>` : '';
     return `
       <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}" data-id="${U.esc(r.id)}">
         ${devCells ? `<span class="card-grid rec cols-${dev.length}">${devCells}</span>` : ''}
@@ -170,7 +174,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
         </span>
         ${sideHTML ? `<span class="card-sub split"><span>${U.esc(sub)}</span>${sideHTML}</span>` : sub ? `<span class="card-sub">${U.esc(sub)}</span>` : ''}
         ${cells ? `<span class="card-grid">${cells}</span>` : ''}
-        ${cols ? `<span class="card-grid count-grid">${cols}</span>` : ''}
+        ${counts}
         ${note ?`<span class="card-note${note.warn ? ' warn' : ''}">${U.esc(note.text)}</span>` : ''}
       </button>`;
   }

@@ -541,21 +541,37 @@ const Records = (() => {
     return meterLine(rec.device).filter(r => r.id !== rec.id && isNum(r[k]) && before(r)).at(-1) || null;
   }
 
-  // 本期用量：這一筆有填的張數 [{ k, label, prev, diff }]；第一次抄表時 prev、diff 是 null
+  // 算帳的上一次（跟位置的用量一樣，見 placeUsages）：這一筆之前最後一次有結算月份、或是起點的抄表，有填這個張數的
+  //   順便抄、保養填的張數不算（一期不會被切成兩段）；之前的照 previous 的算法
+  function billPrev(rec, k) {
+    const date = String(rec.date ?? '');
+    const before = rec.id ? r => byMeter(r, rec) < 0 : r => cmp(String(r.date ?? ''), date) <= 0;
+    const line = readingLines().get(key(rec.device)) || NONE;
+    for (let i = line.length - 1; i >= 0; i--) {
+      const r = line[i];
+      if (r.id !== rec.id && isNum(r[k]) && before(r) && (r.month || isStart(r))) return r;
+    }
+    return null;
+  }
+
+  // 使用量：這一筆有填的張數 [{ k, label, prev, diff, less }]
+  //   prev、diff：跟算帳一樣，這次減上一次結算或起點的抄表（見 billPrev）；第一次抄表時是 null
+  //   less：比之前有記張數的任何一筆（保養填的、順便抄的也算）少時，是那一筆；沒有時 null
   const usage = rec => COUNTS.filter(([k]) => isNum(rec[k])).map(([k, label]) => {
-    const prev = previous(rec, k);
-    return { k, label, prev, diff: prev ? rec[k] - prev[k] : null };
+    const prev = billPrev(rec, k);
+    const last = previous(rec, k);
+    return { k, label, prev, diff: prev ? rec[k] - prev[k] : null, less: last && rec[k] < last[k] ? last : null };
   });
 
-  // 本期用量寫成一行（詳情的抄表那一列）；比上一次少時提醒
+  // 使用量寫成一行（詳情的抄表那一列）；比上一次少時提醒
   function usageNote(rec) {
     const u = usage(rec);
-    const less = u.filter(x => x.diff !== null && x.diff < 0);
+    const less = u.filter(x => x.less);
     if (less.length) {
-      return { text: less.map(x => `${x.label}比上一次少（上次 ${fmt(x.prev[x.k])}，${U.fmtDate(x.prev.date)}）`).join('；'), warn: true };
+      return { text: less.map(x => `${x.label}比上一次少（上次 ${fmt(x.less[x.k])}，${U.fmtDate(x.less.date)}）`).join('；'), warn: true };
     }
     const has = u.filter(x => x.diff !== null);
-    if (has.length) return { text: `本期 ${has.map(x => `${x.label} ${fmt(x.diff)}`).join('・')}`, warn: false };
+    if (has.length) return { text: `使用量 ${has.map(x => `${x.label} ${fmt(x.diff)}`).join('・')}`, warn: false };
     return u.length ? { text: '第一次抄表', warn: false } : null;
   }
 
@@ -603,15 +619,19 @@ const Records = (() => {
     return use?.warn ? { text: `${kind}・${use.text}`, warn: true } : { text: kind, warn: false };
   }
 
-  // 抄表卡片的黑白、彩色兩格：本期粗體在上、計數器灰字在下 [{ label, main, sub, tone }]
-  //   起點、順便抄、第一次抄表的本期寫「—」（右上角標籤寫是哪一種，見 readingTag）；比上一次少時橘字
+  // 卡片上使用量那一格：比上次少橘字；算不出來的寫「—」；推算的寫「約」
+  const useCell = (diff, approx = false) => (diff === null ? { use: '—', tone: 'muted' }
+    : diff < 0 ? { use: '比上次少', tone: 'warn' } : { use: `${approx ? '約 ' : ''}${fmt(diff)}`, tone: '' });
+
+  // 抄表卡片的黑白、彩色兩欄（使用量粗體、計數器灰字，見 list.js）[{ label, use, tone, count }]
+  //   使用量跟算帳一樣（見 usage）；起點、順便抄、第一次抄表寫「—」（右上角標籤寫是哪一種，見 readingTag）
+  //   比之前有記張數的任何一筆少時橘字（保養填的也算）
   function readingCols(rec) {
     const kind = readingKind(rec);
     return usage(rec).map(x => ({
       label: x.label,
-      ...(x.diff !== null && x.diff < 0 ? { main: '比上次少', tone: 'warn' }
-        : kind || x.diff === null ? { main: '—', tone: 'muted' } : { main: `本期 ${fmt(x.diff)}`, tone: '' }),
-      sub: `計數器 ${fmt(rec[x.k])}`,
+      ...(x.less ? useCell(-1) : useCell(kind ? null : x.diff)),
+      count: fmt(rec[x.k]),
     }));
   }
   // 抄表卡片右上角的標籤：結算月份選錯（橘色，見 monthFlags）；起點、順便抄、第一次抄表（都不算本期）
@@ -647,15 +667,20 @@ const Records = (() => {
     return after ? { text: `比 ${shortDate(after.date)} 那筆的月份晚`, warn: true } : '';
   }
 
-  // 表單上張數欄位下面（兩行）：上次的張數，打了這次的張數後寫本期用量；比上次少時提醒（還是可以存）
+  // 表單上張數欄位下面（兩行）：上次的張數，打了這次的張數後寫使用量；比上次少時提醒（還是可以存）
   //   values 是表單目前填的內容（張數是打的字），values.id 是正在編輯的那一筆
-  function countNote(values, k) {
+  //   抄表：上次、使用量跟卡片一樣照算帳的上一次（見 billPrev）；比上次少照有記張數的任何一筆（保養填的也算）
+  //   use 為 false 時只寫有記張數的上一筆，不寫使用量（保養：卡片的使用量是上次換同一項到這次，項目下面寫了）
+  function countNote(values, k, use = true) {
     const v = U.parseNum(String(values[k] ?? ''));
-    const prev = values.device ? previous({ ...values, [k]: v }, k) : null;
-    if (!prev) return '';
-    const last = `上次 ${fmt(prev[k])}（${shortDate(prev.date)}）`;
-    if (v === null) return last;
-    return v < prev[k] ? { text: `${last}\n比上次少`, warn: true } : `${last}\n本期 ${fmt(v - prev[k])}`;
+    const rec = { ...values, [k]: v };
+    const any = values.device ? previous(rec, k) : null;
+    if (!any) return '';
+    const lastOf = p => `上次 ${fmt(p[k])}（${shortDate(p.date)}）`;
+    if (v !== null && v < any[k]) return { text: `${lastOf(any)}\n比上次少`, warn: true };
+    const prev = use ? billPrev(rec, k) : null;
+    if (!prev) return lastOf(any);
+    return v === null ? lastOf(prev) : `${lastOf(prev)}\n使用量 ${fmt(v - prev[k])}`;
   }
 
   // ---------- 每個位置的用量：以「一期」算（兩次抄表之間），每月抄、一季抄、半年抄的都比得公平 ----------
@@ -881,22 +906,53 @@ const Records = (() => {
     return `${iso.slice(0, 4)}/${iso.slice(5, 7)} ${day <= 10 ? '上旬' : day <= 20 ? '中旬' : '下旬'}`;
   }
 
-  // 保養表單上項目下面（兩行）：這台上次換這一項是哪天、到現在印了幾張（填了張數用填的）、這個位置的平均
+  // 這台上次換同一項（日期比較早的最後一筆，在哪裡換的都算；保養卡片、表單用 workStart 只算裝到這裡之後的）
+  const prevWork = (r, c) => (key(r.item) ? (c.works.get(key(r.device)) || [])
+    .filter(w => key(w.item) === key(r.item) && w.id !== r.id && String(w.date) < String(r.date)).at(-1) || null : null);
+  // 一筆保養那時候的張數：有填的用填的，沒填的照前後的抄表推算（approx）
+  const workCounter = (r, points) => (COUNTS.some(([k]) => isNum(r[k])) ? r : counterAt(points, r.date));
+
+  // 這次換的使用量從哪裡算起（跟耗材一樣，見 consumablesAt）：裝到這個位置之後上一次換同一項；還沒換過的從裝進來那天算（安裝那天當新的）
+  //   在別的地方換的不算；在倉庫、裝進來當天換的沒有起點；沒有異動的（補登的機器）只看上一次換
+  //   回傳 { date, install, at: 那時候的張數 { bw, color, approx } }；沒有起點時 null
+  function workStart(r, c) {
+    const date = String(r.date ?? '');
+    const dk = key(r.device);
+    const here = key(locationAt(r.device, date));
+    const inAt = (c.moves.get(dk) || []).filter(m => key(m.to) === here && String(m.date ?? '') <= date).at(-1) || null;
+    const since = inAt ? String(inAt.date) : '';
+    const points = c.points.get(dk) || [];
+    const prev = prevWork(r, c);
+    if (prev && String(prev.date) >= since) return { date: prev.date, install: false, at: workCounter(prev, points) };
+    if (!inAt || since === date || place(here)?.stock) return null;
+    return { date: since, install: true, at: counterAt(points, since) };
+  }
+
+  // 保養卡片的黑白、彩色兩欄（排法跟抄表卡片一樣，見 readingCols）：這次有填的張數 [{ label, use, tone, count }]
+  //   使用量：上次換同一項（還沒換過的從安裝那天）到這次印了幾張（見 workStart），黑白、彩色分開寫；那天沒填張數的照抄表推算，寫「約」
+  //   算不出來的寫「—」；比上次少時橘字（推算的寫「—」）；這次沒填張數的不寫
+  function workCols(r) {
+    const was = workStart(r, consumeContext())?.at || null;
+    return COUNTS.filter(([k]) => isNum(r[k])).map(([k, label]) => {
+      const diff = isNum(was?.[k]) ? r[k] - was[k] : null;
+      return { label, ...useCell(was?.approx && diff < 0 ? null : diff, !!was?.approx), count: fmt(r[k]) };
+    });
+  }
+
+  // 保養表單上項目下面（兩行）：這台上次換這一項是哪天（還沒換過的寫安裝那天，見 workStart）、到現在印了幾張（填了張數用填的）、這個位置的平均
   //   比平均少很多（不到七成）時提醒：換得太快，可能機器有問題或耗材被拿走
   function itemNote(values) {
     if (!values.device || !values.item || !values.date) return '';
     const c = consumeContext();
-    const dk = key(values.device);
     const kind = itemKind(values.item);
-    const prev = (c.works.get(dk) || []).filter(r => key(r.item) === key(values.item) && r.id !== values.id && String(r.date) < String(values.date)).at(-1);
-    if (!prev) return '';
-    const points = c.points.get(dk) || [];
-    const at = r => (COUNTS.some(([k]) => isNum(r[k])) ? r : counterAt(points, r.date));
+    const start = workStart(values, c);
+    if (!start) return '';
+    const points = c.points.get(key(values.device)) || [];
     const typed = { bw: U.parseNum(String(values.bw ?? '')), color: U.parseNum(String(values.color ?? '')) };
     const nowPages = isNum(typed.bw) || isNum(typed.color) ? pagesBy(kind, typed) : pagesBy(kind, counterAt(points, values.date));
-    const prevPages = pagesBy(kind, at(prev));
+    const prevPages = pagesBy(kind, start.at);
     const avg = consumablesAt(locationAt(values.device, values.date), c).find(x => key(x.item) === key(values.item))?.avg ?? null;
-    const head = `上次換 ${shortDate(prev.date)}`;
+    const head = `${start.install ? '安裝' : '上次換'} ${shortDate(start.date)}`;
     if (nowPages === null || prevPages === null || nowPages < prevPages) return head;
     const pages = nowPages - prevPages;
     // 項目是半格：平常兩行寫上次換、到現在幾張；比平均少很多時第二行寫平均
@@ -1001,8 +1057,6 @@ const Records = (() => {
     const text = [countsText(r), firstLine(r.note)].filter(Boolean).join('・');
     return text ? { text, warn: false } : null;
   }
-  // 保養卡片標題下面：那時候的計數器（備註另外一行，見 schema.js）
-  const counterText = r => (countsText(r) ? `計數器 ${countsText(r)}` : '');
 
   // 翻新卡片最下面一行：入庫日、工程師、國別、噴漆、廠商或來源
   function refurbNote(r) {
@@ -1215,7 +1269,7 @@ const Records = (() => {
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
-    workNote, counterText, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
+    workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
   };

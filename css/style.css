@@ -341,12 +341,23 @@ body:has(dialog[open]) { overflow: hidden; }
 .cell > span.warn { color: var(--warn); font-weight: 600; }
 /* 只有標題、標籤和最下面一行的卡片（紀錄）：上下緊一點 */
 .card-top + .card-note { margin-top: 6px; }
-/* 抄表卡片的黑白、彩色兩格：本期粗體、計數器灰字；只有黑白的放左邊那格；起點、順便抄的本期「—」灰字，比上次少橘字 */
-.card-grid.count-grid { grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 10px; padding-top: 10px; }
-.count-grid .cell b { display: block; margin-top: 1px; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.count-grid .cell b.muted { font-weight: 500; color: var(--muted); }
-.count-grid .cell b.warn { color: var(--warn); }
-.count-grid .cell em { display: block; margin-top: 1px; font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* 抄表、保養卡片的小表格：最上面一列黑白、彩色，下面使用量粗體、計數器灰字，左邊寫是哪一列（高度和以前的兩格一樣，三行）
+   只有黑白的一欄；使用量「—」灰字（起點、順便抄、第一次換），比上次少橘字 */
+.count-table {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1px 14px;
+  align-items: baseline;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: .5px solid var(--border);
+}
+.count-table.cols-1 { grid-template-columns: auto minmax(0, 1fr); }
+.count-table small { font-size: 11px; color: var(--muted); }
+.count-table b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.count-table b.muted { font-weight: 500; color: var(--muted); }
+.count-table b.warn { color: var(--warn); }
+.count-table em { font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* 列表上方的合計 */
 .summary {
