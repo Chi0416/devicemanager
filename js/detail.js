@@ -7,7 +7,7 @@
 //     在這裡新增紀錄時自動帶入這台設備；合約是它現在所在位置的，新增時帶入這個位置
 //   位置：位置頁點一張卡片打開（見 places.js）；標題寫位置名稱；資訊卡上點現在放著的機器打開設備詳情
 //     異動：這裡放過哪些機器，一台待過一段一張卡片（那一列寫最近一次進出、右邊寫幾段）；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
-//     新增抄表、保養、翻新時，這裡只放著一台的話帶入那一台；卡片上面的設備那一排，只放過一台的不寫
+//     新增抄表、保養、翻新時，這裡只放著一台的話帶入那一台；卡片標題右邊灰字寫哪一台，只放過一台的不寫
 function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = () => {} }) {
   const titleEl = dlg.querySelector('.sheet-title');
   const bodyEl = dlg.querySelector('.sheet-body');
@@ -23,8 +23,8 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
 
   const lists = Object.fromEntries(rows.map(r => {
     const opts = { openForm: rid => Form.open(r.key, rid), rows: () => (current() ? r.records(current()) : []) };
-    const device = r.device ? rec => r.device(rec, current()) : null;
-    return [r.key, r.view ? r.view(opts) : createList(r.key, SCHEMAS[r.key], { ...opts, detail: true, device })];
+    const aside = r.aside ? rec => r.aside(rec, current()) : null;
+    return [r.key, r.view ? r.view(opts) : createList(r.key, SCHEMAS[r.key], { ...opts, detail: true, aside })];
   }));
   Object.values(lists).forEach(l => subBody.appendChild(l.el));
 
@@ -285,12 +285,12 @@ const Detail = (() => {
 
 // ---------- 位置詳情 ----------
 const Place = (() => {
-  // 紀錄卡片最上面那一排：設備（位置都一樣，不用寫；和異動卡片一樣，見 records.js 的 recordCells）；找不到設備時提醒
+  // 紀錄卡片標題右邊：哪一台（位置都一樣，不用寫；和異動卡片一樣，見 records.js 的 recordCells）；找不到設備時橘字
   //   這個位置只放過一台的不寫（每張都一樣）
   const machine = (r, p) => {
-    const cells = Records.recordCells('moves', r);
+    const cell = Records.recordCells('moves', r)[0];
     const one = new Set(Records.staysAt(p.code).map(s => Refs.norm(s.device))).size <= 1;
-    return one && !cells.some(c => c.warn) ? [] : cells;
+    return one && !cell.warn ? null : { text: cell.value, warn: cell.warn };
   };
   // 這裡只放著一台時，新增紀錄帶入那一台
   const theOne = p => {
@@ -455,11 +455,11 @@ const Place = (() => {
       { key: 'moves', label: '異動', summary: moveRow, records: p => Records.staysAt(p.code), preset: moveHere, view: staysView },
       { key: 'contracts', label: '合約', summary: p => DetailRows.contract(Records.currentContract(p.code), Records.contractsAt(p.code)),
         records: p => Records.contractsAt(p.code), preset: p => ({ locations: p.code }) },
-      { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, device: machine },
+      { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, aside: machine },
       { key: 'maintenance', label: '保養', summary: p => DetailRows.work(at('maintenance')(p), 'maintenance', r => r.item),
-        records: at('maintenance'), preset: theOne, device: machine },
+        records: at('maintenance'), preset: theOne, aside: machine },
       { key: 'refurbs', label: '翻新', summary: p => DetailRows.work(at('refurbs')(p), 'refurbs', r => Records.firstLine(r.content), Records.refurbNote),
-        records: at('refurbs'), preset: theOne, device: machine },
+        records: at('refurbs'), preset: theOne, aside: machine },
     ],
   });
 })();

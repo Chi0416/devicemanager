@@ -11,7 +11,8 @@
 //   detail：放在設備詳情裡，不要搜尋框和月份、分組選單（篩選按鈕照常）
 //   device(列)：卡片最上面那一排寫在哪裡、哪一台設備（底部「紀錄」分頁，和設備卡片一樣小標題在上、內容在下），下面才是紀錄的內容
 //     回傳 [{ label, value, warn }]（位置、設備）
-function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null }) {
+//   aside(列)：卡片標題右邊（標籤左邊）的灰字，{ text, warn } 或 null（位置詳情：放過好幾台的位置寫哪一台）；放不下時後面變「…」
+function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null }) {
   const fields = schema.fields;
   const byKey = Object.fromEntries(fields.map(f => [f.key, f]));
   const period = schema.period || null;
@@ -158,6 +159,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     const side = card.side?.(r);
     const sideHTML = side ? `<span class="card-side ${side.tone}">${U.esc(side.text)}</span>` : '';
     const dev = device ? device(r) : [];
+    const as = aside ? aside(r) : null;
     const devCells = dev.map(c => `<span class="cell"><small>${U.esc(c.label)}</small><span class="${c.warn ? 'warn' : ''}">${U.esc(c.value) || '—'}</span></span>`).join('');
     const cols = card.cols?.(r) || [];
     const each = f => cols.map(f).join('');
@@ -167,8 +169,9 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     return `
       <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}" data-id="${U.esc(r.id)}">
         ${devCells ? `<span class="card-grid rec cols-${dev.length}">${devCells}</span>` : ''}
-        <span class="card-top">
+        <span class="card-top${as ? ' with-aside' : ''}">
           <span class="card-title">${code && r[code] ? `<span class="card-code">${U.esc(r[code])}</span>` : ''}${U.esc(titleOf(r))}</span>
+          ${as ? `<span class="card-aside${as.warn ? ' warn' : ''}">${U.esc(as.text)}</span>` : ''}
           ${tag ? `<span class="badge ${tag.cls}">${U.esc(tag.label)}</span>` : ''}
           ${pf ? `<span class="card-primary"><small>${cardLabel(pf)}</small><b>${show(pf, r[primary])}</b></span>` : ''}
         </span>
