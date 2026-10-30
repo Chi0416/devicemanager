@@ -427,13 +427,44 @@
     }
   }
 
-  // 機器設定（index.html 的 #machine-sheet）：B 寫登入 App 的那個 Gmail
+  // 機器設定（index.html 的 #machine-sheet）：最上面填寄信用 Gmail，用到的列跟著打的字寫出來，離開那一格時存進試算表；121 寫登入 App 的那個 Gmail
   const machine = $('machine-sheet');
+  const senderInput = $('sender-mail');
+  const MAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  function fillSender() {
+    const mail = senderInput.value.trim();
+    machine.querySelectorAll('[data-sender]').forEach(el => {
+      el.textContent = !mail ? '先填上面的寄信用 Gmail' : el.dataset.sender === 'name' ? mail.split('@')[0] : mail;
+      el.classList.toggle('muted', !mail);
+    });
+  }
   function openMachine() {
-    machine.querySelectorAll('[data-email]').forEach(el => { el.textContent = Sync.state().email || ''; });
+    const st = Sync.state();
+    senderInput.value = st.senderMail;
+    fillSender();
+    machine.querySelectorAll('[data-email]').forEach(el => { el.textContent = st.email || '—'; });
     machine.showModal();
     machine.querySelector('.sheet-body').scrollTop = 0;
   }
+  senderInput.addEventListener('input', fillSender);
+  senderInput.addEventListener('change', async () => {
+    const mail = senderInput.value.trim();
+    if (mail === Sync.state().senderMail) return;
+    if (mail && !MAIL.test(mail)) {
+      toast('寄信用 Gmail 不對：要像 meter.abc@gmail.com', 'error');
+      return;
+    }
+    if (!Sync.state().linked) {
+      toast('連結 Google 後才會記住', 'error');
+      return;
+    }
+    try {
+      await Sync.setSenderMail(mail);
+      toast(mail ? '已儲存，其他裝置同步後也有' : '已清除');
+    } catch (e) {
+      toast(e.code === 'need_login' ? '登入已過期，先按設定裡的「同步」再填' : `儲存失敗：${e.message || e}`, 'error');
+    }
+  });
   machine.querySelector('[data-act="close"]').addEventListener('click', () => machine.close());
   machine.addEventListener('click', e => { if (e.target === machine) machine.close(); }); // 點背景關閉
 

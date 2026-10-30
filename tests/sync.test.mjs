@@ -589,6 +589,24 @@ test('自動抄表的讀信網址：存在 _meta 第 2 列，同步不會蓋掉�
   assert.equal(d.Sync.state().meterUrl, '');
 });
 
+test('寄信用 Gmail：存在 _meta 第 4 列，不動讀信網址；其他裝置連結、同步後也有', async () => {
+  const { fake, d, id } = await linked();
+  const url = 'https://script.google.com/macros/s/abc/exec';
+  await d.Sync.setMeterUrl(url);
+  await d.Sync.setSenderMail('meter.abc@gmail.com');
+  assert.equal(d.Sync.state().senderMail, 'meter.abc@gmail.com');
+  const meta = fake.values(id, '_meta');
+  assert.deepEqual([meta[1], meta[3]], [['meterUrl', url], ['senderMail', 'meter.abc@gmail.com']]);
+
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  assert.equal(phone.Sync.state().senderMail, 'meter.abc@gmail.com');
+  await phone.Sync.setSenderMail('meter.def@gmail.com');
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().senderMail, 'meter.def@gmail.com');
+  assert.equal(d.Sync.state().meterUrl, url);
+});
+
 test('上次讀信的時間：試算表上的程式寫在 _meta 第 3 列，同步、連結時讀回來；App 按「讀信」拿到的先記下來；設讀信網址不會蓋掉', async () => {
   const { fake, d, id } = await linked();
   assert.equal(d.Sync.state().meterReadAt, '');

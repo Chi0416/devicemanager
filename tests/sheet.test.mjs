@@ -411,6 +411,12 @@ test('_meta 第 3 列上次讀信的時間（試算表上的程式寫的）讀�
   assert.equal(Sheet.fromValues({}).meterReadAt, '');
 });
 
+test('_meta 第 4 列的寄信用 Gmail（機器設定）讀得到；中間空著也讀得到，沒有這一列時是空字串', () => {
+  assert.equal(Sheet.fromValues({ _meta: [['version', 1], [], [], ['senderMail', ' meter.abc@gmail.com ']] }).senderMail, 'meter.abc@gmail.com');
+  assert.equal(Sheet.fromValues({ _meta: [['version', 1]] }).senderMail, '');
+  assert.equal(Sheet.fromValues({}).senderMail, '');
+});
+
 test('「最新回報」分頁（試算表上的程式寫的）：依標題找欄，日期、時間、張數、碳粉讀得懂，空白和看不懂的是 null；沒有這個分頁時是 null', () => {
   const head = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
   const r = Sheet.fromValues({

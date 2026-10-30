@@ -29,8 +29,9 @@ const Sync = (() => {
   // 試算表上有幾筆資料（預先放的類別不算：只有那幾筆時，當作雲端還沒有資料）
   const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
-  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, toner } ----------
+  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, senderMail, toner } ----------
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
+  //   senderMail：機器寄信用的 Gmail（機器設定那頁填的），和讀信網址一樣存在 _meta
   //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；同步前叫它讀信時也直接回傳）
   //   toner：「最新回報」分頁（抄表程式每台最新一次的張數、碳粉，試算表上的程式寫的），同步時讀回來；沒有這個分頁時是 null
   let cloud = null;
@@ -70,6 +71,7 @@ const Sync = (() => {
       url: cloud?.url || '',
       meterUrl: cloud?.meterUrl || '',
       meterReadAt: cloud?.meterReadAt || '',
+      senderMail: cloud?.senderMail || '',
       toner: cloud?.toner || null,
       lastSyncAt: cloud?.lastSyncAt || null,
       running,
@@ -305,6 +307,7 @@ const Sync = (() => {
     const parsed = Sheet.fromValues(byTitle);
     cloud.meterUrl = parsed.meterUrl;
     cloud.meterReadAt = parsed.meterReadAt;
+    cloud.senderMail = parsed.senderMail;
     cloud.toner = parsed.toner;
     // 手動輸入、沒有 id 的列：剛給的 id 先寫回試算表，寫好了才放進這台裝置
     //   寫的時候斷線就整次停下來：這台裝置不會留著試算表上沒有的 id（下次讀回來會是另一個 id，改過的話同一筆會變兩筆）
@@ -538,6 +541,7 @@ const Sync = (() => {
       let meta = null;
       let meterUrl = '';
       let meterReadAt = '';
+      let senderMail = '';
       let toner = null;
       const found = await findSpreadsheet();
       if (found) meta = await info(found);
@@ -557,7 +561,7 @@ const Sync = (() => {
       } else {
         await ensureTabs(meta);
         const parsed = Sheet.fromValues(await pull(meta));
-        ({ meterUrl, meterReadAt, toner } = parsed);
+        ({ meterUrl, meterReadAt, senderMail, toner } = parsed);
         const remoteCount = countRecords(parsed.data);
         if (!remoteCount) {
           if (!await upload()) return;
@@ -588,7 +592,7 @@ const Sync = (() => {
           }
         }
       }
-      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt, toner };
+      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt, senderMail, toner };
       saveCloud();
       hooks.toast('已連結 Google 帳號');
     } catch (e) {
@@ -601,18 +605,20 @@ const Sync = (() => {
     if (cloud) await run();
   }
 
-  // ---------- 自動抄表的讀信網址 ----------
-  // 寫在 _meta 分頁第 2 列（第 1 列是格式版本，不動）；空字串是清掉。登入過期時丟出 need_login，請使用者先按「同步」
-  async function setMeterUrl(url) {
+  // ---------- 自動抄表的讀信網址、寄信用 Gmail ----------
+  // 寫在 _meta 分頁第 2 列、第 4 列（第 1 列是格式版本、第 3 列是試算表上的程式寫的，不動）；空字串是清掉。登入過期時丟出 need_login，請使用者先按「同步」
+  async function setMeta(cell, key, field, value) {
     if (!cloud?.spreadsheetId) return;
     await api(`${Google.SHEETS}/${cloud.spreadsheetId}/values:batchUpdate`, {
       method: 'POST',
-      body: { valueInputOption: 'RAW', data: [{ range: a1(Sheet.META.title, 'A2'), values: [[Sheet.METER_KEY, url]] }] },
+      body: { valueInputOption: 'RAW', data: [{ range: a1(Sheet.META.title, cell), values: [[key, value]] }] },
     });
-    cloud.meterUrl = url;
+    cloud[field] = value;
     saveCloud();
     emit();
   }
+  const setMeterUrl = url => setMeta('A2', Sheet.METER_KEY, 'meterUrl', url);
+  const setSenderMail = mail => setMeta('A4', Sheet.SENDER_KEY, 'senderMail', mail);
 
   // ---------- 按鈕 ----------
   // 必須在使用者點擊的當下呼叫：登入過期時要先跳出 Google 視窗
@@ -775,5 +781,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, startLink, syncNow, loginByRedirect, logout, setMeterUrl };
+  return { init, state, startLink, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
 })();

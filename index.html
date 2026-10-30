@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.30.5">
+  <link rel="manifest" href="manifest.json?v=2026.10.30.6">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.30.5">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.30.6">
 </head>
 <body>
   <div class="app">
@@ -210,12 +210,12 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.30.5</p>
+      <p class="note muted">版本 2026.10.30.6</p>
     </div>
   </dialog>
 
   <!-- 自動抄表的機器設定：從設定的「自動抄表」→「機器設定」打開（見 app.js）
-       A 寄信用（藍）、B 收信用（紫）分開標；B 的信箱由 app.js 填進 [data-email] -->
+       最上面填寄信用 Gmail（存在試算表），[data-sender] 寫出來（name 是 @ 前面那段）；121 寫登入 App 的 Gmail（[data-email]） -->
   <dialog id="machine-sheet" class="sheet">
     <div class="sheet-head">
       <button type="button" class="text-btn" data-act="close">返回</button>
@@ -223,19 +223,26 @@
       <span></span>
     </div>
     <div class="sheet-body">
-      <ul class="member-list mails">
-        <li><span class="badge blue mail">A</span><span class="member-info"><b>寄信用</b><small>寄信專用的 Gmail，機器用它寄出張數</small></span></li>
-        <li><span class="badge purple mail">B</span><span class="member-info"><b>收信用</b><small>你自己的 Gmail：<span data-email></span></small></span></li>
-      </ul>
+      <div class="field">
+        <label for="sender-mail">寄信用 Gmail</label>
+        <input id="sender-mail" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="例如 meter.abc@gmail.com">
+        <p class="note">填一次就記住，其他裝置同步後也有</p>
+      </div>
 
       <h3 class="section-head">1. 基本設定</h3>
       <p class="machine-path">系統設定 → 檔案轉送</p>
       <ul class="member-list kv">
-        <li><span>管理員的電子郵件地址</span><b><span class="badge blue mail">A</span></b></li>
+        <li><span>管理員的電子郵件地址</span><b data-sender></b></li>
         <li><span>自動指定傳送者名稱</span><b>開啟</b></li>
       </ul>
 
       <h3 class="section-head">2. 伺服器設定</h3>
+      <p class="machine-path">系統設定 → 介面設定 → 網路 → DNS</p>
+      <ul class="member-list kv">
+        <li><span>DNS 伺服器 1</span><b>8.8.8.8</b></li>
+        <li><span>DNS 伺服器 2</span><b>168.95.1.1</b></li>
+      </ul>
+      <p class="note muted">IP 是自動取得的機器不用改。</p>
       <p class="machine-path">系統設定 → 檔案轉送 → SMTP 伺服器名稱</p>
       <ul class="member-list kv">
         <li><span>伺服器名稱</span><b>smtp.gmail.com</b></li>
@@ -245,11 +252,12 @@
       <p class="machine-path">系統設定 → 檔案轉送 → SMTP 驗證</p>
       <ul class="member-list kv">
         <li><span>SMTP 驗證</span><b>開啟</b></li>
-        <li><span>使用者名稱</span><b><span class="badge blue mail">A</span> 的 @ 前面那段</b></li>
-        <li><span>電子郵件地址</span><b><span class="badge blue mail">A</span></b></li>
-        <li><span>密碼</span><b><span class="badge blue mail">A</span> 的應用程式密碼</b></li>
+        <li><span>使用者名稱</span><b data-sender="name"></b></li>
+        <li><span>電子郵件地址</span><b data-sender></b></li>
+        <li><span>密碼</span><b>應用程式密碼（不打空格）</b></li>
         <li><span>加密</span><b>關閉</b></li>
       </ul>
+      <p class="note muted">回到「SMTP 伺服器名稱」按「連接測試」，成功才往下做。</p>
 
       <h3 class="section-head">3. 服務模式設定</h3>
       <p class="machine-path">SP 5-866</p>
@@ -257,7 +265,7 @@
         <li><span>110</span><b>1</b></li>
         <li><span>114</span><b>1</b></li>
         <li><span>115</span><b>1</b></li>
-        <li><span>121</span><b><span class="badge purple mail">B</span> <span data-email></span></b></li>
+        <li><span>121</span><b><small>你自己的 Gmail</small><span data-email></span></b></li>
       </ul>
       <p class="note muted">改完重新開機。</p>
     </div>
@@ -363,24 +371,24 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.30.5"></script>
-  <script src="js/schema.js?v=2026.10.30.5"></script>
-  <script src="js/storage.js?v=2026.10.30.5"></script>
-  <script src="js/refs.js?v=2026.10.30.5"></script>
-  <script src="js/records.js?v=2026.10.30.5"></script>
-  <script src="js/list.js?v=2026.10.30.5"></script>
-  <script src="js/form.js?v=2026.10.30.5"></script>
-  <script src="js/picker.js?v=2026.10.30.5"></script>
-  <script src="js/lists.js?v=2026.10.30.5"></script>
-  <script src="js/detail.js?v=2026.10.30.5"></script>
-  <script src="js/overview.js?v=2026.10.30.5"></script>
-  <script src="js/places.js?v=2026.10.30.5"></script>
-  <script src="js/config.js?v=2026.10.30.5"></script>
-  <script src="js/google.js?v=2026.10.30.5"></script>
-  <script src="js/sheet.js?v=2026.10.30.5"></script>
-  <script src="js/sync.js?v=2026.10.30.5"></script>
-  <script src="js/inbox.js?v=2026.10.30.5"></script>
-  <script src="js/app.js?v=2026.10.30.5"></script>
+  <script src="js/util.js?v=2026.10.30.6"></script>
+  <script src="js/schema.js?v=2026.10.30.6"></script>
+  <script src="js/storage.js?v=2026.10.30.6"></script>
+  <script src="js/refs.js?v=2026.10.30.6"></script>
+  <script src="js/records.js?v=2026.10.30.6"></script>
+  <script src="js/list.js?v=2026.10.30.6"></script>
+  <script src="js/form.js?v=2026.10.30.6"></script>
+  <script src="js/picker.js?v=2026.10.30.6"></script>
+  <script src="js/lists.js?v=2026.10.30.6"></script>
+  <script src="js/detail.js?v=2026.10.30.6"></script>
+  <script src="js/overview.js?v=2026.10.30.6"></script>
+  <script src="js/places.js?v=2026.10.30.6"></script>
+  <script src="js/config.js?v=2026.10.30.6"></script>
+  <script src="js/google.js?v=2026.10.30.6"></script>
+  <script src="js/sheet.js?v=2026.10.30.6"></script>
+  <script src="js/sync.js?v=2026.10.30.6"></script>
+  <script src="js/inbox.js?v=2026.10.30.6"></script>
+  <script src="js/app.js?v=2026.10.30.6"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

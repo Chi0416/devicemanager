@@ -1183,13 +1183,14 @@ a.wide-btn { display: flex; align-items: center; justify-content: center; text-d
 .steps li { overflow-wrap: anywhere; }
 .meter-url { margin: 16px 0 10px; }
 
-/* 自動抄表的機器設定：一列一項，左邊項目、右邊填什麼；A 寄信用（藍）、B 收信用（紫） */
+/* 自動抄表的機器設定：一列一項，左邊項目、右邊填什麼；放不下時右邊整個換到下一行（信箱不從中間斷開）
+   還沒填寄信用 Gmail 的列灰字；121 上面一行小字「你自己的 Gmail」 */
 .machine-path { margin: 14px 2px 8px; font-size: 14px; font-weight: 600; }
-.kv li { justify-content: space-between; gap: 12px; min-height: 44px; padding-right: 16px; font-size: 15px; }
+.kv li { flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; min-height: 44px; padding-right: 16px; font-size: 15px; }
 .kv li > span { color: var(--text-2); }
-.kv li > b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
-.badge.mail { display: inline-block; min-width: 24px; padding: 4px 7px; font-size: 13px; text-align: center; }
-.mails li { gap: 12px; padding: 10px 16px; }
+.kv li > b { margin-left: auto; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.kv li > b.muted { font-weight: 400; }
+.kv li > b small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
 
 /* 自動抄表說明：一列一項，粗字是什麼、小字是說明；燈號是抄表程式視窗最前面那個圓點的顏色 */
 .help-list li { padding: 10px 16px; }
