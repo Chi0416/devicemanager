@@ -1167,7 +1167,7 @@ test('要處理：狀態和位置對不上（出租中但在倉庫或沒有位�
   assert.deepEqual(list(), [[DH, '24-0001', '庫存'], [AX, '25-0001', '庫存']]);
 });
 
-test('要處理：該抄表了（照合約的抄表週期，空白當每月；該抄的結算月份過完再 10 天還沒抄），回報停了（超過 7 天）', () => {
+test('要處理：該抄表了（照合約的抄表週期，空白當每月；該抄的結算月份過完再 10 天還沒抄），回報停了（超過 3 天）', () => {
   const setup = today => {
     const a = app({ today });
     a.add('locations', { code: WH, name: '公司倉庫', stock: true });
@@ -1236,11 +1236,11 @@ test('要處理：該抄表了（照合約的抄表週期，空白當每月；�
   b.add('readings', { device: '24-0001', date: '2026-12-01', month: '2026-11', bw: 6000 });
   assert.ok(!due(b).some(x => x[0] === DH)); // 12 月搬進來、雙月，下一次 2027/02
 
-  // 回報停了：超過 7 天（8 天起），越久的越上面；倉庫、沒回報過的不列
+  // 回報停了：超過 3 天（4 天起），越久的越上面；倉庫、沒回報過的不列
   const c = setup('2026-10-21');
   const rep = (code, date) => ({ serial: `S${code}`, device: code, date, time: '08:00' });
-  const list = [rep('24-0001', '2026-10-13'), rep('24-0002', '2026-10-14'), rep('24-0003', '2026-09-01'), rep('24-0004', '2026-01-01')];
-  assert.deepEqual(plain(c.Records.reportsDue(list).map(x => [x.place.code, x.device.code, x.days])), [['L0004', '24-0003', 50], [DH, '24-0001', 8]]);
+  const list = [rep('24-0001', '2026-10-17'), rep('24-0002', '2026-10-18'), rep('24-0003', '2026-09-01'), rep('24-0004', '2026-01-01')];
+  assert.deepEqual(plain(c.Records.reportsDue(list).map(x => [x.place.code, x.device.code, x.days])), [['L0004', '24-0003', 50], [DH, '24-0001', 4]]);
 });
 
 test('設備：編號不顯示，認機器看機型＋名稱；名稱下面寫序號；同機型同名稱時提醒；列表照機型清單的順序', () => {
@@ -1370,17 +1370,16 @@ test('匯入 data.json、以 Google 為主：用 id 比對，只加這台沒有�
   assert.equal(Store.pendingCount(), 4); // 加進來的要寫回試算表（還有前面新增的投影機）
 });
 
-test('最新回報：設備卡片序號那一行的右邊寫多久以前（今天、昨天寫時間），3 天內綠字、超過 7 天橘字；不寫碳粉；沒回報過的不寫', () => {
+test('最新回報：設備卡片序號那一行的右邊寫多久以前（今天、昨天寫時間），今天、昨天綠字、超過 3 天橘字；不寫碳粉；沒回報過的不寫', () => {
   const { Records, Store } = app({ today: '2026-10-21' });
   const at = (date, more = {}) => [{ serial: ' a1 ', device: '', date, time: '08:30', K: 80, Y: null, M: null, C: null, ...more }];
   const d = { serial: 'A1', code: '26-0001' };
   assert.deepEqual(plain(Records.reportNote(d, at('2026-10-21', { Y: 15, M: 60, C: 10 }))), { text: '今天 08:30', tone: 'fresh' });
   assert.deepEqual(plain(Records.reportNote(d, at('2026-10-20'))), { text: '昨天 08:30', tone: 'fresh' });
+  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-19'))), { text: '2 天前', tone: '' });
   assert.equal(Records.reportNote(d, at('2026-10-18')).text, '3 天前');
-  assert.equal(Records.reportNote(d, at('2026-10-18')).tone, 'fresh');
-  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-17'))), { text: '4 天前', tone: '' });
-  assert.equal(Records.reportNote(d, at('2026-10-14')).tone, ''); // 7 天
-  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-13'))), { text: '8 天前', tone: 'old' });
+  assert.equal(Records.reportNote(d, at('2026-10-18')).tone, ''); // 3 天：週五回報、週一還沒回報
+  assert.deepEqual(plain(Records.reportNote(d, at('2026-10-17'))), { text: '4 天前', tone: 'old' });
   assert.equal(Records.reportNote(d, at('')), null);
   assert.equal(Records.reportNote(d, []), null);
   // 沒有序號的用設備編號找

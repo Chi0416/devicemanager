@@ -964,10 +964,10 @@ const Records = (() => {
   // ---------- 最新回報：抄表程式每台最新一次的張數、碳粉（設備卡片、設備詳情） ----------
   //   連結 Google 時是試算表「最新回報」分頁讀回來的（見 sync.js）；沒有時用匯入的 data.json 裡的（假資料，見 tools/make-demo.mjs）
   //   先用序號找，找不到再用設備編號
-  //   多久以前：3 天內綠字（fresh）、超過 7 天橘字（old，抄表程式可能停了，總覽的「回報停了」也是），中間灰字
+  //   多久以前：今天、昨天綠字（fresh）、超過 3 天橘字（old，抄表程式可能停了，總覽的「回報停了」也是；週五回報到週一隔 3 天，週末不算），中間灰字
   const TONER_LOW = 20; // 碳粉幾 % 以下紅字
-  const REPORT_FRESH = 3;
-  const REPORT_OLD = 7;
+  const REPORT_FRESH = 1;
+  const REPORT_OLD = 3;
   const reports = () => (typeof Sync !== 'undefined' && Sync.state().toner) || Store.toner() || [];
   function latestReport(d, list = reports()) {
     return (key(d.serial) && list.find(x => key(x.serial) === key(d.serial))) || list.find(x => key(x.device) === key(d.code)) || null;
@@ -996,7 +996,7 @@ const Records = (() => {
   }
   const byPlaceName = (a, b) => String(a.place.name ?? '').localeCompare(String(b.place.name ?? ''), 'zh-Hant');
 
-  // 回報停了：回報過、超過 7 天沒回報（沒裝抄表程式的不列）；越久的越上面
+  // 回報停了：回報過、超過 3 天沒回報（沒裝抄表程式的不列）；越久的越上面
   //   [{ id, device, place, report, days }]
   function reportsDue(list = reports()) {
     return placedDevices().map(x => {

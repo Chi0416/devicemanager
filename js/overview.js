@@ -1,6 +1,6 @@
 // 總覽：最上面寫共幾台、幾種機型；下面是狀態方塊、要處理、各機型有幾台（計算見 records.js）
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
-//   要處理：合約到期、快到期，保固 30 天內到期，耗材快到了（預估 14 天內），該抄表了，回報停了（超過 7 天），狀態和位置對不上，空著的位置；
+//   要處理：合約到期、快到期，保固 30 天內到期，耗材快到了（預估 14 天內），該抄表了，回報停了（超過 3 天），狀態和位置對不上，空著的位置；
 //     依資料算，處理掉就自己不見，沒有的那一列不列
 //     合約、保固…：點一列打開那份清單（#todo-sheet），點一項打開那份合約、那台設備；空著的位置：到位置頁、篩好空著的（onPlaces）
 //   機型：依世代分組（機型清單的「世代」，空白時照型號猜），標題寫「IM C 系列」和小計，下面一條線；組裡一行一個、照機型清單的順序，細長條是台數
@@ -76,7 +76,7 @@ function createOverview({ onPick, onPlaces }) {
     {
       key: 'reports', title: '回報停了', icon: 'signal', tone: 'warn',
       list: () => Records.reportsDue(),
-      summary: list => `超過 7 天沒回報・最久 ${list[0].days} 天`,
+      summary: list => `超過 3 天沒回報・最久 ${list[0].days} 天`,
       row: x => ({ title: `${x.place.name} · ${Records.label(x.device)}`, sub: `最後回報 ${Records.reportWhen(x.report)}` }),
       open: x => Detail.open(x.device.id),
     },
