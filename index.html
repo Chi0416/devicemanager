@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.30.9">
+  <link rel="manifest" href="manifest.json?v=2026.10.30.10">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.30.9">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.30.10">
 </head>
 <body>
   <div class="app">
@@ -210,7 +210,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.30.9</p>
+      <p class="note muted">版本 2026.10.30.10</p>
     </div>
   </dialog>
 
@@ -283,7 +283,7 @@
       <p class="note muted">張數有兩種送法。</p>
       <ul class="member-list help-list">
         <li><span class="member-info"><b>機器自己寄信</b><small>機器每月 1 號把張數寄到你的 Gmail，不用別的電腦</small></span></li>
-        <li><span class="member-info"><b>抄表程式</b><small>客戶那邊一台一直開著的 Windows 電腦，每天回報張數和碳粉</small></span></li>
+        <li><span class="member-info"><b>抄表程式</b><small>客戶那邊一台一直開著的 Windows 電腦，每天或每週回報張數和碳粉</small></span></li>
       </ul>
 
       <h3 class="section-head">1. 試算表（兩種都要，用電腦做一次）</h3>
@@ -296,11 +296,11 @@
       <ol class="steps muted">
         <li>程式資料夾裡的「設定.txt」填網址（設定裡的讀信網址）和密語</li>
         <li>有 Python 的電腦：pip install puresnmp，點「抄表.pyw」；沒有的：在有 Python 的電腦點「打包.bat」，把「發佈」裡的「抄表」資料夾整個複製過去（例如 C:\抄表），點「抄表.exe」</li>
-        <li>輸入機器的 IP →「新增」→ 勾「開機自動執行」</li>
+        <li>輸入機器的 IP →「新增」→ 勾「開機自動執行」，旁邊選每天或每週幾</li>
         <li>按「提交計數器」試一次，試算表會多一個「最新回報」分頁</li>
       </ol>
       <ul class="member-list help-list">
-        <li><span class="member-info"><b>每天</b><small>背景回報一次張數和碳粉，存在試算表的「最新回報」分頁，一台一列，只留最新一次</small></span></li>
+        <li><span class="member-info"><b>背景回報</b><small>每天或每週幾回報一次張數和碳粉，那天電腦沒開的下次開機補送；存在試算表的「最新回報」分頁，一台一列，只留最新一次</small></span></li>
         <li><span class="member-info"><b>提交計數器</b><small>客戶按了就馬上回報一次</small></span></li>
         <li><span class="member-info"><b>抄表</b><small>設備詳情的「最新回報」寫張數和幾天前，按「抄表」帶入日期和張數，結算月份自己選</small></span></li>
         <li><span class="member-info"><b>設備清單</b><small>序號右邊寫多久以前回報，超過 7 天橘字</small></span></li>
@@ -371,24 +371,24 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.30.9"></script>
-  <script src="js/schema.js?v=2026.10.30.9"></script>
-  <script src="js/storage.js?v=2026.10.30.9"></script>
-  <script src="js/refs.js?v=2026.10.30.9"></script>
-  <script src="js/records.js?v=2026.10.30.9"></script>
-  <script src="js/list.js?v=2026.10.30.9"></script>
-  <script src="js/form.js?v=2026.10.30.9"></script>
-  <script src="js/picker.js?v=2026.10.30.9"></script>
-  <script src="js/lists.js?v=2026.10.30.9"></script>
-  <script src="js/detail.js?v=2026.10.30.9"></script>
-  <script src="js/overview.js?v=2026.10.30.9"></script>
-  <script src="js/places.js?v=2026.10.30.9"></script>
-  <script src="js/config.js?v=2026.10.30.9"></script>
-  <script src="js/google.js?v=2026.10.30.9"></script>
-  <script src="js/sheet.js?v=2026.10.30.9"></script>
-  <script src="js/sync.js?v=2026.10.30.9"></script>
-  <script src="js/inbox.js?v=2026.10.30.9"></script>
-  <script src="js/app.js?v=2026.10.30.9"></script>
+  <script src="js/util.js?v=2026.10.30.10"></script>
+  <script src="js/schema.js?v=2026.10.30.10"></script>
+  <script src="js/storage.js?v=2026.10.30.10"></script>
+  <script src="js/refs.js?v=2026.10.30.10"></script>
+  <script src="js/records.js?v=2026.10.30.10"></script>
+  <script src="js/list.js?v=2026.10.30.10"></script>
+  <script src="js/form.js?v=2026.10.30.10"></script>
+  <script src="js/picker.js?v=2026.10.30.10"></script>
+  <script src="js/lists.js?v=2026.10.30.10"></script>
+  <script src="js/detail.js?v=2026.10.30.10"></script>
+  <script src="js/overview.js?v=2026.10.30.10"></script>
+  <script src="js/places.js?v=2026.10.30.10"></script>
+  <script src="js/config.js?v=2026.10.30.10"></script>
+  <script src="js/google.js?v=2026.10.30.10"></script>
+  <script src="js/sheet.js?v=2026.10.30.10"></script>
+  <script src="js/sync.js?v=2026.10.30.10"></script>
+  <script src="js/inbox.js?v=2026.10.30.10"></script>
+  <script src="js/app.js?v=2026.10.30.10"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>
