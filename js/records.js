@@ -293,6 +293,11 @@ const Records = (() => {
     const name = MOVE_STATUS[String(values.type ?? '').trim()];
     return name && Store.list('statuses').some(s => key(s.name) === key(name)) ? name : '';
   }
+  // 設備的狀態跟著位置帶：在倉庫（或還沒有位置）帶庫存、在客戶那裡帶出租中；狀態清單裡沒有這個名字時帶第一個
+  function deviceStatus(values) {
+    const loc = values.location;
+    return moveStatus({ type: !key(loc) || isStock(loc) ? '撤機' : '安裝' }) || firstStatus();
+  }
 
   // 存了異動之後，設備的狀態改成這一筆的狀態；回傳改到的設備 [{ table, id }]
   //   只有這台設備最新的一筆才改（補登以前的異動不會改）
@@ -944,15 +949,17 @@ const Records = (() => {
     }).filter(x => x.days !== null && x.days > REPORT_OLD).sort((a, b) => b.days - a.days || byPlaceName(a, b));
   }
 
-  // 狀態和位置對不上：出租中卻放在倉庫、庫存卻放在客戶那裡（照異動帶的狀態：安裝帶出租中、撤機帶庫存）
+  // 狀態和位置對不上：出租中卻放在倉庫或沒有位置、庫存卻放在客戶那裡（照異動帶的狀態：安裝帶出租中、撤機帶庫存）
   //   刪掉異動、在試算表裡改了異動時，位置會跟著算，狀態不會（見 applyMoveStatus），列出來自己改
-  //   維修中、報廢這類放在哪裡都可以；沒有位置的（剛買的）不算；依位置名稱排
-  //   [{ id, device, place, status }]
+  //   沒有位置的：以前新增設備時預設出租中、位置空白，存進去的看起來像租出去了；庫存、其他狀態沒有位置不算
+  //   維修中、報廢這類放在哪裡都可以；依位置名稱排，沒有位置的排最後（照機型）
+  //   [{ id, device, place（沒有位置的是 null）, status }]
   function statusMismatch() {
     const atStock = new Map([[MOVE_STATUS.安裝, false], [MOVE_STATUS.撤機, true]]); // 這個狀態的機器該放在倉庫嗎
     return Store.list('devices').map(d => ({ id: d.id, device: d, place: place(d.location), status: statusOf(d) }))
-      .filter(x => x.place && atStock.has(x.status) && atStock.get(x.status) !== !!x.place.stock)
-      .sort(byPlaceName);
+      .filter(x => (x.place ? atStock.has(x.status) && atStock.get(x.status) !== !!x.place.stock
+        : !key(x.device.location) && x.status === MOVE_STATUS.安裝))
+      .sort((a, b) => (!a.place - !b.place) || (a.place ? byPlaceName(a, b) : deviceOrder(a.device, b.device)));
   }
 
   // 該抄表了：照合約的抄表週期，該抄的結算月份過完再 10 天還沒有抄表（每月 5 日抄上個月的來得及）
@@ -1202,7 +1209,7 @@ const Records = (() => {
   return {
     TABLES, DEVICE_TABLES, firstLine, noteLine, device, of, latest, label, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
-    hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, applyMoveStatus, placeBefore,
+    hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
     moveDateNote, moveToNote, isStock, disableCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,

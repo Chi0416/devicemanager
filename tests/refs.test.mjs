@@ -243,22 +243,49 @@ test('位置的編號：L＋流水號四位數，取最大的往下編；重複�
   assert.deepEqual(plain(fixLocationCodes()), []);
 });
 
-test('狀態：預設出租中、庫存、維修中、報廢，依順序排；新增設備時預設第一個；報廢不用提醒', () => {
+test('狀態：預設出租中、庫存、維修中、報廢，依順序排；報廢不用提醒', () => {
   const { Store, Refs, field, SCHEMAS } = app();
   const f = field('devices', 'status');
   assert.deepEqual(names(Refs.items(f)), ['出租中', '庫存', '維修中', '報廢']);
   assert.deepEqual(plain(Refs.items(f).map(r => Refs.tone('statuses', r))), ['blue', 'purple', 'orange', 'gray']);
-  assert.equal(f.default(), '出租中');
   // 改順序：庫存排第一
   const stock = Store.list('statuses').find(s => s.name === '庫存');
   Store.update('statuses', stock.id, { order: 0 });
-  assert.equal(f.default(), '庫存');
+  assert.deepEqual(names(Refs.items(f)).slice(0, 2), ['庫存', '出租中']);
   // 自己加的狀態沒填順序：排在最後
   Refs.quickAdd(f, '待回收');
   assert.deepEqual(names(Refs.items(f)).at(-1), '待回收');
   assert.equal(Store.list('statuses').find(s => s.name === '待回收').color, '藍');
   assert.equal(Store.ownCount(), 2);
   assert.ok(SCHEMAS.statuses.fields.find(x => x.key === 'quiet'));
+});
+
+test('新增設備：位置先帶第一個倉庫（停用的不算，沒有倉庫時空白）；狀態跟著位置帶，倉庫帶庫存、客戶的位置帶出租中', () => {
+  const { Store, field } = app();
+  const loc = field('devices', 'location');
+  const status = field('devices', 'status');
+  assert.equal(loc.default(), '');
+  assert.equal(status.calc({ location: '' }), '庫存'); // 還沒有位置的算在倉庫
+  Store.add('locations', { id: 'p1', code: 'L0001', name: '大華貿易 3F' });
+  Store.add('locations', { id: 'p2', code: 'L0002', name: '舊倉庫', stock: true, disabled: true });
+  Store.add('locations', { id: 'p3', code: 'L0003', name: '維修中心', stock: true });
+  Store.add('locations', { id: 'p4', code: 'L0004', name: '公司倉庫', stock: true });
+  assert.equal(loc.default(), 'L0004'); // 照選單的順序（名字）
+  assert.equal(status.calc({ location: 'L0004' }), '庫存');
+  assert.equal(status.calc({ location: 'L0003' }), '庫存');
+  assert.equal(status.calc({ location: 'L0001' }), '出租中');
+  // 狀態清單裡沒有「庫存」（改了名字）：帶排第一個的
+  const stock = Store.list('statuses').find(s => s.name === '庫存');
+  Store.update('statuses', stock.id, { name: '待租' });
+  assert.equal(status.calc({ location: 'L0004' }), '出租中');
+});
+
+test('合約的簽約日、選配件的安裝日期不預設今天（補登舊的忘了改，會記錯）；異動、抄表的日期預設今天', () => {
+  const { field } = app();
+  assert.equal(field('contracts', 'signDate').default, undefined);
+  assert.equal(field('parts', 'installDate').default, undefined);
+  assert.equal(typeof field('moves', 'date').default, 'function');
+  assert.equal(typeof field('readings', 'date').default, 'function');
 });
 
 test('保固：30 天內到期標色、過期寫出來；不用提醒的狀態（報廢）不寫', () => {

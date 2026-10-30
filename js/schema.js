@@ -25,7 +25,7 @@
 //   auto:        系統自己產生、不能改（設備的編號）：auto(這一筆) 回傳新的值；新增時存檔才給，給了就不會變
 //   keep:        連續新增時保留該欄的值（一次買好幾台時，類別、品牌、購買日期不用重填）
 //                可以是函式：keep(values) 為 true 時才留（設備的位置：倉庫才留）
-//   default:     新增時預先填入的值；可以是函式（第一個狀態）
+//   default:     新增時預先填入的值；可以是函式（設備的位置：第一個倉庫）
 //   hint:        顯示在表單欄位下方的說明
 //   note:        依表單目前填的內容，顯示在欄位下方的提醒：note(values) 回傳文字或 { text, warn }，不用提醒時回傳空字串
 //                values 是各欄位目前填的內容，另外 values.id 是正在編輯的那一筆的 id（新增時是 null）
@@ -182,8 +182,10 @@ function cleanBoard(v) {
   return /^[0-9A-Z]{12}$/.test(t) && !t.startsWith('RNP') ? `RNP${t}` : t;
 }
 
-// 新增設備時預設的狀態：清單裡排第一個的
+// 狀態清單裡排第一個的（設備的狀態帶不出庫存、出租中時用，見 records.js 的 deviceStatus）
 const firstStatus = () => Refs.items(SCHEMAS.devices.fields.find(f => f.key === 'status'))[0]?.name ?? '';
+// 新增設備時預設的位置：選單裡排第一個的倉庫；沒有倉庫時空白
+const firstStock = () => Refs.items(SCHEMAS.devices.fields.find(f => f.key === 'location')).find(p => p.stock)?.code ?? '';
 // 這個狀態要不要提醒（報廢、遺失這類勾了「不用提醒」的不提醒）
 const quietStatus = name => !!Refs.find(SCHEMAS.devices.fields.find(f => f.key === 'status'), name)?.quiet;
 
@@ -250,7 +252,8 @@ const SCHEMAS = {
       { key: 'code',     label: '編號',     type: 'text', auto: nextDeviceCode, hidden: true, section: '基本資料' },
       // 機身號碼（#1234）；同機型已經有一樣的名稱時提醒（還是可以存）
       { key: 'name',     label: '名稱',     type: 'text', note: v => Records.nameNote(v) },
-      { key: 'status',   label: '狀態',     type: 'ref', ref: 'statuses', default: () => firstStatus() },
+      // 跟著位置帶：倉庫帶庫存、客戶的位置帶出租中；自己改過的不蓋掉
+      { key: 'status',   label: '狀態',     type: 'ref', ref: 'statuses', calc: v => Records.deviceStatus(v) },
       { key: 'category', label: '類別',     type: 'ref', ref: 'options', list: '類別', optional: true, keep: true },
       { key: 'brand',    label: '品牌',     type: 'ref', ref: 'options', list: '品牌', optional: true, keep: true },
       // 機型從清單選，清單的順序就是總覽的順序（以前叫「型號」，是自己打的字）
@@ -258,8 +261,8 @@ const SCHEMAS = {
       { key: 'serial',   label: '序號',     type: 'text', optional: true, caps: true, upper: true, section: '機器識別' },
       { key: 'board',    label: '主機板號碼', type: 'text', optional: true, caps: true, tight: true, clean: cleanBoard },
       // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示；那裡已經有別台機器時提醒（倉庫不提醒）
-      // 連續新增時，倉庫才留著（客戶的位置一格一台）
-      placeField('location', '位置', { optional: true, keep: v => Records.isStock(v.location), section: '放置與保管',
+      // 新增時先放倉庫（剛買的機器）；連續新增時，倉庫才留著（客戶的位置一格一台）
+      placeField('location', '位置', { optional: true, default: () => firstStock(), keep: v => Records.isStock(v.location), section: '放置與保管',
         lock: r => (Records.hasMoves(r.code) ? '要換位置請新增異動' : ''), note: v => Records.slotNote(v.location, v.code) }),
       { key: 'keeper',   label: '保管人',   type: 'ref', ref: 'people', optional: true },
       { key: 'buyDate',  label: '購買日期', type: 'date', optional: true, keep: true, section: '購買與保固' },
@@ -363,7 +366,8 @@ const SCHEMAS = {
     afterRemove: r => Records.dropContractLog(r),
     fields: [
       placeField('locations', '位置', { many: true, full: true, placeholder: '選擇或搜尋，可以選好幾個' }),
-      dateField('signDate', '簽約日'),
+      // 不預設今天：補登舊合約忘了改日期，會變成這個位置目前的合約
+      { key: 'signDate', label: '簽約日', type: 'date' },
       { key: 'endDate', label: '到期日', type: 'date', optional: true },
       { key: 'earlyEnd', label: '提前結束日', type: 'date', optional: true, hint: '違約、提前結束時才填' },
       { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true },
@@ -472,7 +476,8 @@ const SCHEMAS = {
       deviceField(),
       { key: 'name',        label: '名稱',     type: 'ref', ref: 'options', list: '選配件' },
       { key: 'serial',      label: '序號',     type: 'text', optional: true, caps: true, upper: true },
-      dateField('installDate', '安裝日期', { optional: true }),
+      // 不預設今天：補登以前裝的，會被記成今天才裝
+      { key: 'installDate', label: '安裝日期', type: 'date', optional: true },
       { key: 'removeDate',  label: '拆除日期', type: 'date', optional: true },
       noteField(),
     ],

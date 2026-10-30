@@ -83,8 +83,11 @@ function createOverview({ onPick, onPlaces }) {
     {
       key: 'mismatch', title: '狀態和位置對不上', icon: 'swap', tone: 'warn',
       list: () => Records.statusMismatch(),
-      summary: () => '出租中但在倉庫，或庫存但在客戶那裡',
-      row: x => ({ title: `${x.place.name} · ${Records.label(x.device)}`, sub: `${x.status}，但在${x.place.stock ? '倉庫' : '客戶那裡'}` }),
+      summary: () => '出租中但在倉庫或沒有位置，或庫存但在客戶那裡',
+      row: x => ({
+        title: [x.place?.name, Records.label(x.device)].filter(Boolean).join(' · '),
+        sub: `${x.status}，但${!x.place ? '沒有位置' : x.place.stock ? '在倉庫' : '在客戶那裡'}`,
+      }),
       open: x => Detail.open(x.device.id),
     },
     {

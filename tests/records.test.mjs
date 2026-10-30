@@ -1051,9 +1051,9 @@ test('要處理：合約到期、快到期（重新簽約、提前結束、位�
   assert.equal(Records.lastMoveAt(AX), null);
 });
 
-test('要處理：狀態和位置對不上（出租中但在倉庫、庫存但在客戶那裡）；選錯機器刪掉異動時會列，改好狀態就不見', () => {
+test('要處理：狀態和位置對不上（出租中但在倉庫或沒有位置、庫存但在客戶那裡）；選錯機器刪掉異動時會列，改好狀態就不見', () => {
   const { Store, Records, SCHEMAS, add, d1, d2 } = withDevices();
-  const list = () => plain(Records.statusMismatch().map(x => [x.place.code, x.device.code, x.status]));
+  const list = () => plain(Records.statusMismatch().map(x => [x.place?.code ?? '', x.device.code, x.status]));
   // 24-0001 出租中卻在公司倉庫；25-0001 沒有位置不算
   assert.deepEqual(list(), [[WH, '24-0001', '出租中']]);
   // 安裝到大華：就對了
@@ -1073,6 +1073,15 @@ test('要處理：狀態和位置對不上（出租中但在倉庫、庫存但�
   add('devices', { code: '26-0001', name: '#1003', status: '維修中', location: WH });
   add('devices', { code: '26-0002', name: '#1004', status: '報廢', location: 'L0011' });
   add('locations', { code: 'L0011', name: '和平藥局' });
+  assert.deepEqual(list(), [[DH, '24-0001', '庫存'], [AX, '25-0001', '庫存']]);
+  // 出租中卻沒有位置（以前新增設備時的預設）：排最後；庫存、維修中沒有位置不算；安裝到客戶那裡就不見
+  const d5 = add('devices', { code: '26-0003', name: '#1005', status: '出租中' });
+  add('devices', { code: '26-0004', name: '#1006', status: '庫存' });
+  add('devices', { code: '26-0005', name: '#1007', status: '維修中' });
+  assert.deepEqual(list(), [[DH, '24-0001', '庫存'], [AX, '25-0001', '庫存'], ['', '26-0003', '出租中']]);
+  const m2 = add('moves', { device: '26-0003', date: '2026-10-01', type: '安裝', from: '', to: 'L0011', status: '出租中' });
+  SCHEMAS.moves.afterSave(null, m2);
+  assert.equal(Store.get('devices', d5.id).location, 'L0011');
   assert.deepEqual(list(), [[DH, '24-0001', '庫存'], [AX, '25-0001', '庫存']]);
 });
 
