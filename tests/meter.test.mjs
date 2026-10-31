@@ -7,7 +7,7 @@ import vm from 'node:vm';
 
 const ctx = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../apps-script/meter.gs', import.meta.url), 'utf8'), ctx, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_ })', ctx);
+const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_ })', ctx);
 const plain = v => JSON.parse(JSON.stringify(v));
 
 const PEOPLE = [
@@ -165,4 +165,10 @@ test('讀信只讀寄信用 Gmail（_meta 的 senderMail，好幾個用逗號分
   assert.equal(senderOf_({ getFrom: () => 'meter.abc@gmail.com' }), 'meter.abc@gmail.com');
   assert.equal(resultText_({ count: 0, fixed: 0, noSender: true }), '沒有讀信：先到 App「設定 → 自動抄表 → 機器設定」填寄信用 Gmail');
   assert.equal(resultText_({ count: 2, fixed: 0 }), '寫進 2 筆');
+});
+
+test('一次讀完的分頁（試算表 API 的 batchGet，順序和要的分頁一樣）：沒有資料的分頁是空的', () => {
+  const json = { valueRanges: [{ range: "'位置'!A1:H3", values: [['編號', '名稱'], ['L0001', '大華']] }, { range: "'設備'!A1:Z1000" }] };
+  assert.deepEqual(plain(valuesOf_(['位置', '設備'], json)), { 位置: [['編號', '名稱'], ['L0001', '大華']], 設備: [] });
+  assert.deepEqual(plain(valuesOf_([], {})), {});
 });

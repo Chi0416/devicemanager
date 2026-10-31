@@ -110,6 +110,8 @@ const Sync = (() => {
   const salesSee = t => !!cloud?.sales && !cloud.denied && !!SALES_ADD[t];
   const salesItems = snap => snap.items.filter(i => SALES_ADD[i.table] && !i.del && Store.get(i.table, i.id));
   const OLD_SCRIPT = '總部試算表上的程式是舊版，請找管理員更新';
+  const SALES_MAIL_GAP = 10 * 60000; // 業務員自動更新時，這麼久內讀過信就不再叫總部讀
+  const salesMailDue = () => !cloud?.meterReadAt || Date.now() - Date.parse(cloud.meterReadAt) > SALES_MAIL_GAP;
 
   // ---------- 找到、建立試算表 ----------
   async function findSpreadsheet() {
@@ -515,9 +517,12 @@ const Sync = (() => {
     emit();
     try {
       if (cloud.sales) {
-        if (mail) await readMail(cloud.hq);
+        // 讀信和拿資料同時做（讀信要幾秒，排隊會很慢）；這次讀到的下次更新才看得到（試算表上的程式每小時也會自己讀）
+        //   自動的（打開、切回來）10 分鐘內讀過就不讀，按「更新」照讀
+        const mailing = mail && (manual || salesMailDue()) ? readMail(cloud.hq) : null;
         await pushSales(Store.pendingSnapshot());
         await pullSales(manual);
+        if (mailing && (await mailing).at) saveCloud();
         return;
       }
       const mailed = mail && cloud.meterUrl ? await readMail() : null;

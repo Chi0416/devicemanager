@@ -464,30 +464,56 @@ function ensureCols_(sheet, names) {
 }
 
 // 讀幾個分頁：{ 分頁名稱: [標題列, ...列] }，日期換成序號；沒有的分頁不列
+//   用試算表的 API 一次讀完（和 App 讀試算表一樣，日期本來就是序號），一個一個分頁讀很慢（十幾個分頁要十秒）
+//   API 讀不到時（權限、網路）改回一個一個讀
 function readTabs_(ss, names) {
+  const have = new Set(ss.getSheets().map(s => s.getName()));
+  const list = names.filter(n => have.has(n));
+  if (!list.length) return {};
+  const ranges = list.map(n => `ranges=${encodeURIComponent(`'${n.replace(/'/g, "''")}'`)}`).join('&');
+  const res = UrlFetchApp.fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${ss.getId()}/values:batchGet?${ranges}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`,
+    { headers: { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` }, muteHttpExceptions: true },
+  );
+  if (res.getResponseCode() === 200) return valuesOf_(list, JSON.parse(res.getContentText()));
   const tz = ss.getSpreadsheetTimeZone();
   const values = {};
-  names.forEach(n => {
-    const sheet = ss.getSheetByName(n);
-    if (sheet) values[n] = sheet.getDataRange().getValues().map(row => row.map(v => cell_(v, tz)));
-  });
+  list.forEach(n => { values[n] = ss.getSheetByName(n).getDataRange().getValues().map(row => row.map(v => cell_(v, tz))); });
+  return values;
+}
+
+// batchGet 回的 valueRanges（順序和 ranges 一樣）→ { 分頁名稱: [標題列, ...列] }；空的分頁是 []
+function valuesOf_(list, json) {
+  const values = {};
+  (json.valueRanges || []).forEach((r, i) => { if (list[i]) values[list[i]] = r.values || []; });
   return values;
 }
 
 const today_ = ss => cell_(new Date(), ss.getSpreadsheetTimeZone());
 
 // 總部的帳號（試算表的擁有者），業務員的設定裡寫；拿不到時空白，不影響拿資料
+//   第一次拿到後記在指令碼屬性，之後不再問（每次問要多等）
 function owner_(ss) {
+  const props = PropertiesService.getScriptProperties();
+  const saved = props.getProperty('owner');
+  if (saved) return saved;
   try {
-    return ss.getOwner().getEmail();
+    const email = ss.getOwner().getEmail();
+    if (email) props.setProperty('owner', email);
+    return email;
   } catch (_) {
     return '';
   }
 }
 
 // 權杖是誰的；不是這個 App 拿到的、過期的回空字串
+//   問到的記在快取（權杖剩多久就記多久），同一個登入下次不用再問 Google 兩次
 function whoIs_(token) {
   if (!token) return '';
+  const cache = CacheService.getScriptCache();
+  const key = `who:${Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token))}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
   const get = (url, headers) => UrlFetchApp.fetch(url, { headers: headers || {}, muteHttpExceptions: true });
   const info = get(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
   if (info.getResponseCode() !== 200) return '';
@@ -495,7 +521,10 @@ function whoIs_(token) {
   if (t.aud !== CLIENT_ID && t.azp !== CLIENT_ID) return '';
   const about = get('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)', { Authorization: `Bearer ${token}` });
   if (about.getResponseCode() !== 200) return '';
-  return String(JSON.parse(about.getContentText()).user.emailAddress || '');
+  const email = String(JSON.parse(about.getContentText()).user.emailAddress || '');
+  const left = Math.min(3000, Number(t.expires_in) || 0) - 60;
+  if (email && left > 0) cache.put(key, email, left);
+  return email;
 }
 
 // 日期換成試算表的序號（1899/12/30 是 0，和 App 讀試算表時一樣）；其他照原本的

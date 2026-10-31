@@ -1452,3 +1452,23 @@ test('業務員換到另一個總部（打開不同的邀請連結）：這台�
   await s.Sync.join(HQ2);
   assert.equal(s.Store.list('readings').filter(r => r.bw === 160).length, 1);
 });
+
+test('業務員更新時讀信和拿資料同時做；打開 App（自動）時 10 分鐘內讀過信就不讀，按「更新」照讀', async () => {
+  const { fake } = await hq();
+  fake.salesEmail = 'a@gmail.com';
+  fake.meter = () => ({ count: 0, fixed: 0, at: new Date().toISOString() });
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  assert.ok(s.Sync.state().meterReadAt);
+  // 同一台再打開一次（Sync.init 自動更新）：剛讀過信，只拿資料
+  const calls = fake.calls.length;
+  const again = device(fake, { storage: { ...s.ls } });
+  for (let i = 0; i < 100 && !fake.calls.slice(calls).some(c => c.startsWith('POST')); i++) await new Promise(r => setImmediate(r));
+  for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
+  assert.deepEqual(fake.calls.slice(calls), ['POST /macros/s/hq/exec']);
+  assert.equal(again.Store.list('locations').length, 1);
+  // 按「更新」：照讀
+  const before = fake.calls.length;
+  await again.Sync.syncNow();
+  assert.deepEqual(fake.calls.slice(before), ['GET /macros/s/hq/exec', 'POST /macros/s/hq/exec']);
+});
