@@ -346,14 +346,19 @@ function serialMap_(sheet) {
 const CLIENT_ID = '460486615404-n7j6akqvhec4at7dt0f4937posghfr4p.apps.googleusercontent.com'; // App 的 OAuth 用戶端 ID（js/config.js）
 const SALES_TABS = ['位置', '客戶', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST];
 
+//   回傳時另外寫 read：{ via: 怎麼讀的（service／api／sheets，見 readTabs_）, ms: { who, read, total } 各花幾毫秒 }，查慢的時候看
 function salesData_(token) {
+  const start = Date.now();
   const email = whoIs_(token);
   if (!email) return { error: '登入已過期，請重新登入', login: true };
+  const who = Date.now() - start;
   const ss = SpreadsheetApp.getActive();
   const values = readTabs_(ss, SALES_TABS);
+  const read = Date.now() - start - who;
   const person = salesPerson_(values['人員'], email, today_(ss));
   if (!person) return { error: `${email} 不是業務員，請找管理員`, denied: true };
-  return { ...person, email, admin: owner_(ss), values: salesRows_(values, person) };
+  const out = { ...person, email, admin: owner_(ss), values: salesRows_(values, person) };
+  return { ...out, read: { via: readVia_, ms: { who, read, total: Date.now() - start } } };
 }
 
 // 業務員送來的抄表、保養：{ action: 'add', token, items: [{ tab: '抄表' 或 '保養', head: App 用的標題列, row: 照 head 排的那一列（日期是序號） }] }
@@ -464,18 +469,35 @@ function ensureCols_(sheet, names) {
 }
 
 // 讀幾個分頁：{ 分頁名稱: [標題列, ...列] }，日期換成序號；沒有的分頁不列
-//   用試算表的 API 一次讀完（和 App 讀試算表一樣，日期本來就是序號），一個一個分頁讀很慢（十幾個分頁要十秒）
-//   API 讀不到時（權限、網路）改回一個一個讀
+//   用試算表的 API 一次讀完（和 App 讀試算表一樣，日期本來就是序號），一個一個分頁讀很慢（十幾個分頁要十秒）：
+//     service：Apps Script 左邊「服務」加了 Google Sheets API（Sheets）時用它，最快
+//     api：沒加的話直接打試算表 API（Google 給的預設專案常常沒開這個 API，會被擋）
+//     sheets：都不行時一個一個讀
+//   用了哪一種記在 readVia_（業務員拿資料時回傳，查慢的時候看）
+let readVia_ = '';
 function readTabs_(ss, names) {
   const have = new Set(ss.getSheets().map(s => s.getName()));
   const list = names.filter(n => have.has(n));
   if (!list.length) return {};
-  const ranges = list.map(n => `ranges=${encodeURIComponent(`'${n.replace(/'/g, "''")}'`)}`).join('&');
+  const quoted = list.map(n => `'${n.replace(/'/g, "''")}'`);
+  const opts = { valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' };
+  if (typeof Sheets !== 'undefined') {
+    try {
+      const r = Sheets.Spreadsheets.Values.batchGet(ss.getId(), { ...opts, ranges: quoted });
+      readVia_ = 'service';
+      return valuesOf_(list, r);
+    } catch (_) { /* 改用下面的 */ }
+  }
+  const ranges = quoted.map(q => `ranges=${encodeURIComponent(q)}`).join('&');
   const res = UrlFetchApp.fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${ss.getId()}/values:batchGet?${ranges}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`,
     { headers: { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` }, muteHttpExceptions: true },
   );
-  if (res.getResponseCode() === 200) return valuesOf_(list, JSON.parse(res.getContentText()));
+  if (res.getResponseCode() === 200) {
+    readVia_ = 'api';
+    return valuesOf_(list, JSON.parse(res.getContentText()));
+  }
+  readVia_ = 'sheets';
   const tz = ss.getSpreadsheetTimeZone();
   const values = {};
   list.forEach(n => { values[n] = ss.getSheetByName(n).getDataRange().getValues().map(row => row.map(v => cell_(v, tz))); });

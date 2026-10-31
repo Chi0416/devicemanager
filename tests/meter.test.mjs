@@ -7,7 +7,7 @@ import vm from 'node:vm';
 
 const ctx = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../apps-script/meter.gs', import.meta.url), 'utf8'), ctx, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_ })', ctx);
+const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_ })', ctx);
 const plain = v => JSON.parse(JSON.stringify(v));
 
 const PEOPLE = [
@@ -171,4 +171,17 @@ test('一次讀完的分頁（試算表 API 的 batchGet，順序和要的分頁
   const json = { valueRanges: [{ range: "'位置'!A1:H3", values: [['編號', '名稱'], ['L0001', '大華']] }, { range: "'設備'!A1:Z1000" }] };
   assert.deepEqual(plain(valuesOf_(['位置', '設備'], json)), { 位置: [['編號', '名稱'], ['L0001', '大華']], 設備: [] });
   assert.deepEqual(plain(valuesOf_([], {})), {});
+});
+
+test('讀分頁：Apps Script 加了 Google Sheets API 服務時一次讀完（記下用了 service），只讀試算表有的分頁', () => {
+  const asked = [];
+  ctx.Sheets = { Spreadsheets: { Values: { batchGet: (id, opts) => {
+    asked.push({ id, ...opts });
+    return { valueRanges: [{ values: [['編號'], ['L0001']] }, {}] };
+  } } } };
+  const ss = { getId: () => 'sheet1', getSheets: () => ['位置', "客戶's"].map(n => ({ getName: () => n })) };
+  assert.deepEqual(plain(readTabs_(ss, ['位置', '設備', "客戶's"])), { 位置: [['編號'], ['L0001']], "客戶's": [] });
+  assert.deepEqual(plain(asked), [{ id: 'sheet1', valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER', ranges: ["'位置'", "'客戶''s'"] }]);
+  assert.equal(vm.runInContext('readVia_', ctx), 'service');
+  delete ctx.Sheets;
 });

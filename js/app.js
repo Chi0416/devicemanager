@@ -439,6 +439,7 @@
           <li>機器：按「<button type="button" class="link-btn" data-act="machine">機器設定</button>」照著設；最上面的寄信用 Gmail 一定要填，程式只讀它寄來的信</li>
           <li>「${st.url ? `<a class="link-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : '打開試算表'}」（右上角頭像要是 ${U.esc(st.email)}），選「擴充功能」→「Apps Script」</li>
           <li>刪掉裡面原本的內容，按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」貼上，存檔</li>
+          <li>左邊「服務」旁邊的 ＋ → 選「Google Sheets API」→「新增」（業務員拿資料比較快，只要做一次）</li>
           <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
           <li>App 打開、按「同步」時讀信，還有抄表程式、業務員，都要用這個網址（第 3 步貼好、存檔後再做，部署會固定當下的程式）：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
           <li>用抄表程式的：試算表重新整理，上方「自動抄表」→「密語」，和讀信網址一起填進程式的「設定.txt」</li>
