@@ -248,6 +248,9 @@ const Records = (() => {
 
   // 卡片最下面的備註（只寫第一行）
   const noteLine = v => (firstLine(v) ? { text: firstLine(v), warn: false } : null);
+  // 抄表、保養卡片最下面一行：有業務員回報時寫回報（橘字）；不然寫備註第一行，業務員輸入的後面寫是誰
+  const workLine = r => (firstLine(r.report) ? { text: `回報：${firstLine(r.report)}`, warn: true }
+    : noteLine([firstLine(r.note), String(r.by ?? '').trim() && `${String(r.by).trim()} 輸入`].filter(Boolean).join('・')));
 
   // ---------- 位置歷程 ----------
   const hasMoves = code => of('moves', code).length > 0;
@@ -687,6 +690,14 @@ const Records = (() => {
   //   values 是表單目前填的內容（張數是打的字），values.id 是正在編輯的那一筆
   //   抄表：上次、使用量跟卡片一樣照算帳的上一次（見 billPrev）；比上次少照有記張數的任何一筆（保養填的也算）
   //   use 為 false 時只寫有記張數的上一筆，不寫使用量（保養：卡片的使用量是上次換同一項到這次，項目下面寫了）
+  // 業務員新增時張數比這台上一次少：存不了（換主機板張數不會歸零，少了就是打錯）；管理員照 countNote 只提醒
+  function countCheck(values, k) {
+    if (!salesMode() || values.id) return '';
+    const v = U.parseNum(String(values[k] ?? ''));
+    const any = v !== null && values.device ? previous({ ...values, [k]: v }, k) : null;
+    return any && v < any[k] ? `比上一次（${fmt(any[k])}，${shortDate(any.date)}）少，請再確認；真的沒錯請找管理員` : '';
+  }
+
   function countNote(values, k, use = true) {
     const v = U.parseNum(String(values[k] ?? ''));
     const rec = { ...values, [k]: v };
@@ -1279,7 +1290,7 @@ const Records = (() => {
   }
 
   return {
-    TABLES, DEVICE_TABLES, firstLine, noteLine, device, of, latest, label, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
+    TABLES, DEVICE_TABLES, firstLine, noteLine, workLine, countCheck, device, of, latest, label, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,

@@ -77,6 +77,7 @@ const Sync = (() => {
       meterUrl: cloud?.meterUrl || '',
       meterReadAt: cloud?.meterReadAt || '',
       senderMail: cloud?.senderMail || '',
+      meterNoSender: !!cloud?.meterNoSender,
       toner: cloud?.toner || null,
       lastSyncAt: cloud?.lastSyncAt || null,
       sales: !!cloud?.sales,
@@ -104,6 +105,8 @@ const Sync = (() => {
   // 業務員可以新增的表：抄表要「記抄表」、保養要「記保養」（只能新增，不能改、不能刪）
   const SALES_ADD = { readings: '記抄表', maintenance: '記保養' };
   const salesCan = t => !!cloud?.sales && !cloud.denied && (cloud.perms || []).includes(SALES_ADD[t]);
+  // 業務員打開一筆抄表、保養：只能寫「業務員回報」（不用新增的權限）
+  const salesSee = t => !!cloud?.sales && !cloud.denied && !!SALES_ADD[t];
   const salesItems = snap => snap.items.filter(i => SALES_ADD[i.table] && !i.del && Store.get(i.table, i.id));
   const OLD_SCRIPT = '總部試算表上的程式是舊版，請找管理員更新';
 
@@ -482,6 +485,7 @@ const Sync = (() => {
       const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
       const r = await res.json();
       if (r.at) cloud.meterReadAt = r.at;
+      cloud.meterNoSender = !!r.noSender; // 還沒填寄信用 Gmail，程式不讀信（見 apps-script/meter.gs 的 senders_）
       return r;
     } catch (_) {
       return { failed: true };
@@ -550,6 +554,7 @@ const Sync = (() => {
       saveCloud();
       okAt = Date.now();
       if (manual && mailed?.failed) hooks.toast('已同步，但讀信失敗：確認讀信網址對、部署時「誰可以存取」選了「任何人」', 'error');
+      else if (manual && mailed?.noSender) hooks.toast('已同步，但還沒填寄信用 Gmail，所以沒有讀信：到「設定 → 自動抄表 → 機器設定」填', 'error');
       else if (manual && mailed && !mailed.at) hooks.toast('已同步，但試算表上的程式是舊版：重貼程式、存檔，再到「管理部署作業」換新版本', 'error');
       else if (manual) hooks.toast(mailText(mailed) ? `已同步（${mailText(mailed)}）` : '已同步');
     } catch (e) {
@@ -902,5 +907,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, isSales, salesAll, salesCan, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
+  return { init, state, isSales, salesAll, salesCan, salesSee, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
 })();

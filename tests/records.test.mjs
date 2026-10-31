@@ -8,7 +8,8 @@ import vm from 'node:vm';
 
 const FILES = ['util', 'schema', 'storage', 'refs', 'records'];
 
-function app({ today = '2026-10-11' } = {}) {
+// sales：業務員模式（假的 Sync，見 sync.js 的業務員）
+function app({ today = '2026-10-11', sales = false } = {}) {
   const ls = {};
   const ctx = vm.createContext({
     localStorage: {
@@ -22,6 +23,7 @@ function app({ today = '2026-10-11' } = {}) {
   });
   for (const f of FILES) vm.runInContext(readFileSync(new URL(`../js/${f}.js`, import.meta.url), 'utf8'), ctx, { filename: `${f}.js` });
   vm.runInContext(`U.today = () => '${today}'`, ctx);
+  if (sales) vm.runInContext('var Sync = { isSales: () => true, salesAll: () => false, salesCan: () => true, salesSee: () => true }', ctx);
   const a = vm.runInContext('({ Store, Refs, Records, SCHEMAS })', ctx);
   const field = (t, key) => a.SCHEMAS[t].fields.find(f => f.key === key);
   // 新增一筆：沒寫的欄位用空白（和表單存的一樣）
@@ -730,7 +732,8 @@ test('保養、翻新：卡片標題和最下面一行；保養填的張數不�
   assert.equal(Records.describe('maintenance', k), '#1001 2026/09/10 碳粉 K');
   assert.equal(Records.describe('refurbs', f), '#1001 2026/09/20 翻新');
   // 保養只記在哪裡換了哪個：沒有廠商、費用；連續新增時日期留著
-  assert.deepEqual(plain(SCHEMAS.maintenance.fields.map(x => x.key)), ['device', 'date', 'item', 'bw', 'color', 'note']);
+  //   輸入的人、業務員回報：業務員用的（見 PLAN.md 的業務員）
+  assert.deepEqual(plain(SCHEMAS.maintenance.fields.map(x => x.key)), ['device', 'date', 'item', 'bw', 'color', 'note', 'by', 'report']);
   assert.deepEqual(plain(SCHEMAS.maintenance.fields.filter(x => x.keep).map(x => x.key)), ['date']);
 });
 
@@ -1422,4 +1425,31 @@ test('最新回報：設備卡片序號那一行的右邊寫多久以前（今�
   // 沒連結 Google 時用匯入的 data.json 裡的
   Store.replaceAll(Store.parseImport({ devices: [], toner: at('2026-10-21') }));
   assert.equal(Records.reportNote(d).text, '今天 08:30');
+});
+
+test('業務員新增抄表、保養時，張數比這台上一次少就存不了（管理員照樣只提醒）；打開舊的那筆不擋', () => {
+  for (const sales of [false, true]) {
+    const { add, field } = app({ sales });
+    add('devices', { code: '26-0001', name: '#1001' });
+    add('readings', { device: '26-0001', date: '2026-10-01', bw: 1000, color: 50 });
+    const msg = sales ? '比上一次（1,000，10/01）少，請再確認；真的沒錯請找管理員' : '';
+    const v = { device: '26-0001', date: '2026-10-11', bw: '900', color: '60' };
+    assert.equal(field('readings', 'bw').check(v), msg);
+    assert.equal(field('readings', 'color').check(v), '');
+    assert.equal(field('readings', 'bw').check({ ...v, bw: '1000' }), '');
+    assert.equal(field('readings', 'bw').check({ ...v, id: 'x' }), ''); // 打開舊的那筆（只能寫回報）
+    assert.equal(field('maintenance', 'bw').check({ device: '26-0001', date: '2026-10-11', bw: '10' }), msg);
+  }
+});
+
+test('抄表、保養卡片最下面一行：有業務員回報時寫回報（橘字），不然寫備註第一行和是誰輸入的', () => {
+  const { Records, field } = app();
+  assert.deepEqual(plain(Records.workLine({ note: '換紙匣', by: '阿明', report: '阿明：張數打錯\n應該是 42,460' })), { text: '回報：阿明：張數打錯', warn: true });
+  assert.deepEqual(plain(Records.workLine({ note: '換紙匣\n第二行', by: '阿明', report: '' })), { text: '換紙匣・阿明 輸入', warn: false });
+  assert.deepEqual(plain(Records.workLine({ note: '', by: '阿明' })), { text: '阿明 輸入', warn: false });
+  assert.equal(Records.workLine({ note: '', by: '' }), null);
+  // 業務員回報：管理員有寫的才出現（清空後藏起來）；輸入的人表單上不出現
+  assert.equal(field('readings', 'report').showIf({ report: '' }), false);
+  assert.equal(field('readings', 'report').showIf({ report: '阿明：x' }), true);
+  assert.equal(field('maintenance', 'by').hidden, true);
 });

@@ -11,6 +11,7 @@
 //   以這筆為底新增（schema 的 copy，合約的「重新簽約」）：編輯時才有；改過還沒存時不能按
 //   同一個位置的另一種按鈕（schema 的 action，人員的「複製邀請連結」）：編輯時、show(這一筆) 為 true 才有，按了交給 app.js（init 的 action）
 //   業務員模式（見 sync.js）：只能新增他有權限的（抄表、保養），不能修改、刪除；清單的下拉選單不能「＋ 新增」
+//     打開一筆抄表、保養（view）：每一欄都只顯示，只有「業務員回報」可以寫
 //   修改紀錄（schema 的 history，合約）：編輯時列在下面
 //   刪除：按第一次在按鈕下面寫會刪掉什麼，再按一次才刪；不用瀏覽器的確認視窗（有些環境不會跳出來，按了就像沒反應）
 //     設備有紀錄的：寫出有幾筆、建議改成報廢，真的要刪就連同紀錄一起刪（schema 的 target.cascade）
@@ -66,21 +67,22 @@ const Form = (() => {
   //   在設備詳情裡新增紀錄時，設備先帶好（「儲存，再新增一筆」也照樣帶）
   // message：打開時寫在最上面的一行（安裝、撤機後接著抄表時說要填什麼）
   function open(tableKey, id, preset = {}, { message = '' } = {}) {
-    if (typeof Sync !== 'undefined' && Sync.isSales() && (id || !Sync.salesCan(tableKey))) return;
+    const sales = typeof Sync !== 'undefined' && Sync.isSales();
+    if (sales && (id ? !Sync.salesSee(tableKey) : !Sync.salesCan(tableKey))) return;
     const schema = SCHEMAS[tableKey];
     const rec = id ? Store.get(tableKey, id) : null;
     if (id && !rec) return;
     // 表單上的順序（schema 的 formOrder 寫的先排，異動的類型在最上面）；試算表照 fields 的順序
     const first = schema.formOrder || [];
     const fields = [...first.map(k => schema.fields.find(f => f.key === k)), ...schema.fields.filter(f => !first.includes(f.key))];
-    ctx = { tableKey, schema, id, count: 0, fields, preset };
+    ctx = { tableKey, schema, id, count: 0, fields, preset, view: sales && !!id };
     // 標題：選項寫它屬於哪一份清單（「編輯保養項目」），其他寫表的名稱
     const name = typeof schema.formTitle === 'function' ? schema.formTitle(rec || preset) : schema.formTitle || schema.title;
     ctx.name = name;
-    titleEl.textContent = `${id ? '編輯' : '新增'}${name}`;
+    titleEl.textContent = ctx.view ? `${name}・回報問題` : `${id ? '編輯' : '新增'}${name}`;
     setCloseLabel('取消');
     resetDelete();
-    delBtn.hidden = !id;
+    delBtn.hidden = !id || ctx.view;
     anotherBtn.hidden = !!id || !!schema.once;
     const extra = schema.copy || schema.action;
     copyBtn.hidden = copyNote.hidden = !(id && (schema.copy || schema.action?.show(rec)));
@@ -158,7 +160,7 @@ const Form = (() => {
     combos = fields.map(() => null);
     manys = fields.map(() => null);
     autos = fields.map(() => null);
-    locked = fields.map(f => !!(rec && f.lock && f.lock(rec)));
+    locked = fields.map(f => !!(rec && ((ctx.view && f.key !== 'report') || (f.lock && f.lock(rec)))));
     inputs = fields.map((f, i) => {
       // 一段的小標題（schema 的 section），佔滿整列
       if (f.section) {
@@ -184,9 +186,10 @@ const Form = (() => {
         inp.type = 'hidden';
         wrap.appendChild(inp);
       } else if (locked[i]) {
-        // 不能改：和系統產生的欄位一樣只顯示
+        // 不能改：和系統產生的欄位一樣只顯示（多行的備註是 textarea，藏起來）
         label.removeAttribute('for');
-        inp.type = 'hidden';
+        if (inp.tagName === 'TEXTAREA') inp.hidden = true;
+        else inp.type = 'hidden';
         autos[i] = document.createElement('div');
         autos[i].className = 'auto-value';
         wrap.append(inp, autos[i]);
@@ -221,7 +224,7 @@ const Form = (() => {
           wrap.appendChild(chipBoxes[i]);
         }
       }
-      const hintText = locked[i] ? f.lock(rec) : f.hint;
+      const hintText = locked[i] ? (f.lock ? f.lock(rec) : '') : f.hint;
       if (hintText) {
         const hint = document.createElement('div');
         hint.className = 'hint';
@@ -262,7 +265,8 @@ const Form = (() => {
       if (!el) return;
       const f = ctx.fields[i];
       const v = inputs[i].value.trim();
-      const shown = locked[i] && f.shown ? f.shown(formValues()) : v && U.display(f, v);
+      // 數字欄的值是打的字（36400），換成數字才排得出千分位
+      const shown = locked[i] && f.shown ? f.shown(formValues()) : v && U.display(f, f.type === 'number' ? U.parseNum(v) : v);
       el.innerHTML = v || locked[i] ? `<b>${U.esc(shown || '—')}</b>`
         : `<b>${U.esc(ctx.fields[i].auto(formValues()))}</b><small>存檔後產生</small>`;
       el.classList.toggle('pending', !v);

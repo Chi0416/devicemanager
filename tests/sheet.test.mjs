@@ -25,7 +25,7 @@ const person = (id, over = {}) => ({
   id, name: '', code: '', jobTitle: '', dept: '', phone: '', email: '', sales: false, perms: '', all: false, joinDate: null, leaveDate: null, note: '', ...over,
 });
 // 紀錄：設備欄寫設備編號
-const work = (id, over = {}) => ({ id, device: '', date: null, bw: null, color: null, note: '', ...over });
+const work = (id, over = {}) => ({ id, device: '', date: null, bw: null, color: null, note: '', by: '', report: '', ...over });
 const vendor = (id, over = {}) => ({ id, name: '', contact: '', phone: '', address: '', disabled: false, note: '', ...over });
 
 const sample = () => ({
@@ -63,7 +63,7 @@ const sample = () => ({
     content: '月租 3,000\n含 2,000 張', billing: '超過每張 0.3 元', readDay: '25 日', cycle: '每季',
   }],
   contractLog: [{ id: 'g1', contract: 'c1', date: '2026-06-01', field: '抄表日期', before: '每月 15 日', after: '每月 25 日' }],
-  readings: [{ id: 'r1', device: 'NB-001', date: '2026-03-03', month: '2026-02', bw: 12000, color: 100, note: '' }],
+  readings: [{ id: 'r1', device: 'NB-001', date: '2026-03-03', month: '2026-02', bw: 12000, color: 100, note: '', by: '阿明', report: '阿明：張數打錯' }],
   maintenance: [
     work('k1', { device: 'NB-001', date: '2026-02-01', item: '碳粉 K', bw: 11800, color: 90 }),
     work('k2', { device: 'NB-001', date: '2026-02-01', item: '感光鼓' }),
@@ -366,9 +366,10 @@ test('紀錄：設備欄寫設備編號（純文字）；保養一筆一個項�
   assert.deepEqual(v['位置'][0], ['編號', '名稱', '以前的名字', '倉庫', '業務員', '停用', '備註', 'id']);
   assert.deepEqual(v['位置'][1][4], '王小明'); // 業務員寫名字
   assert.deepEqual(v['位置'][2].slice(0, 6), ['L0002', '舊倉庫', '', true, '', true]);
-  assert.deepEqual(v['抄表'][0], ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', 'id']);
+  assert.deepEqual(v['抄表'][0], ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', '輸入的人', '業務員回報', 'id']);
+  assert.deepEqual(v['抄表'][1].slice(6, 8), ['阿明', '阿明：張數打錯']);
   assert.equal(v['抄表'][1][2], '2026/02'); // 結算月份存成文字
-  assert.deepEqual(v['保養'][0], ['設備', '日期', '項目', '黑白張數', '彩色張數', '備註', 'id']);
+  assert.deepEqual(v['保養'][0], ['設備', '日期', '項目', '黑白張數', '彩色張數', '備註', '輸入的人', '業務員回報', 'id']);
   assert.deepEqual(v['翻新'][0], ['設備', '翻新日期', '入庫日', '工程師', '序號', '國別', '廠商或來源', '噴漆', '翻新項目', '備註', 'id']);
   assert.equal(v['翻新'][1][7], true); // 噴漆是核取方塊
   assert.deepEqual(v['選配件'][0], ['設備', '名稱', '序號', '安裝日期', '拆除日期', '備註', 'id']);

@@ -1226,9 +1226,9 @@ test('兩台裝置各新增一台、拿到同一個編號：換號的那台在�
 // 模擬總部的程式：用 meter.gs 的 salesPerson_、salesRows_ 從總部的試算表挑列；fake.salesEmail 是業務員登入的帳號
 const meter = vm.createContext({});
 vm.runInContext(readFileSync(new URL('apps-script/meter.gs', ROOT), 'utf8'), meter, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_, salesScope_, salesCheck_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesCheck_ })', meter);
+const { salesPerson_, salesRows_, salesPlan_ } = vm.runInContext('({ salesPerson_, salesRows_, salesPlan_ })', meter);
 const HQ = 'https://script.google.com/macros/s/hq/exec';
-//   新增（salesAdd）：一樣用 meter.gs 的檢查，通過的照試算表的標題列加在最下面
+//   送出（salesAdd）：一樣用 meter.gs 的 salesPlan_；新增的照試算表的標題列加在最下面、輸入的人寫名字，回報的只改業務員回報那一格
 function salesServer(fake, id) {
   const who = () => {
     const values = Object.fromEntries(fake.files[id].sheets.map(s => [s.title, FakeGoogle.read(s.grid)]));
@@ -1244,13 +1244,17 @@ function salesServer(fake, id) {
   fake.salesAdd = body => {
     const { values, person } = who();
     if (!person) return denied();
-    const now = salesScope_(values, person).now;
     return { results: body.items.map(item => {
-      const c = salesCheck_(person, now, item);
-      if (c.error) return c;
+      const plan = salesPlan_(values, person, item);
+      if (plan.error) return plan;
       const grid = fake.sheet(id, item.tab).grid;
-      grid.push(grid[0].map(h => (item.head.indexOf(h) < 0 ? undefined : item.row[item.head.indexOf(h)])));
-      return { id: c.id, ok: true };
+      if (plan.kind === 'report') {
+        grid.find(r => r[grid[0].indexOf('id')] === plan.id)[grid[0].indexOf('業務員回報')] = plan.report;
+      } else {
+        const fixed = { 輸入的人: plan.by, 業務員回報: plan.report };
+        grid.push(grid[0].map(h => (h in fixed ? fixed[h] : item.head.indexOf(h) < 0 ? undefined : item.row[item.head.indexOf(h)])));
+      }
+      return { id: plan.id, ok: true };
     }) };
   };
 }
@@ -1395,4 +1399,29 @@ test('業務員勾了看全部：拿到所有位置和機器，別人的機器�
   await s.Sync.syncNow();
   assert.equal(s.inbox.filter(m => /沒有送出/.test(m.title)).length, 0);
   assert.equal(fake.values(id, '抄表').at(-1)[0], '26-0002');
+});
+
+test('業務員回報問題：打開一筆抄表只改業務員回報，總部那一格前面加他的名字，其他欄不動；新增的「輸入的人」是他；管理員同步後看得到', async () => {
+  const { fake, d, id } = await hq();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  s.Store.add('readings', { ...s.Refs.blankRecord('readings'), device: '26-0001', date: '2026-10-31', bw: 150 });
+  await s.Sync.syncNow();
+  const h = fake.values(id, '抄表')[0];
+  assert.equal(fake.values(id, '抄表').at(-1)[h.indexOf('輸入的人')], '阿明');
+  // 管理員輸入的那筆（100）：業務員只能寫回報；就算別的欄也改了，總部只改回報那一格
+  const r = s.Store.list('readings').find(x => x.bw === 100);
+  assert.equal(s.Sync.salesSee('readings'), true);
+  assert.equal(s.Sync.salesSee('moves'), false);
+  s.Store.update('readings', r.id, { bw: 999, report: '張數打錯，應該是 120' });
+  await s.Sync.syncNow();
+  const row = fake.values(id, '抄表').find(x => x[h.indexOf('id')] === r.id);
+  assert.equal(row[h.indexOf('業務員回報')], '阿明：張數打錯，應該是 120');
+  assert.equal(row[h.indexOf('黑白張數')], 100);
+  assert.equal(s.Store.get('readings', r.id).bw, 100);
+  assert.equal(s.Store.get('readings', r.id).report, '阿明：張數打錯，應該是 120');
+  await d.Sync.syncNow();
+  assert.equal(d.Store.get('readings', r.id).report, '阿明：張數打錯，應該是 120');
+  assert.equal(d.Store.list('readings').find(x => x.bw === 150).by, '阿明');
 });

@@ -426,11 +426,11 @@
       <details class="steps-box" ${ready ? '' : 'open'}>
         <summary>設定步驟（用電腦做）</summary>
         <ol class="steps muted">
-          <li>機器：按「<button type="button" class="link-btn" data-act="machine">機器設定</button>」照著設</li>
+          <li>機器：按「<button type="button" class="link-btn" data-act="machine">機器設定</button>」照著設；最上面的寄信用 Gmail 一定要填，程式只讀它寄來的信</li>
           <li>「${st.url ? `<a class="link-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : '打開試算表'}」（右上角頭像要是 ${U.esc(st.email)}），選「擴充功能」→「Apps Script」</li>
           <li>刪掉裡面原本的內容，按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」貼上，存檔</li>
           <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
-          <li>要讓 App 打開、按「同步」時先讀信，或用抄表程式（第 3 步貼好、存檔後再做，部署會固定當下的程式）：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
+          <li>App 打開、按「同步」時讀信，還有抄表程式、業務員，都要用這個網址（第 3 步貼好、存檔後再做，部署會固定當下的程式）：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
           <li>用抄表程式的：試算表重新整理，上方「自動抄表」→「密語」，和讀信網址一起填進程式的「設定.txt」</li>
         </ol>
         <div class="field meter-url">
@@ -438,7 +438,7 @@
           <input id="meter-url" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec" value="${U.esc(st.meterUrl)}">
         </div>
         <button type="button" class="wide-btn" data-act="save-meter-url">儲存網址</button>
-        <p class="note muted">之後改了程式：按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」重貼、存檔，再「部署」→「管理部署作業」→ 鉛筆 → 版本選「新版本」→「部署」，網址不變。</p>
+        <p class="note muted">之後改了程式：按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」重貼、存檔，執行一次 install（有跳權限就允許），再「部署」→「管理部署作業」→ 鉛筆 → 版本選「新版本」→「部署」，網址不變。不要按「新增部署作業」，那會換一個新網址。</p>
       </details>
       <p class="note muted">5-866-112 寄測試信（結算月份空白，不算帳）。</p>`;
   }
@@ -450,7 +450,11 @@
   lists.readings.el.querySelector('.list').before(meterLine);
   function renderMeterLine(st) {
     meterLine.hidden = !st.linked || !(st.meterUrl || st.meterReadAt);
-    meterLine.textContent = st.running ? '同步中…' : `上次讀信 ${st.meterReadAt ? U.fmtDateTime(st.meterReadAt) : '—'}`;
+    // 還沒填寄信用 Gmail：程式不讀信，請管理員去填（業務員不用管）
+    const noSender = st.meterNoSender && !st.sales;
+    meterLine.classList.toggle('warn-text', noSender && !st.running);
+    meterLine.textContent = st.running ? '同步中…' : noSender ? '沒有讀信：先到「設定 → 自動抄表 → 機器設定」填寄信用 Gmail'
+      : `上次讀信 ${st.meterReadAt ? U.fmtDateTime(st.meterReadAt) : '—'}`;
   }
 
   async function saveMeterUrl() {
@@ -652,6 +656,7 @@
     refreshAll();
     Lists.refresh();
     checkLists();
+    checkReports();
     showTab(current);
   }
 
@@ -772,6 +777,20 @@
   checkDue();
   Store.onChange(checkDue);
 
+  // 業務員回報的問題（抄表、保養的「業務員回報」）：一筆一則，點了打開那一筆；管理員清空就變成已解決；業務員自己那邊不提醒
+  function checkReports() {
+    const list = Sync.isSales() ? [] : ['readings', 'maintenance'].flatMap(t => Store.list(t)
+      .filter(r => String(r.report ?? '').trim()).map(r => ({ t, r })));
+    Inbox.reconcile('report:', list.map(({ t, r }) => ({
+      key: `report:${t}:${r.id}`,
+      title: `業務員回報：${Records.describe(t, r)}`,
+      body: `${String(r.report).trim()}\n改好後把「業務員回報」清空。`,
+      action: { type: 'record', table: t, id: r.id },
+    })));
+  }
+  checkReports();
+  Store.onChange(checkReports);
+
   // 試算表的資料讀回來之後，全部重畫
   Sync.init({
     toast,
@@ -782,6 +801,7 @@
       Lists.refresh();
       checkLists();
       checkDue();
+      checkReports();
       if (menu.open) {
         renderListsMenu();
         renderBackupInfo();

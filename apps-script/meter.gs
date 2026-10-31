@@ -60,14 +60,15 @@ function readNow() {
   SpreadsheetApp.getActive().toast(resultText_(checkMail()));
 }
 
-// 「寫進 2 筆、補上 1 筆的設備」
-function resultText_({ count, fixed }) {
+// 「寫進 2 筆、補上 1 筆的設備」；還沒填寄件人時寫要去哪裡填
+function resultText_({ count, fixed, noSender }) {
+  if (noSender) return '沒有讀信：先到 App「設定 → 自動抄表 → 機器設定」填寄信用 Gmail';
   const parts = [count && `寫進 ${count} 筆`, fixed && `補上 ${fixed} 筆的設備`].filter(Boolean);
   return parts.length ? parts.join('、') : '沒有新的信';
 }
 
 // App 同步前的讀信：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
-//   只回 { count: 寫了幾筆, fixed: 補了幾筆的設備, at: 讀完的時間 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
+//   只回 { count: 寫了幾筆, fixed: 補了幾筆的設備, at: 讀完的時間, noSender: 還沒填寄件人 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
 function doGet() {
   return json_(checkMail());
 }
@@ -213,12 +214,14 @@ function readMail_() {
   const now = Date.now();
   for (const id of Object.keys(done)) if (now - done[id] > KEEP_DAYS * 864e5) delete done[id];
   const fixed = fillDevices_(readings, col, codeOf);
+  const from = senders_(ss);
+  if (!from.length) return { count: 0, fixed, at: stamp_(ss), noSender: true };
 
   // 這次要寫的信，照信裡的時間由舊到新排好；內文沒有時間的用收信的時間
   const mails = [];
-  for (const thread of GmailApp.search(QUERY)) {
+  for (const thread of GmailApp.search(`${QUERY} from:(${from.join(' OR ')})`)) {
     for (const msg of thread.getMessages()) {
-      if (done[msg.getId()]) continue;
+      if (done[msg.getId()] || !from.includes(senderOf_(msg))) continue;
       const r = parse_(msg.getPlainBody());
       if (r) mails.push({ msg, r, when: r.when || received_(msg) });
     }
@@ -238,6 +241,20 @@ function readMail_() {
   }
   props.setProperty('done', JSON.stringify(done));
   return { count: mails.length, fixed, at: stamp_(ss) };
+}
+
+// 只讀這幾個寄件人寄來的張數信：App「機器設定」最上面的寄信用 Gmail（存在 _meta 分頁 senderMail 那一列，好幾個用逗號分開）
+//   不寫在程式裡（repo 是公開的）；還沒填時不讀信（不然任何人寄一封假的張數信都會被寫進來），回 noSender
+//   假冒寄件人的信 Gmail 會丟進垃圾郵件（SPF、DKIM、DMARC 對不上），搜尋不會讀到垃圾郵件
+function senders_(ss) {
+  const meta = ss.getSheetByName('_meta');
+  const row = meta ? meta.getDataRange().getValues().find(r => String(r[0]).trim() === 'senderMail') : null;
+  return String(row ? row[1] : '').split(/[,，、;；\s]+/).map(x => x.trim().toLowerCase()).filter(x => x.includes('@'));
+}
+// 信的寄件人（「名字 <a@gmail.com>」只取信箱），小寫
+function senderOf_(msg) {
+  const from = String(msg.getFrom());
+  return (from.match(/<([^>]+)>/) || [null, from])[1].trim().toLowerCase();
 }
 
 // 看完信箱的時間記在 _meta 分頁第 3 列（第 1、2 列是 App 的格式版本、讀信網址）；存成文字，試算表不會改成日期
@@ -339,65 +356,111 @@ function salesData_(token) {
   return { ...person, email, admin: owner_(ss), values: salesRows_(values, person) };
 }
 
-// 業務員新增抄表、保養：{ action: 'add', token, items: [{ tab: '抄表' 或 '保養', head: App 用的標題列, row: 照 head 排的那一列（日期是序號） }] }
-//   一筆一筆檢查：有沒有這個權限（記抄表、記保養）、這台是不是現在放在他的位置（看全部的：設備分頁有這台就可以）
-//   通過才加在那個分頁最下面（照試算表現在的標題排）；同一個 id 已經有了就不再加（沒網路重送時不會多一筆）
-//   回 { results: [{ id, ok: true } 或 { id, error: 原因 }] }；不能改、不能刪（業務員只能新增）
+// 業務員送來的抄表、保養：{ action: 'add', token, items: [{ tab: '抄表' 或 '保養', head: App 用的標題列, row: 照 head 排的那一列（日期是序號） }] }
+//   試算表還沒有這個 id：新增（要有權限、這台現在放在他的位置，看全部的有這台就好），加在分頁最下面，「輸入的人」寫他的名字
+//   已經有這個 id：只改那一筆的「業務員回報」（業務員不能改別的、不能刪），前面加他的名字；要是他看得到的那一筆
+//   檢查見 salesPlan_；回 { results: [{ id, ok: true } 或 { id, error: 原因 }] }
 const SALES_ADD = { 抄表: '記抄表', 保養: '記保養' };
+const BY = '輸入的人';
+const REPORT = '業務員回報';
 function salesAdd_(token, items) {
   const email = whoIs_(token);
   if (!email) return { error: '登入已過期，請重新登入', login: true };
   const ss = SpreadsheetApp.getActive();
-  const values = readTabs_(ss, ['人員', '位置', '設備']);
-  const person = salesPerson_(values['人員'], email, today_(ss));
-  if (!person) return { error: `${email} 不是業務員，請找管理員`, denied: true };
-  const devices = salesScope_(values, person).now;
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    const values = readTabs_(ss, ['人員', '位置', '設備', '異動', '抄表', '保養']);
+    const person = salesPerson_(values['人員'], email, today_(ss));
+    if (!person) return { error: `${email} 不是業務員，請找管理員`, denied: true };
     return { results: (Array.isArray(items) ? items : []).map(item => {
-      const checked = salesCheck_(person, devices, item);
-      return checked.error ? checked : appendSales_(ss, item, checked.id);
+      const plan = salesPlan_(values, person, item);
+      if (plan.error) return plan;
+      return plan.kind === 'add' ? appendSales_(ss, item, plan) : reportSales_(ss, item.tab, plan);
     }) };
   } finally {
     lock.releaseLock();
   }
 }
 
-// 這一筆可不可以加：回 { id } 或 { id, error }
-function salesCheck_(person, devices, { tab, head, row } = {}) {
+// 這一筆要怎麼處理（只看資料，不碰試算表）：{ id, kind: 'add', by, report } 或 { id, kind: 'report', report } 或 { id, error }
+//   values 是 { 分頁名稱: [標題列, ...列] }（要有位置、設備、異動、抄表、保養）
+function salesPlan_(values, person, { tab, head, row } = {}) {
   const at = h => (Array.isArray(head) ? head.indexOf(h) : -1);
   const cells = Array.isArray(row) ? row : [];
   const id = String(cells[at('id')] ?? '').trim();
   const need = SALES_ADD[tab];
   if (!need) return { id, error: '業務員只能新增抄表、保養' };
+  if (!id) return { id, error: '資料不完整' };
+  const report = reportText_(person.name, cells[at(REPORT)]);
+  const ids = rows => {
+    const c = (rows[0] || []).indexOf('id');
+    return new Set(rows.slice(1).map(r => String(r[c] ?? '').trim()));
+  };
+  if (ids(values[tab] || []).has(id)) {
+    if (!ids(salesRows_(values, person)[tab] || []).has(id)) return { id, error: '這一筆不在你負責的位置' };
+    return { id, kind: 'report', report };
+  }
   if (!person.perms.includes(need)) return { id, error: `沒有「${need}」的權限，請找管理員` };
   const device = codeKey_(cells[at('設備')]);
-  if (!id || !device) return { id, error: '資料不完整' };
-  if (!devices.has(device)) return { id, error: '這台不在你負責的位置' };
-  return { id };
+  if (!device) return { id, error: '資料不完整' };
+  if (!salesScope_(values, person).now.has(device)) return { id, error: '這台不在你負責的位置' };
+  return { id, kind: 'add', by: person.name, report };
+}
+
+// 業務員回報的字：前面加他的名字（「阿明：張數打錯」），本來就有的名字不重複加；空白就是清掉
+function reportText_(name, v) {
+  const head = `${name}：`;
+  let t = String(v ?? '').trim();
+  while (t.startsWith(head)) t = t.slice(head.length).trim();
+  return t ? head + t : '';
 }
 
 // 加在分頁最下面：照試算表現在的標題排；文字欄設成純文字（2026/10 不會變成日期）、日期欄設成日期
-function appendSales_(ss, { tab, head, row }, id) {
+function appendSales_(ss, { tab, head, row }, { id, by, report }) {
   const sheet = ss.getSheetByName(tab);
   if (!sheet) return { id, error: `總部的試算表找不到「${tab}」分頁` };
-  const cols = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
-  const idCol = cols.indexOf('id');
-  if (idCol < 0) return { id, error: `「${tab}」分頁找不到 id 欄` };
-  const last = sheet.getLastRow();
-  if (last >= 2 && sheet.getRange(2, idCol + 1, last - 1, 1).getValues().some(r => String(r[0]).trim() === id)) return { id, ok: true };
+  const cols = ensureCols_(sheet, [BY, REPORT]);
+  if (!cols.includes('id')) return { id, error: `「${tab}」分頁找不到 id 欄` };
   const out = cols.map(h => {
-    const v = row[head.indexOf(h)];
-    return v === undefined || v === null || head.indexOf(h) < 0 ? '' : v;
+    if (h === BY) return by;
+    if (h === REPORT) return report;
+    const v = head.indexOf(h) < 0 ? undefined : row[head.indexOf(h)];
+    return v === undefined || v === null ? '' : v;
   });
   const dateHead = tab === '抄表' ? '抄表日期' : '日期';
   const formats = out.map((v, i) => (cols[i] === dateHead ? 'yyyy/mm/dd' : typeof v === 'number' ? '#,##0' : '@'));
+  const last = sheet.getLastRow();
   if (last + 1 > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), 1);
   const range = sheet.getRange(last + 1, 1, 1, cols.length);
   range.setNumberFormats([formats]);
   range.setValues([out]);
   return { id, ok: true };
+}
+
+// 改那一筆的「業務員回報」：只動這一格
+function reportSales_(ss, tab, { id, report }) {
+  const sheet = ss.getSheetByName(tab);
+  if (!sheet) return { id, error: `總部的試算表找不到「${tab}」分頁` };
+  const cols = ensureCols_(sheet, [BY, REPORT]);
+  const idCol = cols.indexOf('id');
+  const last = sheet.getLastRow();
+  const i = idCol < 0 || last < 2 ? -1 : sheet.getRange(2, idCol + 1, last - 1, 1).getValues().findIndex(r => String(r[0]).trim() === id);
+  if (i < 0) return { id, error: '總部找不到這一筆' };
+  const cell = sheet.getRange(i + 2, cols.indexOf(REPORT) + 1);
+  cell.setNumberFormat('@');
+  cell.setValue(report);
+  return { id, ok: true };
+}
+
+// 分頁的標題列；缺了這幾欄就補在最後面（管理員的 App 同步時也會補，誰先補都一樣）
+function ensureCols_(sheet, names) {
+  const cols = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  names.filter(n => !cols.includes(n)).forEach(n => {
+    cols.push(n);
+    sheet.getRange(1, cols.length).setValue(n);
+  });
+  return cols;
 }
 
 // 讀幾個分頁：{ 分頁名稱: [標題列, ...列] }，日期換成序號；沒有的分頁不列

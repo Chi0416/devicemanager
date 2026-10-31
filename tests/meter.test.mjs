@@ -7,7 +7,7 @@ import vm from 'node:vm';
 
 const ctx = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../apps-script/meter.gs', import.meta.url), 'utf8'), ctx, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_, salesScope_, salesCheck_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesCheck_ })', ctx);
+const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_ })', ctx);
 const plain = v => JSON.parse(JSON.stringify(v));
 
 const PEOPLE = [
@@ -118,20 +118,41 @@ test('看全部：全部的位置、機器、紀錄都給（包括倉庫），�
   assert.deepEqual(plain(out.人員[0]), ['姓名', 'id']);
 });
 
-test('業務員新增抄表、保養前的檢查：要有權限、這台現在放在他的位置（看全部的：有這台就好）；其他分頁不行', () => {
-  const head = ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', 'id'];
-  const item = (tab, device, id = 'n1') => ({ tab, head, row: [device, 300, '', 1, '', '', id] });
+test('業務員送來的抄表、保養：新的要有權限、這台現在在他的位置（看全部的有這台就好）；已經有的只能改業務員回報，要是他看得到的那一筆', () => {
+  const head = ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', '業務員回報', 'id'];
+  const item = (tab, device, id = 'n1', report = '') => ({ tab, head, row: [device, 300, '', 1, '', '', report, id] });
   const amin = { name: '阿明', perms: ['記抄表'], all: false };
-  const mine = salesScope_(VALUES, amin).now;
-  assert.deepEqual([...mine], ['26-0001']);
-  assert.deepEqual(plain(salesCheck_(amin, mine, item('抄表', '26-0001'))), { id: 'n1' });
-  assert.equal(salesCheck_(amin, mine, item('抄表', '26-0002')).error, '這台不在你負責的位置'); // 以前放過、已經搬走的不行
-  assert.equal(salesCheck_(amin, mine, item('保養', '26-0001')).error, '沒有「記保養」的權限，請找管理員');
-  assert.equal(salesCheck_(amin, mine, item('異動', '26-0001')).error, '業務員只能新增抄表、保養');
-  assert.equal(salesCheck_(amin, mine, item('抄表', '26-0001', '')).error, '資料不完整');
-  assert.equal(salesCheck_(amin, mine, {}).error, '業務員只能新增抄表、保養');
+  assert.deepEqual(plain(salesPlan_(VALUES, amin, item('抄表', '26-0001'))), { id: 'n1', kind: 'add', by: '阿明', report: '' });
+  assert.equal(salesPlan_(VALUES, amin, item('抄表', '26-0002')).error, '這台不在你負責的位置'); // 以前放過、已經搬走的不能新增
+  assert.equal(salesPlan_(VALUES, amin, item('保養', '26-0001')).error, '沒有「記保養」的權限，請找管理員');
+  assert.equal(salesPlan_(VALUES, amin, item('異動', '26-0001')).error, '業務員只能新增抄表、保養');
+  assert.equal(salesPlan_(VALUES, amin, item('抄表', '26-0001', '')).error, '資料不完整');
+  assert.equal(salesPlan_(VALUES, amin, {}).error, '業務員只能新增抄表、保養');
+  // 已經有的：回報他看得到的（以前放過的機器在他那裡那段也算），名字加在前面；沒有記保養的權限也可以回報
+  assert.deepEqual(plain(salesPlan_(VALUES, amin, item('抄表', '26-0002', 'r4', '張數打錯'))), { id: 'r4', kind: 'report', report: '阿明：張數打錯' });
+  assert.equal(salesPlan_(VALUES, amin, item('抄表', '26-0003', 'r7', '看看')).error, '這一筆不在你負責的位置');
+  assert.equal(salesPlan_(VALUES, amin, item('保養', '26-0001', 'w2', '')).kind, 'report'); // 清掉回報
   const boss = { name: '未來', perms: ['記抄表', '記保養'], all: true };
-  const all = salesScope_(VALUES, boss).now;
-  assert.equal(all.size, 4);
-  assert.deepEqual(plain(salesCheck_(boss, all, item('保養', '26-0003'))), { id: 'n1' });
+  assert.equal(salesScope_(VALUES, boss).now.size, 4);
+  assert.equal(salesPlan_(VALUES, boss, item('保養', '26-0003')).kind, 'add');
+  assert.equal(salesPlan_(VALUES, boss, item('抄表', '26-0003', 'r7', 'x')).kind, 'report');
+});
+
+test('業務員回報的字：前面加名字，不重複加；空白是清掉', () => {
+  assert.equal(reportText_('阿明', ' 張數打錯 '), '阿明：張數打錯');
+  assert.equal(reportText_('阿明', '阿明：阿明： 張數打錯'), '阿明：張數打錯');
+  assert.equal(reportText_('阿明', '  '), '');
+  assert.equal(reportText_('阿明', null), '');
+});
+
+test('讀信只讀寄信用 Gmail（_meta 的 senderMail，好幾個用逗號分開）寄來的信；還沒填時不讀，選單寫要去哪裡填', () => {
+  const ss = rows => ({ getSheetByName: n => (n === '_meta' && rows ? { getDataRange: () => ({ getValues: () => rows }) } : null) });
+  const meta = v => [['version', 1], ['meterUrl', 'https://x'], ['meterReadAt', ''], ['senderMail', v]];
+  assert.deepEqual(plain(senders_(ss(meta(' GSOA.copier@gmail.com, meter@gmail.com ')))), ['gsoa.copier@gmail.com', 'meter@gmail.com']);
+  assert.deepEqual(plain(senders_(ss(meta('')))), []);
+  assert.deepEqual(plain(senders_(ss(null))), []); // 沒有 _meta 分頁
+  assert.equal(senderOf_({ getFrom: () => 'RICOH <GSOA.Copier@gmail.com>' }), 'gsoa.copier@gmail.com');
+  assert.equal(senderOf_({ getFrom: () => 'gsoa.copier@gmail.com' }), 'gsoa.copier@gmail.com');
+  assert.equal(resultText_({ count: 0, fixed: 0, noSender: true }), '沒有讀信：先到 App「設定 → 自動抄表 → 機器設定」填寄信用 Gmail');
+  assert.equal(resultText_({ count: 2, fixed: 0 }), '寫進 2 筆');
 });

@@ -219,8 +219,18 @@ const deviceField = (more = {}) => ({
 const dateField = (key, label, more = {}) => ({ key, label, type: 'date', default: () => U.today(), ...more });
 const noteField = () => ({ key: 'note', label: '備註', type: 'text', optional: true, full: true, multiline: true });
 // 張數：下面寫上一次的張數和使用量，比上一次少時提醒
+//   業務員打的張數比這台上一次少時存不了（見 records.js 的 countCheck）
 const countField = (key, label, more = {}) => ({
-  key, label, type: 'number', optional: true, note: v => Records.countNote(v, key), noteLines: 2, ...more,
+  key, label, type: 'number', optional: true, note: v => Records.countNote(v, key), noteLines: 2, check: v => Records.countCheck(v, key), ...more,
+});
+// 抄表、保養的「輸入的人」：業務員送的，總部的程式填他的名字（App 不填，表單上不出現）
+const byField = () => ({ key: 'by', label: '輸入的人', type: 'text', optional: true, hidden: true });
+// 「業務員回報」：業務員打開一筆抄表、保養，只能寫這一格（其他都不能改），送到總部時前面加他的名字；
+//   管理員處理好後清空（有寫的才出現，提醒見 app.js 的 checkReports）；業務員新增時不出現
+const reportField = () => ({
+  key: 'report', label: '業務員回報', type: 'text', optional: true, full: true, multiline: true,
+  hint: '業務員寫哪裡有問題，管理員會收到；管理員處理好後清空',
+  showIf: v => (typeof Sync !== 'undefined' && Sync.isSales() ? !!v.id : !!String(v.report ?? '').trim()),
 });
 // 紀錄列表上方選月份；同一個月裡照日期排，新的在上面（同一天的照新增的先後）
 const recordMonth = key => ({ key, unit: 'month', label: '月份', then: key });
@@ -412,7 +422,7 @@ const SCHEMAS = {
     // 卡片：標題寫哪天抄（列表依結算月份分組），右上角裝機抄表、順便抄；下面黑白、彩色兩欄（使用量、計數器），最下面備註
     card: { title: r => (r.date ? `${U.fmtDate(r.date)} 抄` : '抄表'), grid: [], cols: r => Records.readingCols(r) },
     status: r => Records.readingTag(r),
-    note: r => Records.noteLine(r.note),
+    note: r => Records.workLine(r),
     describe: r => Records.describe('readings', r),
     search: ['device', 'note'],
     searchText: r => Records.deviceText(r.device, r.date),
@@ -424,6 +434,8 @@ const SCHEMAS = {
       countField('bw', '黑白張數', { optional: false }),
       countField('color', '彩色張數'),
       noteField(),
+      byField(),
+      reportField(),
     ],
   },
 
@@ -433,7 +445,7 @@ const SCHEMAS = {
     period: recordMonth('date'),
     // 卡片：標題寫項目；下面黑白、彩色兩欄（使用量：上次換同一項到這次，計數器），跟抄表卡片一樣排；最下面備註
     card: { title: r => r.item || '保養', grid: [], cols: r => Records.workCols(r) },
-    note: r => Records.noteLine(r.note),
+    note: r => Records.workLine(r),
     describe: r => Records.describe('maintenance', r),
     search: ['device', 'item', 'note'],
     searchText: r => Records.deviceText(r.device, r.date),
@@ -447,6 +459,8 @@ const SCHEMAS = {
       countField('bw', '黑白張數', { note: v => Records.countNote(v, 'bw', false) }),
       countField('color', '彩色張數', { note: v => Records.countNote(v, 'color', false) }),
       noteField(),
+      byField(),
+      reportField(),
     ],
   },
 
