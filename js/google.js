@@ -163,6 +163,28 @@ const Google = (() => {
     return json;
   }
 
+  // 試算表上的程式（網頁應用程式，業務員向總部拿資料）：帶著權杖 POST 過去，回傳程式回的 JSON
+  //   不加標題（是 text/plain），瀏覽器不用先問能不能跨網域；程式說登入過期時清掉權杖，要使用者重新登入
+  async function script(url, data) {
+    if (!hasToken()) throw new GoogleError('需要重新連線 Google', 'need_login');
+    let res;
+    try {
+      res = await fetch(url, { method: 'POST', body: JSON.stringify({ ...data, token: token.accessToken }) });
+    } catch (_) {
+      throw new GoogleError('連不上網路，請確認網路後再試一次', 'network');
+    }
+    let json;
+    try { json = await res.json(); } catch (_) {
+      // 回來的不是 JSON：網址不對，或部署時「誰可以存取」不是「任何人」（Google 回登入頁）
+      throw new GoogleError('總部的網址打不開，請找管理員確認試算表上的程式有部署好', 'api');
+    }
+    if (json.login) {
+      clearToken();
+      throw new GoogleError(json.error || '需要重新連線 Google', 'need_login');
+    }
+    return json;
+  }
+
   // 取消連結、登出：撤銷這次的授權，下次連結時會重新詢問
   //   回傳的 Promise 在 Google 回覆後完成（最多等 3 秒），登出時等它再清資料、重新載入頁面
   function signOut() {
@@ -176,5 +198,5 @@ const Google = (() => {
     });
   }
 
-  return { SHEETS, DRIVE, ready, configured, hasToken, requestToken, redirectLogin, consumeRedirect, api, signOut };
+  return { SHEETS, DRIVE, ready, configured, hasToken, requestToken, redirectLogin, consumeRedirect, api, script, signOut };
 })();

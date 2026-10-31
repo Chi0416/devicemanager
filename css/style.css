@@ -1142,6 +1142,11 @@ button.model-cell:active .model-name { color: var(--accent-text); }
 .stats dd { margin: 0; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .note { margin: 10px 0 0; font-size: 13px; }
 
+/* ---------- 業務員模式：只能看（見 sync.js 的業務員），新增、編輯的按鈕都藏起來 ---------- */
+.sales-line { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.sales #btn-add, .sales .row-add, .sales .admin-only, .sales [data-read] { display: none; }
+.sales .detail [data-act="edit"], .sales #sub-sheet [data-act="add"], .sales #place-sub-sheet [data-act="add"] { visibility: hidden; }
+
 /* ---------- 同步提示列 ---------- */
 .sync-bar {
   display: flex;

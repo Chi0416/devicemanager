@@ -14,6 +14,7 @@
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
 //   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「最新回報」，不算帳（見 doPost），要帶密語
+//   業務員的 App 也 POST 到同一個網址拿資料（見 salesData_）：帶 Google 登入的權杖，不用密語，只拿得到他負責的客戶
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
@@ -79,6 +80,7 @@ function doGet() {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    if (body.action === 'data') return json_(salesData_(body.token));
     const key = PropertiesService.getScriptProperties().getProperty('key');
     if (!key) return json_({ error: '還沒有密語：試算表上方「自動抄表」→「密語」' });
     if (body.key !== key) return json_({ error: '密語不對' });
@@ -312,4 +314,130 @@ function serialMap_(sheet) {
     if (serial && !map[serial]) map[serial] = String(r[c]);
   }
   return map;
+}
+
+// ---------- 業務員：向總部拿資料（App 的業務員模式） ----------
+//   { action: 'data', token: Google 登入給 App 的存取權杖 } → { name: 人員的姓名, email, admin: 總部的帳號, values: { 分頁名稱: [標題列, ...列] } }
+//   權杖先問 Google 是不是設備管理這個 App 拿到的、是誰（雲端硬碟的 about，App 本來就有這個權限），再對「人員」：Email 一樣、勾了業務員、沒離職
+//   只回他看得到的列（見 salesRows_）；日期換成試算表的序號，App 用讀試算表的同一套讀法（sheet.js 的 fromValues）
+//   出錯回 { error }；登入過期的另外有 login: true（App 請他重新登入），不是業務員的有 denied: true（App 清掉手機上的資料）
+//   第一次加這段要重新授權（會用到 UrlFetchApp）：上方選 install 按「執行」，照畫面允許，再到「管理部署作業」換新版本
+const CLIENT_ID = '460486615404-n7j6akqvhec4at7dt0f4937posghfr4p.apps.googleusercontent.com'; // App 的 OAuth 用戶端 ID（js/config.js）
+const SALES_TABS = ['位置', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST];
+
+function salesData_(token) {
+  const email = whoIs_(token);
+  if (!email) return { error: '登入已過期，請重新登入', login: true };
+  const ss = SpreadsheetApp.getActive();
+  const tz = ss.getSpreadsheetTimeZone();
+  const values = {};
+  SALES_TABS.forEach(name => {
+    const sheet = ss.getSheetByName(name);
+    if (sheet) values[name] = sheet.getDataRange().getValues().map(row => row.map(v => cell_(v, tz)));
+  });
+  const name = salesPerson_(values['人員'], email, cell_(new Date(), tz));
+  if (!name) return { error: `${email} 不是業務員，請找管理員`, denied: true };
+  return { name, email, admin: Session.getEffectiveUser().getEmail(), values: salesRows_(values, name) };
+}
+
+// 權杖是誰的；不是這個 App 拿到的、過期的回空字串
+function whoIs_(token) {
+  if (!token) return '';
+  const get = (url, headers) => UrlFetchApp.fetch(url, { headers: headers || {}, muteHttpExceptions: true });
+  const info = get(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
+  if (info.getResponseCode() !== 200) return '';
+  const t = JSON.parse(info.getContentText());
+  if (t.aud !== CLIENT_ID && t.azp !== CLIENT_ID) return '';
+  const about = get('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)', { Authorization: `Bearer ${token}` });
+  if (about.getResponseCode() !== 200) return '';
+  return String(JSON.parse(about.getContentText()).user.emailAddress || '');
+}
+
+// 日期換成試算表的序號（1899/12/30 是 0，和 App 讀試算表時一樣）；其他照原本的
+function cell_(v, tz) {
+  if (!(v instanceof Date)) return v;
+  const [y, m, d, h, mi, s] = Utilities.formatDate(v, tz, 'yyyy,M,d,H,m,s').split(',').map(Number);
+  return (Date.UTC(y, m - 1, d, h, mi, s) - Date.UTC(1899, 11, 30)) / 864e5;
+}
+
+// 勾選：核取方塊是 true／false；手打的「是」「v」「1」也算有勾（和 App 一樣）
+const yes_ = v => v === true || /^(是|true|v|✓|✔|y|yes|1)$/i.test(String(v ?? '').trim());
+const codeKey_ = v => String(v ?? '').trim().toUpperCase();
+
+// 人員：Email 一樣（不分大小寫）、勾了業務員、沒填離職日或還沒到那天；回傳姓名，不是業務員時回空字串
+//   today 是今天的序號
+function salesPerson_(rows, email, today) {
+  if (!rows || !rows.length) return '';
+  const col = h => rows[0].indexOf(h);
+  const mail = String(email).trim().toLowerCase();
+  const left = v => typeof v === 'number' && Math.floor(v) <= Math.floor(today);
+  const hit = rows.slice(1).find(r => String(r[col('Email')] ?? '').trim().toLowerCase() === mail
+    && yes_(r[col('業務員')]) && !left(r[col('離職日')]) && String(r[col('姓名')] ?? '').trim());
+  return hit ? String(hit[col('姓名')]).trim() : '';
+}
+
+// 業務員看得到的列：values 是 { 分頁名稱: [標題列, ...列] }（日期是序號），回傳同樣的樣子
+//   他的位置：位置的「業務員」是他、不是倉庫（停用的也算）
+//   現在放在他位置的機器：這幾台的全部紀錄（包括搬來之前的）
+//   以前放過、已經搬走的機器：只給放在他位置那段時間的紀錄（搬進來那天到搬走那天，看異動），設備那一列也給（App 才寫得出是哪一台）
+//   合約：綁了他的位置的；合約修改紀錄跟著合約；最新回報：現在放在他位置的機器
+//   狀態、選項、廠商：全部；人員：只給姓名
+//   別的位置、倉庫都不給（App 寫「其他位置」）
+function salesRows_(values, name) {
+  const tab = n => values[n] || [];
+  const head = n => tab(n)[0] || [];
+  const rows = n => tab(n).slice(1);
+  const col = (n, h) => head(n).indexOf(h);
+  const pick = (n, keep) => (tab(n).length ? [head(n), ...rows(n).filter(keep)] : []);
+
+  const mine = new Set(rows('位置')
+    .filter(r => String(r[col('位置', '業務員')] ?? '').trim() === name && !yes_(r[col('位置', '倉庫')]))
+    .map(r => codeKey_(r[col('位置', '編號')])).filter(Boolean));
+  const now = new Set(rows('設備').filter(r => mine.has(codeKey_(r[col('設備', '位置')])))
+    .map(r => codeKey_(r[col('設備', '編號')])).filter(Boolean));
+
+  // 異動依日期排（同一天照列的順序）：搬進他的位置那天開始，到這台下一筆異動那天為止
+  const stays = {};
+  const moves = rows('異動').map((r, i) => ({ device: codeKey_(r[col('異動', '設備')]), date: Number(r[col('異動', '日期')]) || 0, to: codeKey_(r[col('異動', '新位置')]), i }))
+    .filter(m => m.device).sort((a, b) => a.date - b.date || a.i - b.i);
+  const open = {};
+  moves.forEach(m => {
+    if (open[m.device]) {
+      open[m.device][1] = m.date;
+      delete open[m.device];
+    }
+    if (mine.has(m.to)) {
+      const stay = [m.date, Infinity];
+      (stays[m.device] = stays[m.device] || []).push(stay);
+      open[m.device] = stay;
+    }
+  });
+  const DATE = { 異動: '日期', 抄表: '抄表日期', 保養: '日期', 翻新: '翻新日期', 選配件: '安裝日期' };
+  const seen = (n, r) => {
+    const device = codeKey_(r[col(n, '設備')]);
+    if (now.has(device)) return true;
+    const date = Number(r[col(n, DATE[n])]);
+    return (stays[device] || []).some(([from, to]) => date >= Math.floor(from) && date < Math.floor(to) + 1);
+  };
+  const devices = new Set([...now, ...Object.keys(stays)]);
+
+  const places = r => String(r[col('合約', '位置')] ?? '').split(/[、,，;；\n]+/).map(codeKey_).filter(Boolean);
+  const contracts = pick('合約', r => places(r).some(p => mine.has(p)));
+  const contractIds = new Set(contracts.slice(1).map(r => String(r[col('合約', 'id')] ?? '').trim()));
+  const nameCol = col('人員', '姓名');
+  const idCol = col('人員', 'id');
+
+  const out = {
+    位置: pick('位置', r => mine.has(codeKey_(r[col('位置', '編號')]))),
+    設備: pick('設備', r => devices.has(codeKey_(r[col('設備', '編號')]))),
+    合約: contracts,
+    合約修改紀錄: pick('合約修改紀錄', r => contractIds.has(String(r[col('合約修改紀錄', '合約')] ?? '').trim())),
+    狀態: tab('狀態'),
+    選項: tab('選項'),
+    廠商: tab('廠商'),
+    人員: tab('人員').length ? [['姓名', 'id'], ...rows('人員').map(r => [r[nameCol], r[idCol]])] : [],
+  };
+  Object.keys(DATE).forEach(n => { out[n] = pick(n, r => seen(n, r)); });
+  if (tab(LATEST).length) out[LATEST] = pick(LATEST, r => now.has(codeKey_(r[col(LATEST, '設備')])));
+  return out;
 }

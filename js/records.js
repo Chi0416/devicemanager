@@ -71,6 +71,10 @@ const Records = (() => {
   const devicesAt = () => cached('devicesAt', () => groupBy(Store.list('devices'), 'location'));
 
   const device = code => (key(code) ? cached('devices', () => byCode(Store.list('devices'))).get(key(code)) || null : null);
+  // 業務員模式（見 sync.js）：只拿到他負責的位置；以前放過、已經搬走的機器也拿到（紀錄才寫得出是哪一台），
+  //   設備頁、總覽、提醒只算放在他位置的（shownDevices）；別的位置寫「其他位置」
+  const salesMode = () => typeof Sync !== 'undefined' && Sync.isSales();
+  const shownDevices = () => (salesMode() ? Store.list('devices').filter(d => place(d.location)) : Store.list('devices'));
   // 這台設備的紀錄（還沒有編號的設備沒有紀錄）
   const of = (table, code) => [...rowsOf(table, code)];
   const latest = (table, code, k) => of(table, code).sort(byDate(k)).at(-1) || null;
@@ -92,8 +96,8 @@ const Records = (() => {
 
   // ---------- 位置 ----------
   const place = code => (key(code) ? cached('places', () => byCode(Store.list('locations'))).get(key(code)) || null : null);
-  // 位置編號 → 名稱；找不到時照原本的字（看得出是哪個編號對不上）
-  const placeName = code => place(code)?.name || String(code ?? '').trim();
+  // 位置編號 → 名稱；找不到時照原本的字（看得出是哪個編號對不上），業務員模式寫「其他位置」
+  const placeName = code => place(code)?.name || (salesMode() && key(code) ? '其他位置' : String(code ?? '').trim());
   // 搜尋用：名稱和以前的名字
   const placeText = code => {
     const p = place(code);
@@ -523,7 +527,7 @@ const Records = (() => {
   // 保固 30 天內到期（過了就不列）；報廢這類（狀態勾「不用提醒」）的不算；依到期日排
   function warrantyDue() {
     const quiet = quietSet();
-    return Store.list('devices')
+    return shownDevices()
       .filter(d => d.warranty && !quiet.has(key(d.status)) && daysTo(d.warranty) >= 0 && daysTo(d.warranty) <= WARRANTY_SOON)
       .sort(byDate('warranty'));
   }
@@ -1021,7 +1025,7 @@ const Records = (() => {
   //   [{ id, device, place（沒有位置的是 null）, status }]
   function statusMismatch() {
     const atStock = new Map([[MOVE_STATUS.安裝, false], [MOVE_STATUS.撤機, true]]); // 這個狀態的機器該放在倉庫嗎
-    return Store.list('devices').map(d => ({ id: d.id, device: d, place: place(d.location), status: statusOf(d) }))
+    return shownDevices().map(d => ({ id: d.id, device: d, place: place(d.location), status: statusOf(d) }))
       .filter(x => (x.place ? atStock.has(x.status) && atStock.get(x.status) !== !!x.place.stock
         : !key(x.device.location) && x.status === MOVE_STATUS.安裝))
       .sort((a, b) => (!a.place - !b.place) || (a.place ? byPlaceName(a, b) : deviceOrder(a.device, b.device)));
@@ -1117,7 +1121,7 @@ const Records = (() => {
   function modelCounts(status = '') {
     const orderOf = modelOrder;
     const groups = new Map();
-    Store.list('devices').filter(d => !status || statusOf(d) === status).forEach(d => {
+    shownDevices().filter(d => !status || statusOf(d) === status).forEach(d => {
       const model = String(d.model ?? '').trim();
       const k = key(model).replace(/\s+/g, '');
       if (!groups.has(k)) groups.set(k, { names: new Map(), brands: new Map(), count: 0 });
@@ -1167,12 +1171,14 @@ const Records = (() => {
   // ---------- 對不上的設備、位置 ----------
   // 找不到設備的紀錄（在試算表裡打錯了設備編號）：[{ table, rec }]
   function orphans() {
+    if (salesMode()) return [];
     const codes = new Set(Store.list('devices').map(d => key(d.code)).filter(Boolean));
     return DEVICE_TABLES.flatMap(t => Store.list(t).filter(r => !codes.has(key(r.device))).map(rec => ({ table: t, rec })));
   }
 
   // 找不到的位置編號（在試算表裡打錯了）：[{ table, rec, value }]
   function lostPlaces() {
+    if (salesMode()) return [];
     return Refs.refsTo('locations').flatMap(({ table, field }) => Store.list(table).flatMap(rec =>
       Refs.valuesOf(field, rec[field.key]).filter(v => !place(v)).map(value => ({ table, rec, value }))));
   }
@@ -1279,7 +1285,7 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
-    TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
+    shownDevices, TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
   };
 })();

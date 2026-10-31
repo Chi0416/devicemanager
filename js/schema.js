@@ -81,6 +81,8 @@
 //                       cascade 刪除時連同用到它的紀錄一起刪（先問），不是擋下來（設備）
 //   （資料表）copy:      編輯時表單下面的「以這筆為底新增」按鈕（合約的「重新簽約」）：
 //                       { label 按鈕上的字, keys 帶過去的欄位, watch 改了這些欄位時 note 變橘色, note 按鈕下面的說明 }
+//   （資料表）action:    編輯時表單下面另一個按鈕（和 copy 同一個位置，人員的「複製邀請連結」）：
+//                       { key, label 按鈕上的字, show(這一筆) 要不要出現, note(這一筆) 按鈕下面的說明 }；按了交給 app.js（Form.init 的 action）
 //   （資料表）history:   編輯時表單最下面的修改紀錄：history(這一筆) 回傳 [{ date, text }]
 //   （資料表）once:      新增時沒有「儲存，再新增一筆」（異動、抄表、翻新、合約：一次一筆，連續輸入很容易同一台機器多存一筆）
 //   （資料表）next:      新增好按「儲存」後接著打開的表單：next(存好的那一筆) 回傳 { table, preset, message } 或 null（安裝、撤機後抄表）
@@ -547,6 +549,9 @@ const SCHEMAS = {
   people: {
     title: '人員',
     noList: true,
+    // 業務員：存好之後表單下面有「複製邀請連結」（見 app.js 的 invite）
+    action: { key: 'invite', label: '複製邀請連結', show: r => !!(r?.sales && String(r.email ?? '').trim() && stillHere(r)),
+      note: r => `傳給${r.name}，用 ${r.email} 登入；這個 Gmail 要先加進 Google Cloud 的測試使用者` },
     target: { name: 'name', active: stillHere, sub: r => [r.jobTitle, r.dept, r.sales && '業務員'].filter(Boolean).join(' · '),
       off: '已離職', removeHint: '不再使用的話，可以填「離職日」' },
     unique: [['code'], ['name']],

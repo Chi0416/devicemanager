@@ -13,6 +13,8 @@
 //   時機：打開 App、從背景切回來、修改資料後（等幾秒一起送），登入還有效就自動同步
 //         登入過期時，修改資料的那一下順便跳出 Google 視窗（沒有網路時不跳）；沒成功就顯示「同步」按鈕讓使用者按
 //   登出：先同步一次，確定試算表已經有這台裝置的全部資料，才清掉這台裝置上的資料（換帳號時不會混在一起）
+//   業務員（打開邀請連結登入的）：不碰試算表，向總部試算表上的程式拿他負責的客戶（見 apps-script/meter.gs 的 salesData_），
+//         整份換掉這台的；只能看，不寫回；時機和同步一樣（打開 App、切回來、按「更新」）
 const Sync = (() => {
   const CLOUD_KEY = `${Store.PREFIX}cloud`;
   const MARK = 'devicemanager'; // 試算表上的標記（雲端硬碟的 appProperties），用來找回這份試算表
@@ -30,6 +32,7 @@ const Sync = (() => {
   const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
   // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, senderMail, toner } ----------
+  //   業務員：{ sales: true, hq: 總部試算表上的程式的網址, email, name: 人員表上的姓名, admin: 總部的帳號, denied: 不是業務員了, lastSyncAt, toner }
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
   //   senderMail：機器寄信用的 Gmail（機器設定那頁填的），和讀信網址一樣存在 _meta
   //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；同步前叫它讀信時也直接回傳）
@@ -74,6 +77,10 @@ const Sync = (() => {
       senderMail: cloud?.senderMail || '',
       toner: cloud?.toner || null,
       lastSyncAt: cloud?.lastSyncAt || null,
+      sales: !!cloud?.sales,
+      salesName: cloud?.name || '',
+      admin: cloud?.admin || '',
+      denied: !!cloud?.denied,
       running,
       error,
       // 登入過期就不會自動同步、也不會再試網路：瀏覽器說連上網路了，就不再顯示「沒有網路」，改請使用者按「同步」
@@ -83,11 +90,12 @@ const Sync = (() => {
       okAt,
       loggingOut,
       needLogin: !!cloud && !Google.hasToken(),
-      pending: Store.pendingCount(),
+      pending: cloud?.sales ? 0 : Store.pendingCount(), // 業務員只能看，沒有要送的
     };
   }
 
   const emit = () => hooks.onStatus(state());
+  const isSales = () => !!cloud?.sales;
 
   // ---------- 找到、建立試算表 ----------
   async function findSpreadsheet() {
@@ -490,6 +498,10 @@ const Sync = (() => {
     lastRunAt = Date.now();
     emit();
     try {
+      if (cloud.sales) {
+        await pullSales(manual);
+        return;
+      }
       const mailed = mail && cloud.meterUrl ? await readMail() : null;
       const snap = Store.pendingSnapshot();
       let meta = await locate();
@@ -542,6 +554,30 @@ const Sync = (() => {
       }
       if (!running) idleWaiters.splice(0).forEach(fn => fn());
     }
+  }
+
+  // ---------- 業務員：向總部拿資料 ----------
+  //   整份換掉這台的（只能看，沒有要送的）；不是業務員了（取消勾選、填了離職日）：清掉這台的資料，請他找管理員
+  //   總部的程式是舊版時，不認得「拿資料」，當成抄表程式回「密語不對」
+  async function pullSales(manual) {
+    const first = !cloud.lastSyncAt;
+    const r = await Google.script(cloud.hq, { action: 'data' });
+    if (r.denied) {
+      Store.loadRemote({});
+      Object.assign(cloud, { denied: true, toner: null });
+      saveCloud();
+      hooks.onData();
+      error = r.error;
+      return;
+    }
+    if (r.error) throw new Error(/密語/.test(r.error) ? '總部試算表上的程式是舊版，請找管理員更新' : r.error);
+    const parsed = Sheet.fromValues(r.values || {});
+    Store.loadRemote(parsed.data);
+    Object.assign(cloud, { denied: false, name: r.name, email: r.email, admin: r.admin, toner: parsed.toner, lastSyncAt: new Date().toISOString() });
+    saveCloud();
+    okAt = Date.now();
+    hooks.onData();
+    if (manual) hooks.toast(first ? `已登入：業務員 ${r.name}` : '已更新');
   }
 
   function schedule(ms = 3000) {
@@ -660,6 +696,25 @@ const Sync = (() => {
 
   const startLink = () => login('link');
 
+  // 打開邀請連結後按「登入」：記下總部的網址，用自己的 Gmail 登入，向總部拿資料（必須在使用者點擊的當下呼叫）
+  //   先記下來：登入視窗打不開、改成整頁跳轉時，跳回來還知道要向哪裡拿
+  function join(url) {
+    cloud = { sales: true, hq: url, email: '', name: '', admin: '' };
+    error = '';
+    saveCloud();
+    emit();
+    return login('sync');
+  }
+
+  // 業務員離開：清掉這台的資料、總部的網址（總部的資料不會動），交給 app.js 重新載入頁面
+  async function leave() {
+    if (!cloud?.sales) return;
+    clearTimeout(timer);
+    await disconnect();
+    Store.wipe();
+    hooks.onLogout();
+  }
+
   function syncNow() {
     if (Google.hasToken()) return run({ manual: true, mail: true });
     if (!navigator.onLine) {
@@ -716,14 +771,15 @@ const Sync = (() => {
   }
 
   // 必須在使用者點擊的當下呼叫：登入過期時要先跳出 Google 視窗（第一個 await 之前）
-  async function logout() {
-    if (!cloud || loggingOut) return;
+  //   ask：最後確認的文字（換成業務員時另外寫），沒有時照平常登出的寫法
+  async function logout(ask = '') {
+    if (!cloud || cloud.sales || loggingOut) return;
     loggingOut = true;
     emit();
     let wiped = false;
     try {
       if (!Google.hasToken()) await Google.requestToken({ hint: cloud.email });
-      wiped = await finishLogout();
+      wiped = await finishLogout(ask);
     } catch (e) {
       if (e.code === 'popup_failed_to_open') hooks.toast('登入視窗打不開，請先用「改用整頁登入」同步，再按「登出」', 'error');
       else if (e.code !== 'popup_closed' && e.code !== 'superseded') hooks.toast(e.message || String(e), 'error');
@@ -738,7 +794,7 @@ const Sync = (() => {
   }
 
   // 回傳是否已經清掉資料
-  async function finishLogout() {
+  async function finishLogout(ask) {
     autoLoginTried = false;
     clearTimeout(timer);
     await idle();
@@ -751,7 +807,7 @@ const Sync = (() => {
       alert(blocker);
       return false;
     }
-    if (!confirm(`登出後，這台裝置上的資料會清除。\n資料都存在 ${cloud.email} 的 Google 試算表裡，下次登入會再抓回來。\n\n確定登出？`)) return false;
+    if (!confirm(ask || `登出後，這台裝置上的資料會清除。\n資料都存在 ${cloud.email} 的 Google 試算表裡，下次登入會再抓回來。\n\n確定登出？`)) return false;
     await disconnect();
     Store.wipe();
     return true;
@@ -760,7 +816,7 @@ const Sync = (() => {
   // 資料改了：登入有效就等幾秒後一起送出；過期了，趁這次點擊（儲存、刪除）跳出 Google 視窗
   //   每次打開 App 只自動跳一次，被關掉或失敗就改顯示「同步」按鈕，不一直打擾；沒有網路時不跳
   function changed() {
-    if (!cloud) return;
+    if (!cloud || cloud.sales) return;
     if (Google.hasToken()) {
       emit();
       schedule();
@@ -800,5 +856,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, startLink, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
+  return { init, state, isSales, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
 })();

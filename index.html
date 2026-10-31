@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.31.2">
+  <link rel="manifest" href="manifest.json?v=2026.10.31.3">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.31.2">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.31.3">
 </head>
 <body>
   <div class="app">
@@ -40,6 +40,8 @@
     <!-- 上方切換：底部一格裡有好幾頁時，在標題下面左右切換（見 app.js 的 GROUPS） -->
     <div id="subtabs" class="subtabs" role="tablist" hidden></div>
     <div id="banner" class="banner" hidden></div>
+    <!-- 業務員模式（見 sync.js）：寫是誰，只能看 -->
+    <div id="sales-line" class="sales-line" hidden></div>
     <!-- 同步提示：有資料還沒同步、太久沒同步、沒有網路、同步失敗時才出現（其他提醒在鈴鐺） -->
     <div id="sync-bar" class="sync-bar" role="status" hidden>
       <span class="sync-text"></span>
@@ -189,17 +191,22 @@
       <button type="button" class="text-btn" data-act="close">關閉</button>
     </div>
     <div class="sheet-body">
-      <!-- 清單：設備的類別、位置、品牌、保管人、廠商從這裡選（見 lists.js） -->
-      <h3 class="section-head">清單</h3>
-      <ul id="lists-menu" class="member-list lists-menu"></ul>
+      <!-- 清單：設備的類別、位置、品牌、保管人、廠商從這裡選（見 lists.js）；admin-only 的業務員看不到 -->
+      <div class="admin-only">
+        <h3 class="section-head">清單</h3>
+        <ul id="lists-menu" class="member-list lists-menu"></ul>
+      </div>
 
-      <h3 class="section-head">Google 雲端硬碟</h3>
+      <h3 id="cloud-head" class="section-head">Google 雲端硬碟</h3>
       <div id="cloud"></div>
 
       <!-- 自動抄表：把 apps-script/meter.gs 貼到自己的試算表（見 app.js） -->
-      <h3 class="section-head">自動抄表</h3>
-      <div id="meter"></div>
+      <div class="admin-only">
+        <h3 class="section-head">自動抄表</h3>
+        <div id="meter"></div>
+      </div>
 
+      <div class="admin-only">
       <h3 class="section-head">資料備份</h3>
       <dl id="stats" class="stats"></dl>
       <p id="last-export" class="muted"></p>
@@ -207,10 +214,11 @@
       <button id="btn-import" type="button" class="wide-btn">匯入 data.json</button>
       <p class="note muted">連結 Google 時，匯入前可以選以檔案或以 Google 為主。</p>
       <input id="file-import" type="file" accept=".json,application/json" hidden>
+      </div>
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.31.2</p>
+      <p class="note muted">版本 2026.10.31.3</p>
     </div>
   </dialog>
 
@@ -371,24 +379,24 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.31.2"></script>
-  <script src="js/schema.js?v=2026.10.31.2"></script>
-  <script src="js/storage.js?v=2026.10.31.2"></script>
-  <script src="js/refs.js?v=2026.10.31.2"></script>
-  <script src="js/records.js?v=2026.10.31.2"></script>
-  <script src="js/list.js?v=2026.10.31.2"></script>
-  <script src="js/form.js?v=2026.10.31.2"></script>
-  <script src="js/picker.js?v=2026.10.31.2"></script>
-  <script src="js/lists.js?v=2026.10.31.2"></script>
-  <script src="js/detail.js?v=2026.10.31.2"></script>
-  <script src="js/overview.js?v=2026.10.31.2"></script>
-  <script src="js/places.js?v=2026.10.31.2"></script>
-  <script src="js/config.js?v=2026.10.31.2"></script>
-  <script src="js/google.js?v=2026.10.31.2"></script>
-  <script src="js/sheet.js?v=2026.10.31.2"></script>
-  <script src="js/sync.js?v=2026.10.31.2"></script>
-  <script src="js/inbox.js?v=2026.10.31.2"></script>
-  <script src="js/app.js?v=2026.10.31.2"></script>
+  <script src="js/util.js?v=2026.10.31.3"></script>
+  <script src="js/schema.js?v=2026.10.31.3"></script>
+  <script src="js/storage.js?v=2026.10.31.3"></script>
+  <script src="js/refs.js?v=2026.10.31.3"></script>
+  <script src="js/records.js?v=2026.10.31.3"></script>
+  <script src="js/list.js?v=2026.10.31.3"></script>
+  <script src="js/form.js?v=2026.10.31.3"></script>
+  <script src="js/picker.js?v=2026.10.31.3"></script>
+  <script src="js/lists.js?v=2026.10.31.3"></script>
+  <script src="js/detail.js?v=2026.10.31.3"></script>
+  <script src="js/overview.js?v=2026.10.31.3"></script>
+  <script src="js/places.js?v=2026.10.31.3"></script>
+  <script src="js/config.js?v=2026.10.31.3"></script>
+  <script src="js/google.js?v=2026.10.31.3"></script>
+  <script src="js/sheet.js?v=2026.10.31.3"></script>
+  <script src="js/sync.js?v=2026.10.31.3"></script>
+  <script src="js/inbox.js?v=2026.10.31.3"></script>
+  <script src="js/app.js?v=2026.10.31.3"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

@@ -50,7 +50,7 @@
     // 位置：每個位置一張卡片（見 places.js），點了打開位置詳情
     locations: createPlaces(),
     // 點設備卡片打開詳情（見 detail.js）
-    devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id) }),
+    devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id), rows: () => Records.shownDevices() }),
     // 紀錄：卡片最上面那一排寫位置、設備，和設備卡片一樣小標題在上，下面才是內容（依紀錄的種類，見 records.js 的 recordCells）
     ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, createList(k, SCHEMAS[k], {
       openForm: id => Form.open(k, id),
@@ -72,7 +72,8 @@
     Lists.refresh();
     if (menu.open) renderListsMenu();
   }
-  Form.init({ toast, onChanged });
+  // 人員表單的「複製邀請連結」（schema 的 action，見 invite）
+  Form.init({ toast, onChanged, action: (t, rec) => { if (t === 'people' && rec) invite(rec); } });
   Picker.init({ toast, onChanged });
   // 清單裡點一個位置：打開位置詳情（其他打開表單）
   Lists.init({ toast, onChanged, openItem: (t, id) => (t === 'locations' ? Place.open(id) : Form.open(t, id)) });
@@ -315,6 +316,22 @@
     + '<button type="button" class="link-btn" data-act="redirect">改用整頁登入</button>。</p>';
 
   function renderCloud(st) {
+    $('cloud-head').textContent = st.sales ? '業務員' : 'Google 雲端硬碟';
+    if (st.sales) {
+      cloudEl.innerHTML = `
+        <ul class="member-list cloud-info">
+          <li><span class="member-info"><small>姓名</small><b>${U.esc(st.salesName || '—')}</b></span></li>
+          <li><span class="member-info"><small>帳號</small><b>${U.esc(st.email || '還沒登入')}</b></span></li>
+          <li><span class="member-info"><small>總部</small><b>${U.esc(st.admin || '—')}</b></span></li>
+          <li><span class="member-info"><small>上次更新</small><b>${st.lastSyncAt ? U.fmtDateTime(st.lastSyncAt) : '—'}</b></span></li>
+          <li><span class="member-info"><small>狀態</small><b class="${st.error ? 'warn' : ''}">${U.esc(salesStatusText(st))}</b></span></li>
+        </ul>
+        <button type="button" class="wide-btn primary" data-act="sync" ${st.running ? 'disabled' : ''}>${st.running ? '更新中…' : '更新'}</button>
+        ${redirectNote}
+        <button type="button" class="text-btn danger cloud-logout" data-act="leave">離開</button>
+        <p class="note muted cloud-logout-note">只看得到你負責的客戶，不能新增、修改。離開會清掉這台的資料，總部的資料不會動。</p>`;
+      return;
+    }
     if (!st.configured && !st.linked) {
       cloudEl.innerHTML = '<p class="note muted cloud-intro">雲端同步還沒設定好，目前資料只存在這台裝置。建議定期匯出 data.json 備份。</p>';
       return;
@@ -342,6 +359,16 @@
       <p class="note muted cloud-logout-note">登出會清除這台裝置上的資料，資料都還在試算表裡。要換別的 Google 帳號時先登出。</p>`;
   }
 
+  // 業務員：沒有要送的資料，只有拿資料
+  function salesStatusText(st) {
+    if (st.running) return '更新中…';
+    if (st.denied) return st.error || '你現在不是業務員，請找管理員';
+    if (st.offline) return '目前沒有網路，看的是上次拿到的資料';
+    if (st.error) return `更新失敗：${st.error}`;
+    if (st.needLogin) return st.lastSyncAt ? '登入已過期，按「更新」重新登入' : '還沒登入，按「更新」登入';
+    return '已是最新';
+  }
+
   // 「同步」要在點擊的當下呼叫（登入過期時會跳出 Google 視窗）
   cloudEl.addEventListener('click', e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
@@ -349,6 +376,9 @@
     else if (act === 'sync') Sync.syncNow();
     else if (act === 'redirect') Sync.loginByRedirect();
     else if (act === 'logout') Sync.logout();
+    else if (act === 'leave') {
+      if (confirm('離開後，這台的資料會清掉，總部的資料不會動。之後要再看，請管理員重新傳邀請連結。\n\n確定離開？')) Sync.leave();
+    }
     else if (act === 'inbox') {
       menu.close();
       Inbox.open();
@@ -371,9 +401,13 @@
 
   // 只在帳號、試算表、讀信網址變了才重畫：同步狀態一直在變，重畫會清掉正在打的網址、收起打開的步驟
   function renderMeter(st) {
-    const key = [st.linked, st.email, st.url, st.meterUrl].join('|');
+    const key = [st.linked, st.sales, st.email, st.url, st.meterUrl].join('|');
     if (key === meterKey) return;
     meterKey = key;
+    if (st.sales) {
+      meterEl.innerHTML = ''; // 業務員看不到這一段（index.html 的 admin-only）
+      return;
+    }
     const help = '<button type="button" class="link-btn" data-act="meter-help">說明</button>';
     if (!st.linked) {
       meterEl.innerHTML = `<p class="note muted cloud-intro">連結 Google 帳號後才能設定。${help}</p>`;
@@ -501,7 +535,37 @@
     let text = '';
     let btn = '';
     syncAction = null;
-    if (!st.linked) {
+    const invite = joinUrl();
+    if (invite && st.sales) dropJoin();
+    if (invite && !st.sales) {
+      // 收到邀請：這個瀏覽器現在是別人的資料時，先登出（資料留在試算表）或清掉（只存在這台的）
+      if (st.linked) {
+        text = `收到業務員邀請。要換成業務員，這個瀏覽器的 ${st.email} 會先登出`;
+        btn = '換成業務員';
+        syncAction = () => Sync.logout(`換成業務員之前，會先同步，再清掉這台的資料。\n資料都留在 ${st.email} 的試算表裡，之後可以再登入。\n\n確定換成業務員？`);
+      } else if (Store.ownCount()) {
+        text = '收到業務員邀請。這台的資料只存在這台，換成業務員會清掉';
+        btn = '清掉';
+        syncAction = () => {
+          if (!confirm('這台的資料沒有存到 Google，清掉就沒了；要留的話，先到設定「匯出 data.json」。\n\n確定清掉，換成業務員？')) return;
+          Store.wipe();
+          location.reload();
+        };
+      } else {
+        text = '收到業務員邀請：用你的 Gmail 登入，看得到你負責的客戶';
+        btn = '登入';
+        syncAction = () => {
+          dropJoin();
+          Sync.join(invite);
+        };
+      }
+    } else if (st.sales && st.denied) {
+      text = st.error || '你現在不是業務員，請找管理員';
+    } else if (st.sales && st.needLogin && !st.lastSyncAt && !st.running) {
+      text = '業務員：還沒登入';
+      btn = '登入';
+      syncAction = Sync.syncNow;
+    } else if (!st.linked) {
       text = '';
     } else if (st.running) {
       if (syncBar.hidden) return;
@@ -509,7 +573,7 @@
     } else if (st.offline) {
       text = offlineText(st);
     } else if (st.error) {
-      text = `同步失敗：${st.error}`;
+      text = `${st.sales ? '更新' : '同步'}失敗：${st.error}`;
       btn = '重試';
       syncAction = Sync.syncNow;
     } else if (st.pending && st.needLogin) {
@@ -518,8 +582,8 @@
       syncAction = Sync.syncNow;
     } else if (st.needLogin && (!st.lastSyncAt || Date.now() - Date.parse(st.lastSyncAt) > STALE)) {
       // 登入過期就不會自動同步：試算表或其他裝置改過的資料，要按「同步」才看得到
-      text = st.lastSyncAt ? `上次同步是 ${ago(st.lastSyncAt)}` : '還沒有同步過';
-      btn = '同步';
+      text = st.lastSyncAt ? `上次${st.sales ? '更新' : '同步'}是 ${ago(st.lastSyncAt)}` : '還沒有同步過';
+      btn = st.sales ? '更新' : '同步';
       syncAction = Sync.syncNow;
     }
     syncBar.hidden = !text;
@@ -529,6 +593,54 @@
   }
 
   syncBtn.addEventListener('click', () => { if (syncAction) syncAction(); });
+
+  // ---------- 業務員（見 sync.js 的業務員） ----------
+  //   管理員在人員表單按「複製邀請連結」：App 的網址加 ?join=總部試算表上的程式的網址（就是讀信網址，部署一次大家共用）
+  const JOIN_KEY = `${Store.PREFIX}join`;
+  async function invite(rec) {
+    const url = Sync.state().meterUrl;
+    if (!url) {
+      toast('先到設定的「自動抄表」，把試算表上的程式部署好、填上讀信網址', 'error');
+      return;
+    }
+    const link = `${location.origin}${location.pathname}?join=${encodeURIComponent(url)}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast(`已複製，傳給${rec.name}`);
+    } catch (_) {
+      toast('複製失敗，請改用電腦的瀏覽器', 'error');
+    }
+  }
+  //   業務員打開邀請連結：網址記在這個分頁（重新載入、登出後還在），網址列拿掉；上方提示列請他登入（見 renderSyncBar）
+  const joinUrl = () => { try { return sessionStorage.getItem(JOIN_KEY) || ''; } catch (_) { return ''; } };
+  const dropJoin = () => { try { sessionStorage.removeItem(JOIN_KEY); } catch (_) {} };
+  (() => {
+    const params = new URLSearchParams(location.search);
+    const url = params.get('join');
+    if (url === null) return;
+    params.delete('join');
+    const rest = params.toString();
+    history.replaceState(null, '', `${location.pathname}${rest ? `?${rest}` : ''}${location.hash}`);
+    if (!METER_URL.test(url)) {
+      toast('邀請連結不完整，請管理員重新複製', 'error');
+      return;
+    }
+    try { sessionStorage.setItem(JOIN_KEY, url); } catch (_) {}
+  })();
+  //   業務員模式：最上面寫是誰，新增、編輯的按鈕藏起來（style.css 的 .sales）；換了模式時全部重畫（設備頁、總覽只算他的）
+  let salesShown = Sync.isSales();
+  document.body.classList.toggle('sales', salesShown);
+  function showSales(st) {
+    const line = $('sales-line');
+    line.hidden = !st.sales;
+    line.textContent = st.sales ? `業務員${st.salesName ? `：${st.salesName}` : ''}・只能看，不能改` : '';
+    if (st.sales === salesShown) return;
+    salesShown = st.sales;
+    document.body.classList.toggle('sales', st.sales);
+    refreshAll();
+    Lists.refresh();
+    checkLists();
+  }
 
   // ---------- 啟動 ----------
   if (!Store.available) {
@@ -599,6 +711,8 @@
   // 設備裡填過、但不在清單裡的值（試算表手打的、清單做好之前填的）：每個範圍一則提醒，附「加入清單」
   //   找不到設備的紀錄（在試算表裡打錯了設備編號）、找不到的位置編號：各一則提醒，列出是哪幾筆
   function checkLists() {
+    // 業務員只拿到一部分（別的位置、清單外的人都不在），不提醒找不到、不在清單裡
+    const sales = Sync.isSales();
     const lostPlaces = Records.lostPlaces();
     Inbox.reconcile('lostplace:', lostPlaces.length ? [{
       key: 'lostplace:all',
@@ -613,7 +727,7 @@
       body: `${lost.slice(0, 10).map(o => `${SCHEMAS[o.table].title}：${Records.describe(o.table, o.rec) || '沒有填設備'}`).join('\n')}`
         + `${lost.length > 10 ? `\n…等 ${lost.length} 筆` : ''}\n可能是設備編號打錯了，改成正確的編號就好。`,
     }] : []);
-    Inbox.reconcile('notinlist:', Refs.missing().map(m => ({
+    Inbox.reconcile('notinlist:', (sales ? [] : Refs.missing()).map(m => ({
       key: `notinlist:${m.key}`,
       title: `有 ${m.values.length} 個${m.name}不在清單裡`,
       body: `${m.values.slice(0, 10).join('、')}${m.values.length > 10 ? `…等 ${m.values.length} 個` : ''}\n加進清單後，選單裡就選得到。`,
@@ -661,6 +775,7 @@
       }
     },
     onStatus(st) {
+      showSales(st);
       renderSyncBar(st);
       renderCloud(st);
       renderMeter(st);

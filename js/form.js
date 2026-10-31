@@ -9,6 +9,8 @@
 //   藏起來的欄位（hidden，異動的原位置）：不顯示，由 calc 填好
 //   不能改的舊值（lock，有異動的設備的位置）：只顯示，下面寫原因
 //   以這筆為底新增（schema 的 copy，合約的「重新簽約」）：編輯時才有；改過還沒存時不能按
+//   同一個位置的另一種按鈕（schema 的 action，人員的「複製邀請連結」）：編輯時、show(這一筆) 為 true 才有，按了交給 app.js（init 的 action）
+//   業務員模式（見 sync.js）只能看：不打開表單
 //   修改紀錄（schema 的 history，合約）：編輯時列在下面
 //   刪除：按第一次在按鈕下面寫會刪掉什麼，再按一次才刪；不用瀏覽器的確認視窗（有些環境不會跳出來，按了就像沒反應）
 //     設備有紀錄的：寫出有幾筆、建議改成報廢，真的要刪就連同紀錄一起刪（schema 的 target.cascade）
@@ -38,7 +40,7 @@ const Form = (() => {
   let initial = [];   // 開啟或連續新增後的欄位值，用來判斷是否有未儲存的內容
   let original = [];  // 打開表單時的值（不在清單上的舊值，沒改的話照常可以存）
   let calcked = [];   // 各欄位上次自動算出來的值（schema 的 calc）；算出來的值變了、欄位還是上次的值時才跟著換
-  let hooks = { toast() {}, onChanged() {} };
+  let hooks = { toast() {}, onChanged() {}, action() {} };
   let closeLabel = '取消'; // 左上角按鈕平常的字（連續新增後是「完成」）
   let leaveUntil = 0;      // 有還沒儲存的內容時按了一次「取消」：這個時間之前再按一次就關掉
   let leaveTimer = null;
@@ -64,6 +66,7 @@ const Form = (() => {
   //   在設備詳情裡新增紀錄時，設備先帶好（「儲存，再新增一筆」也照樣帶）
   // message：打開時寫在最上面的一行（安裝、撤機後接著抄表時說要填什麼）
   function open(tableKey, id, preset = {}, { message = '' } = {}) {
+    if (typeof Sync !== 'undefined' && Sync.isSales()) return;
     const schema = SCHEMAS[tableKey];
     const rec = id ? Store.get(tableKey, id) : null;
     if (id && !rec) return;
@@ -79,10 +82,11 @@ const Form = (() => {
     resetDelete();
     delBtn.hidden = !id;
     anotherBtn.hidden = !!id || !!schema.once;
-    copyBtn.hidden = copyNote.hidden = !(id && schema.copy);
-    if (schema.copy) {
-      copyBtn.textContent = schema.copy.label;
-      copyNote.textContent = schema.copy.note || '';
+    const extra = schema.copy || schema.action;
+    copyBtn.hidden = copyNote.hidden = !(id && (schema.copy || schema.action?.show(rec)));
+    if (extra) {
+      copyBtn.textContent = extra.label;
+      copyNote.textContent = (typeof extra.note === 'function' ? extra.note(rec || {}) : extra.note) || '';
     }
     renderHistory(rec);
     statusEl.textContent = message;
@@ -857,7 +861,7 @@ const Form = (() => {
 
   // ---------- 事件 ----------
   saveBtn.addEventListener('click', () => save());
-  copyBtn.addEventListener('click', copyAsNew);
+  copyBtn.addEventListener('click', () => (ctx.schema.copy ? copyAsNew() : hooks.action(ctx.tableKey, Store.get(ctx.tableKey, ctx.id))));
   anotherBtn.addEventListener('click', () => save(true));
   closeBtn.addEventListener('click', requestClose);
   delBtn.addEventListener('click', remove);

@@ -101,7 +101,7 @@ function createOverview({ onPick, onPlaces }) {
 
   // 狀態方塊：全部、清單裡沒停用的狀態（停用了但還有設備在用的也列）、不在清單裡的狀態
   function options() {
-    const used = new Set(Store.list('devices').map(Records.statusOf).filter(Boolean));
+    const used = new Set(Records.shownDevices().map(Records.statusOf).filter(Boolean));
     const listed = Refs.items(statusField, { all: true }).filter(r => Refs.active('statuses', r) || used.has(r.name));
     const names = listed.map(r => r.name);
     return [
@@ -148,7 +148,7 @@ function createOverview({ onPick, onPlaces }) {
   }
 
   function render() {
-    const devices = Store.list('devices');
+    const devices = Records.shownDevices();
     if (!devices.length) {
       bodyEl.innerHTML = '<p class="empty">還沒有設備<br>到「設備」新增</p>';
       renderTodo();

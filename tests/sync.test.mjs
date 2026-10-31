@@ -76,6 +76,12 @@ class FakeGoogle {
     const path = decodeURIComponent(u.pathname);
 
     if (u.hostname === 'script.google.com') {
+      // 業務員拿資料（見 apps-script/meter.gs 的 salesData_）：sales 是模擬的程式
+      if (method === 'POST' && body?.action === 'data') {
+        if (!this.sales) return notFound();
+        const r = this.sales(body);
+        return { status: 200, ok: true, json: async () => r };
+      }
       if (!this.meter) return notFound();
       const r = this.meter();
       return { status: 200, ok: true, json: async () => r };
@@ -1213,4 +1219,109 @@ test('兩台裝置各新增一台、拿到同一個編號：換號的那台在�
   assert.equal(phone.Store.list('readings').find(r => r.id !== rb.id).device, '26-0001');
   await d.Sync.syncNow();
   assert.equal(d.Store.get('readings', rb.id).device, '26-0002');
+});
+
+// ---------- 業務員：向總部試算表上的程式拿資料（見 sync.js 的業務員、apps-script/meter.gs 的 salesData_） ----------
+// 模擬總部的程式：用 meter.gs 的 salesPerson_、salesRows_ 從總部的試算表挑列；fake.salesEmail 是業務員登入的帳號
+const meter = vm.createContext({});
+vm.runInContext(readFileSync(new URL('apps-script/meter.gs', ROOT), 'utf8'), meter, { filename: 'meter.gs' });
+const { salesPerson_, salesRows_ } = vm.runInContext('({ salesPerson_, salesRows_ })', meter);
+const HQ = 'https://script.google.com/macros/s/hq/exec';
+function salesServer(fake, id) {
+  fake.sales = () => {
+    const values = Object.fromEntries(fake.files[id].sheets.map(s => [s.title, FakeGoogle.read(s.grid)]));
+    const today = Sheet0.toSerial(new Date().toISOString().slice(0, 10));
+    const name = salesPerson_(values['人員'], fake.salesEmail, today);
+    if (!name) return { error: `${fake.salesEmail} 不是業務員，請找管理員`, denied: true };
+    return { name, email: fake.salesEmail, admin: 'hq@example.com', values: salesRows_(values, name) };
+  };
+}
+const Sheet0 = device(new FakeGoogle()).Sheet;
+
+// 總部：阿明負責大華，長榮是別人的；大華、長榮各放一台，各抄過一次表
+async function hq() {
+  const { fake, d, id } = await linked();
+  const add = (t, rec) => d.Store.add(t, { ...d.Refs.blankRecord(t), ...rec });
+  add('people', { name: '阿明', email: 'a@gmail.com', sales: true, perms: '記抄表' });
+  add('people', { name: '小華', email: 'x@gmail.com' });
+  add('locations', { code: 'L0001', name: '大華貿易', sales: '阿明' });
+  add('locations', { code: 'L0002', name: '長榮航運' });
+  add('devices', { ...PRINTER, code: '26-0001', name: '#1001', location: 'L0001' });
+  add('devices', { ...PRINTER, code: '26-0002', name: '#1002', location: 'L0002' });
+  add('readings', { device: '26-0001', date: '2026-10-01', bw: 100 });
+  add('readings', { device: '26-0002', date: '2026-10-01', bw: 200 });
+  add('contracts', { locations: 'L0001、L0002', signDate: '2026-01-01', endDate: '2027-12-31' });
+  await d.Sync.syncNow();
+  salesServer(fake, id);
+  return { fake, d, id };
+}
+
+test('業務員：打開邀請連結登入，向總部的程式拿他負責的客戶；別的位置寫「其他位置」，設備頁只有他的；不碰試算表', async () => {
+  const { fake } = await hq();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false });
+  const calls = fake.calls.length;
+  await s.Sync.join(HQ);
+  const st = s.Sync.state();
+  assert.equal(st.sales, true);
+  assert.equal(st.salesName, '阿明');
+  assert.equal(st.admin, 'hq@example.com');
+  assert.equal(st.error, '');
+  assert.ok(s.toasts.includes('已登入：業務員 阿明'));
+  assert.deepEqual(plain(s.Store.list('locations').map(p => p.name)), ['大華貿易']);
+  assert.deepEqual(plain(s.Records.shownDevices().map(x => x.code)), ['26-0001']);
+  assert.deepEqual(plain(s.Store.list('readings').map(r => r.bw)), [100]);
+  assert.equal(s.Store.list('contracts').length, 1);
+  assert.equal(s.Records.placeName('L0002'), '其他位置');
+  assert.deepEqual(plain(s.Store.list('people').map(p => p.name)), ['阿明', '小華']);
+  assert.equal(s.Store.list('people')[0].email, undefined); // 人員只有名字
+  // 只打總部的程式，不碰試算表、雲端硬碟
+  assert.deepEqual(fake.calls.slice(calls), ['POST /macros/s/hq/exec']);
+  // 在這台改了也不會送出
+  s.Store.add('readings', { device: '26-0001', date: '2026-10-31', bw: 999 });
+  await s.Sync.syncNow();
+  assert.ok(!fake.calls.slice(calls).some(c => c.includes('/v4/') || c.includes('/drive/')));
+  assert.equal(s.Sync.state().pending, 0);
+  assert.equal(s.Store.list('readings').length, 1); // 更新時整份換成總部給的，這台加的不見
+  // 業務員沒有登出（要用「離開」）
+  await s.Sync.logout();
+  assert.equal(s.loggedOut.count, 0);
+});
+
+test('業務員：人員沒勾業務員（或離職）時拿不到資料，這台的資料清掉，請他找管理員；可以離開', async () => {
+  const { fake } = await hq();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  assert.equal(s.Store.list('locations').length, 1);
+  fake.salesEmail = 'x@gmail.com'; // 換成沒勾業務員的人
+  await s.Sync.syncNow();
+  const st = s.Sync.state();
+  assert.equal(st.denied, true);
+  assert.equal(st.error, 'x@gmail.com 不是業務員，請找管理員');
+  assert.equal(s.Store.list('locations').length, 0);
+  assert.equal(s.Store.list('devices').length, 0);
+  await s.Sync.leave();
+  assert.equal(s.loggedOut.count, 1);
+  assert.equal(s.Sync.state().linked, false);
+  assert.ok(!Object.keys(s.ls).some(k => k.startsWith('devmgr.') && k !== 'devmgr.google.token'));
+});
+
+test('業務員：總部的程式還是舊版（不認得拿資料，回「密語不對」）時寫請管理員更新；登入過期時請他重新登入', async () => {
+  const { fake } = await hq();
+  fake.sales = () => ({ error: '密語不對' });
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  assert.equal(s.Sync.state().error, '總部試算表上的程式是舊版，請找管理員更新');
+  fake.sales = () => ({ error: '登入已過期，請重新登入', login: true });
+  await s.Sync.syncNow();
+  assert.equal(s.Sync.state().needLogin, true);
+  assert.equal(s.Sync.state().error, '');
+});
+
+test('管理員登出時可以換掉確認的文字（換成業務員時用）', async () => {
+  const { d } = await linked();
+  await d.Sync.logout('確定換成業務員？');
+  assert.equal(d.asked.messages.at(-1), '確定換成業務員？');
+  assert.equal(d.loggedOut.count, 1);
 });
