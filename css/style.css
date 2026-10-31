@@ -126,7 +126,9 @@ body:has(dialog[open]) { overflow: hidden; }
   font-weight: 700;
   letter-spacing: .01em;
 }
-.appbar-title { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; min-width: 0; }
+.appbar-title { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: baseline; column-gap: 10px; min-width: 0; }
+/* 總覽標題旁邊的帳號：小灰字，放不下時後面變「…」，不換行（不會多佔高度） */
+.who { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 13px; }
 .appbar-actions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
 
 .icon-btn {
@@ -1164,7 +1166,6 @@ button.model-cell:active .model-name { color: var(--accent-text); }
 .note { margin: 10px 0 0; font-size: 13px; }
 
 /* ---------- 業務員模式（見 sync.js 的業務員）：編輯的按鈕藏起來；新增只有抄表、保養（沒權限時 app.js、detail.js 不放按鈕） ---------- */
-.sales-line { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .sales #btn-add:disabled, .sales .admin-only { display: none; }
 .sales .detail [data-act="edit"] { visibility: hidden; }
 

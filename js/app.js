@@ -111,6 +111,7 @@
     if (group.key === key) key = group.pages[0][0];
     if (!lists[key]) key = 'devices';
     current = key;
+    renderWho();
     $('page-title').textContent = group.pages.length > 1 ? group.label : PAGES[key].title;
     subtabsEl.hidden = group.pages.length < 2;
     subtabsEl.innerHTML = group.pages.length < 2 ? '' : group.pages.map(([k, label]) =>
@@ -658,19 +659,21 @@
     }
     try { sessionStorage.setItem(JOIN_KEY, url); } catch (_) {}
   })();
-  //   業務員模式：最上面寫是誰、可以做什麼，編輯的按鈕藏起來（style.css 的 .sales），新增只有抄表、保養（照權限）
+  //   業務員模式：編輯的按鈕藏起來（style.css 的 .sales），新增只有抄表、保養（照權限）；可以做什麼寫在設定裡
   //   換了模式、權限、看全部時全部重畫（設備頁、總覽只算他的，新增按鈕跟著權限）
   const salesCanText = st => [st.salesPerms.includes('記抄表') && '抄表', st.salesPerms.includes('記保養') && '保養'].filter(Boolean).join('、');
   let salesKey = null;
+  // 總覽的標題旁邊寫登入的帳號（管理員、業務員一樣，其他頁不寫）；只存在這台的不寫
+  let whoText = '';
+  function renderWho() {
+    const el = $('who');
+    el.textContent = whoText;
+    el.hidden = !whoText || current !== 'overview';
+  }
   document.body.classList.toggle('sales', Sync.isSales());
   function showSales(st) {
-    // 最上面寫是誰：業務員寫姓名和可以做什麼；管理員（連結了 Google）寫人員裡 Email 一樣的那個人，沒有的寫帳號；只存在這台的不寫
-    const line = $('sales-line');
-    line.hidden = !st.linked;
-    const can = salesCanText(st);
-    const me = Store.list('people').find(p => st.email && String(p.email ?? '').trim().toLowerCase() === st.email.toLowerCase())?.name;
-    line.textContent = st.sales ? [`業務員${st.salesName ? `：${st.salesName}` : ''}`, st.salesAll && '看全部', can ? `可以新增${can}` : '只能看'].filter(Boolean).join('・')
-      : st.linked ? `管理員：${me || st.email}` : '';
+    whoText = st.linked ? st.email || st.salesName : '';
+    renderWho();
     const k = [st.sales, st.salesAll, st.salesPerms.join()].join('|');
     const first = salesKey === null;
     if (k === salesKey) return;
