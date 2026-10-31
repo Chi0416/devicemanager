@@ -621,7 +621,7 @@ const SCHEMAS = {
       ? `員工編號 ${dup.code} 已經用過了（${dup.name}）`
       : `已經有「${dup.name}」了；同名的話可以寫成「${dup.name}（部門）」`),
     // 表單上：基本資料、業務員（後來加的一組，放在一起）、其他
-    formOrder: ['name', 'code', 'jobTitle', 'dept', 'phone', 'email', 'joinDate', 'leaveDate', 'sales', 'perms', 'all', 'note'],
+    formOrder: ['name', 'code', 'jobTitle', 'dept', 'phone', 'email', 'joinDate', 'leaveDate', 'sales', 'edit', 'perms', 'all', 'note'],
     fields: [
       { key: 'name',      label: '姓名',     type: 'text', section: '基本資料' },
       { key: 'code',      label: '員工編號', type: 'text', optional: true, caps: true, upper: true, hint: '有填的話不能重複' },
@@ -632,8 +632,11 @@ const SCHEMAS = {
         check: v => (v.sales === 'true' && !String(v.email ?? '').trim() ? '業務員要填 Email' : '') },
       { key: 'sales',     label: '業務員',   type: 'flag', optional: true, hint: '負責的客戶在位置上選', section: '業務員' },
       { key: 'perms',     label: '權限',     type: 'multi', choices: SALES_PERMS, optional: true, full: true, hint: '只能新增，不能改、不能刪',
-        showIf: v => v.sales === 'true', calc: v => (v.sales === 'true' ? SALES_PERMS.join('、') : '') },
+        showIf: v => v.sales === 'true' && v.edit !== 'true', calc: v => (v.sales === 'true' ? SALES_PERMS.join('、') : '') },
       { key: 'all',       label: '看全部',   type: 'flag', optional: true, hint: '看得到所有的客戶，不只自己負責的（主管用）',
+        showIf: v => v.sales === 'true' && v.edit !== 'true' },
+      // 改全部：用自己的 Gmail，看得到、改得到全部，和總部一樣（見 sync.js 的 isEditor）；勾了就不用權限、看全部；表單上排在業務員下面
+      { key: 'edit',      label: '改全部',   type: 'flag', optional: true, hint: '看得到、改得到全部，和總部一樣（主管用）',
         showIf: v => v.sales === 'true' },
       { key: 'joinDate',  label: '入職日',   type: 'date', optional: true },
       { key: 'leaveDate', label: '離職日',   type: 'date', optional: true, hint: '這天以後不會出現在選單裡' },

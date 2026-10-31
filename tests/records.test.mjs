@@ -1481,6 +1481,33 @@ test('匯入 data.json、以 Google 為主：用 id 比對，只加這台沒有�
   assert.equal(Store.pendingCount(), 4); // 加進來的要寫回試算表（還有前面新增的投影機）
 });
 
+test('匯入 data.json、以 Google 為主：設備、位置編號撞到時換檔案那筆，檔案裡用到它的跟著換，原本的不動', () => {
+  const { Store, Records, add } = app();
+  add('locations', { id: 'p1', code: 'L0001', name: '總部的位置' });
+  add('devices', { id: 'h1', code: '26-0001', name: '總部的機器', buyDate: '2026-01-05' });
+  add('readings', { id: 'm0', device: '26-0001', date: '2026-10-01', bw: 100 });
+  const parsed = Store.parseImport({
+    locations: [{ id: 'q1', code: 'L0001', name: '他的位置' }, { id: 'q2', code: 'L0002', name: '他的倉庫' }],
+    devices: [{ id: 'f1', code: '26-0001', name: '他的機器', buyDate: '2026-03-01' }, { id: 'f2', code: '26-0005', name: '沒撞到' }],
+    moves: [{ id: 'mv', device: '26-0001', date: '2026-10-01', type: '安裝', from: 'L0002', to: 'L0001' }],
+    contracts: [{ id: 'c1', locations: 'L0001、L0002', signDate: '2026-10-01' }],
+    readings: [{ id: 'm1', device: '26-0001', date: '2026-10-02', bw: 5 }],
+  });
+  const extra = Records.fileOnly(parsed);
+  Store.addAll(extra);
+  assert.equal(Records.fileCodes(extra), 2);
+  assert.equal(Store.get('devices', 'h1').code, '26-0001');
+  assert.equal(Store.get('locations', 'p1').code, 'L0001');
+  assert.equal(Store.get('devices', 'f1').code, '26-0006'); // 今年最大的下一號
+  assert.equal(Store.get('devices', 'f2').code, '26-0005');
+  assert.equal(Store.get('locations', 'q1').code, 'L0003');
+  assert.equal(Store.get('locations', 'q2').code, 'L0002');
+  assert.deepEqual(plain([Store.get('moves', 'mv').device, Store.get('moves', 'mv').to]), ['26-0006', 'L0003']);
+  assert.equal(Store.get('contracts', 'c1').locations, 'L0003、L0002');
+  assert.equal(Store.get('readings', 'm1').device, '26-0006');
+  assert.equal(Store.get('readings', 'm0').device, '26-0001'); // 原本的紀錄不動
+});
+
 test('最新回報：設備卡片序號那一行的右邊寫多久以前（今天、昨天寫時間），今天、昨天綠字、超過 3 天橘字；不寫碳粉；沒回報過的不寫', () => {
   const { Records, Store } = app({ today: '2026-10-21' });
   const at = (date, more = {}) => [{ serial: ' a1 ', device: '', date, time: '08:30', K: 80, Y: null, M: null, C: null, ...more }];

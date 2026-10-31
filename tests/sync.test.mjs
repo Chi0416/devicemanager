@@ -77,10 +77,11 @@ class FakeGoogle {
 
     if (u.hostname === 'script.google.com') {
       // 業務員拿資料（見 apps-script/meter.gs 的 salesData_）：sales 是模擬的程式
-      if (method === 'POST' && (body?.action === 'data' || body?.action === 'add')) {
-        const handler = body.action === 'data' ? this.sales : this.salesAdd;
+      //   改全部的代讀寫（sheetFor_）：sheetFor 是模擬的程式
+      if (method === 'POST' && ['data', 'add', 'sheet'].includes(body?.action)) {
+        const handler = { data: this.sales, add: this.salesAdd, sheet: this.sheetFor }[body.action];
         if (!handler) return notFound();
-        const r = handler(body);
+        const r = await handler(body);
         return { status: 200, ok: true, json: async () => r };
       }
       if (!this.meter) return notFound();
@@ -1082,14 +1083,14 @@ test('在試算表裡勾「停用」、新增人員（沒有 id），同步後 A
   const { fake, d, id } = await linked();
   const row = fake.values(id, '選項').findIndex(r => r[1] === '碎紙機') + 1;
   fake.setCell(id, '選項', row, 3, true);
-  fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '', '', '', '2020/2/1', '', '備註']);
+  fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '', '', '', '', '2020/2/1', '', '備註']);
   await d.Sync.syncNow();
   assert.equal(d.Store.list('options').find(o => o.name === '碎紙機').disabled, true);
   const p = d.Store.list('people')[0];
   assert.equal(p.name, '王小明');
   assert.equal(p.joinDate, '2020-02-01');
   assert.equal(p.note, '備註');
-  assert.equal(fake.values(id, '人員')[1][12], p.id);
+  assert.equal(fake.values(id, '人員')[1][13], p.id);
   assert.deepEqual(plain(d.Sync.state().problems), []);
 });
 
@@ -1226,9 +1227,10 @@ test('兩台裝置各新增一台、拿到同一個編號：換號的那台在�
 // 模擬總部的程式：用 meter.gs 的 salesPerson_、salesRows_ 從總部的試算表挑列；fake.salesEmail 是業務員登入的帳號
 const meter = vm.createContext({});
 vm.runInContext(readFileSync(new URL('apps-script/meter.gs', ROOT), 'utf8'), meter, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_, salesPlan_ } = vm.runInContext('({ salesPerson_, salesRows_, salesPlan_ })', meter);
+const { salesPerson_, salesRows_, salesPlan_, sheetPathOk_ } = vm.runInContext('({ salesPerson_, salesRows_, salesPlan_, sheetPathOk_ })', meter);
 const HQ = 'https://script.google.com/macros/s/hq/exec';
 //   送出（salesAdd）：一樣用 meter.gs 的 salesPlan_；新增的照試算表的標題列加在最下面、輸入的人寫名字，回報的只改業務員回報那一格
+//   改全部的代讀寫（sheetFor）：對過人員、path，照樣打總部那份試算表的 API（模擬的 Google），回 { json }
 function salesServer(fake, id) {
   const who = () => {
     const values = Object.fromEntries(fake.files[id].sheets.map(s => [s.title, FakeGoogle.read(s.grid)]));
@@ -1239,7 +1241,16 @@ function salesServer(fake, id) {
   fake.sales = () => {
     const { values, person } = who();
     if (!person) return denied();
-    return { ...person, email: fake.salesEmail, admin: 'hq@example.com', values: salesRows_(values, person) };
+    return { ...person, email: fake.salesEmail, admin: 'hq@example.com', values: person.edit ? {} : salesRows_(values, person) };
+  };
+  fake.sheetFor = async body => {
+    const { person } = who();
+    if (!person) return denied();
+    if (!person.edit) return { error: '沒有勾「改全部」', noEdit: true };
+    if (!sheetPathOk_(body.path)) return { error: '總部的程式不接受這個動作' };
+    const res = await fake.fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}${body.path}`, { method: body.method, body: body.body ? JSON.stringify(body.body) : undefined });
+    const json = JSON.parse(await res.text());
+    return res.ok ? { json } : { error: `Google 回應錯誤（${res.status}）`, status: res.status };
   };
   fake.salesAdd = body => {
     const { values, person } = who();
@@ -1399,6 +1410,87 @@ test('業務員勾了看全部：拿到所有位置和機器，別人的機器�
   await s.Sync.syncNow();
   assert.equal(s.inbox.filter(m => /沒有送出/.test(m.title)).length, 0);
   assert.equal(fake.values(id, '抄表').at(-1)[0], '26-0002');
+});
+
+test('改全部：用自己的 Gmail 打開邀請連結，看得到、改得到全部，讀寫都經過總部的程式（不碰自己的雲端硬碟）；總部同步後看得到', async () => {
+  const { fake, d, id } = await hq();
+  const amin = d.Store.list('people').find(p => p.name === '阿明');
+  d.Store.update('people', amin.id, { edit: true });
+  await d.Sync.syncNow();
+  fake.salesEmail = 'a@gmail.com';
+  const hosts = new Set(); // 這台自己打了哪些網站
+  const s = device({ fetch: (url, opts) => { hosts.add(new URL(url).hostname); return fake.fetch(url, opts); } }, { token: false });
+  await s.Sync.join(HQ);
+  const st = s.Sync.state();
+  assert.equal(st.error, '');
+  assert.equal(st.sales, true);
+  assert.equal(st.edit, true);
+  assert.equal(st.salesName, '阿明');
+  assert.equal(s.Sync.isSales(), false); // 畫面照管理員的
+  assert.equal(s.Sync.isEditor(), true);
+  assert.deepEqual(plain(s.Store.list('locations').map(p => p.name)).sort(), ['3F 會議室', '大華貿易', '長榮航運']);
+  assert.equal(s.Store.list('people').find(p => p.name === '小華').email, 'x@gmail.com'); // 人員是整列
+  assert.equal(s.Records.canAdd('moves'), true);
+  // 改位置的名字、新增異動、刪掉一筆抄表、改人員：都寫進總部的試算表
+  const place = s.Store.list('locations').find(p => p.name === '長榮航運');
+  s.Store.update('locations', place.id, { name: '長榮航運 2F' });
+  const room = s.Store.list('locations').find(p => p.name === '3F 會議室');
+  s.Store.add('moves', { ...s.Refs.blankRecord('moves'), device: '26-0002', date: '2026-10-31', type: '移機', from: 'L0002', to: room.code });
+  const r200 = s.Store.list('readings').find(r => r.bw === 200);
+  s.Store.remove('readings', r200.id);
+  s.Store.update('people', s.Store.list('people').find(p => p.name === '小華').id, { sales: true });
+  await s.Sync.syncNow();
+  assert.equal(s.Sync.state().error, '');
+  assert.equal(s.Sync.state().pending, 0);
+  assert.ok(fake.values(id, '位置').some(r => r[1] === '長榮航運 2F'));
+  assert.ok(!fake.values(id, '抄表').some(r => r[3] === 200));
+  assert.deepEqual([...hosts], ['script.google.com']); // 只打總部的程式，不碰試算表、雲端硬碟
+  await d.Sync.syncNow();
+  assert.equal(d.Store.get('locations', place.id).name, '長榮航運 2F');
+  assert.equal(d.Store.list('moves').filter(m => m.type === '移機').length, 1);
+  assert.equal(d.Store.list('devices').find(x => x.code === '26-0002').location, room.code);
+  assert.ok(!d.Store.get('readings', r200.id));
+  assert.equal(d.Store.list('people').find(p => p.name === '小華').sales, true);
+  // 改全部的沒有登出，用「離開」
+  await s.Sync.logout();
+  assert.equal(s.loggedOut.count, 0);
+});
+
+test('改全部被取消：下次同步換回業務員，只剩他負責的；還沒送出的修改只送抄表；不是業務員了照樣清掉', async () => {
+  const { fake, d, id } = await hq();
+  const amin = d.Store.list('people').find(p => p.name === '阿明');
+  d.Store.update('people', amin.id, { edit: true });
+  await d.Sync.syncNow();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  assert.equal(s.Store.list('locations').length, 3);
+  d.Store.update('people', amin.id, { edit: false });
+  await d.Sync.syncNow();
+  const place = s.Store.list('locations').find(p => p.name === '大華貿易');
+  s.Store.update('locations', place.id, { name: '大華（改不到）' });
+  s.Store.add('readings', { ...s.Refs.blankRecord('readings'), device: '26-0001', date: '2026-10-31', bw: 150 });
+  await s.Sync.syncNow();
+  const st = s.Sync.state();
+  assert.equal(st.error, '');
+  assert.equal(st.edit, false);
+  assert.equal(s.Sync.isSales(), true);
+  assert.deepEqual(plain(s.Store.list('locations').map(p => p.name)), ['大華貿易']);
+  assert.ok(fake.values(id, '位置').some(r => r[1] === '大華貿易'));
+  assert.ok(fake.values(id, '抄表').some(r => r[3] === 150)); // 有記抄表的權限，照業務員送出
+  assert.equal(s.Records.canAdd('moves'), false);
+  // 再勾回來：下次同步又是改全部，拿整份
+  d.Store.update('people', amin.id, { edit: true });
+  await d.Sync.syncNow();
+  await s.Sync.syncNow();
+  assert.equal(s.Sync.state().edit, true);
+  assert.equal(s.Store.list('locations').length, 3);
+  // 取消業務員：拿不到、清掉
+  d.Store.update('people', amin.id, { sales: false });
+  await d.Sync.syncNow();
+  await s.Sync.syncNow();
+  assert.equal(s.Sync.state().denied, true);
+  assert.equal(s.Store.list('locations').length, 0);
 });
 
 test('業務員回報問題：打開一筆抄表只改業務員回報，總部那一格前面加他的名字，其他欄不動；新增的「輸入的人」是他；管理員同步後看得到', async () => {

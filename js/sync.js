@@ -81,6 +81,7 @@ const Sync = (() => {
       toner: cloud?.toner || null,
       lastSyncAt: cloud?.lastSyncAt || null,
       sales: !!cloud?.sales,
+      edit: isEditor(),
       hq: cloud?.sales ? cloud.hq || '' : '',
       salesName: cloud?.name || '',
       salesAll: !!cloud?.all,
@@ -96,13 +97,15 @@ const Sync = (() => {
       okAt,
       loggingOut,
       needLogin: !!cloud && !Google.hasToken(),
-      pending: cloud?.sales ? salesItems(Store.pendingSnapshot()).length : Store.pendingCount(), // 業務員只算要送的抄表、保養
+      pending: isSales() ? salesItems(Store.pendingSnapshot()).length : Store.pendingCount(), // 業務員只算要送的抄表、保養
     };
   }
 
   const emit = () => hooks.onStatus(state());
-  const isSales = () => !!cloud?.sales;
-  const salesAll = () => !!cloud?.sales && !!cloud.all;
+  // 改全部的業務員（人員勾了改全部）：和管理員一樣看全部、改全部，讀寫總部的試算表都請總部的程式代做（見 sheetApi）
+  const isEditor = () => !!cloud?.sales && !!cloud.edit;
+  const isSales = () => !!cloud?.sales && !cloud.edit;
+  const salesAll = () => isSales() && !!cloud.all;
   // 業務員可以新增的表：抄表要「記抄表」、保養要「記保養」（只能新增，不能改、不能刪）
   const SALES_ADD = { readings: '記抄表', maintenance: '記保養' };
   const salesCan = t => !!cloud?.sales && !cloud.denied && (cloud.perms || []).includes(SALES_ADD[t]);
@@ -113,6 +116,17 @@ const Sync = (() => {
   const SALES_MAIL_GAP = 10 * 60000; // 業務員自動更新時，這麼久內讀過信就不再叫總部讀
   const salesMailDue = () => !cloud?.meterReadAt || Date.now() - Date.parse(cloud.meterReadAt) > SALES_MAIL_GAP;
 
+  // 試算表的 API：path 接在試算表網址後面（'?fields=…'、'/values:batchGet?…'、':batchUpdate'…）
+  //   改全部的業務員打不開總部的試算表（drive.file 只認自己建的）：請總部的程式用總部的身分代做（見 apps-script/meter.gs 的 sheetFor_），id 不用
+  //   不是業務員了、取消改全部：丟出 not_editor，run 換回業務員模式
+  async function sheetApi(id, path, { method = 'GET', body } = {}) {
+    if (!isEditor()) return api(`${Google.SHEETS}/${id}${path}`, { method, body });
+    const r = await Google.script(cloud.hq, { action: 'sheet', method, path, body });
+    if (r.denied || r.noEdit) throw Object.assign(new Error(r.error), { code: 'not_editor' });
+    if (r.error) throw Object.assign(new Error(/密語/.test(r.error) ? OLD_SCRIPT : r.error), { code: r.status === 404 ? 'not_found' : 'api' });
+    return r.json || {};
+  }
+
   // ---------- 找到、建立試算表 ----------
   async function findSpreadsheet() {
     const q = `appProperties has { key='${MARK}' and value='1' } and trashed=false`
@@ -121,12 +135,12 @@ const Sync = (() => {
     return r.files?.[0]?.id || null;
   }
 
-  // 試算表的網址和各分頁的 id；在垃圾桶裡或找不到時回傳 null
+  // 試算表的網址和各分頁的 id；在垃圾桶裡或找不到時回傳 null（改全部的看不到雲端硬碟，不看垃圾桶）
   async function info(id) {
     try {
-      const f = await api(`${Google.DRIVE}/files/${id}?fields=trashed`);
+      const f = isEditor() ? {} : await api(`${Google.DRIVE}/files/${id}?fields=trashed`);
       if (f.trashed) return null;
-      const s = await api(`${Google.SHEETS}/${id}?fields=spreadsheetUrl,sheets.properties(sheetId,title)`);
+      const s = await sheetApi(id, '?fields=spreadsheetUrl,sheets.properties(sheetId,title)');
       const sheetIds = Object.fromEntries(s.sheets.map(x => [x.properties.title, x.properties.sheetId]));
       return { id, url: s.spreadsheetUrl, sheetIds };
     } catch (e) {
@@ -139,11 +153,11 @@ const Sync = (() => {
   async function writeAll(id, data) {
     const values = Sheet.toValues(data);
     const titles = Object.keys(values);
-    await api(`${Google.SHEETS}/${id}/values:batchClear`, {
+    await sheetApi(id, '/values:batchClear', {
       method: 'POST',
       body: { ranges: titles.map(t => a1(t)) },
     });
-    await api(`${Google.SHEETS}/${id}/values:batchUpdate`, {
+    await sheetApi(id, '/values:batchUpdate', {
       method: 'POST',
       body: {
         valueInputOption: 'RAW',
@@ -162,7 +176,7 @@ const Sync = (() => {
       method: 'PATCH',
       body: { appProperties: { [MARK]: '1' } },
     });
-    await api(`${Google.SHEETS}/${s.spreadsheetId}:batchUpdate`, {
+    await sheetApi(s.spreadsheetId, ':batchUpdate', {
       method: 'POST',
       body: { requests: Sheet.setupRequests() },
     });
@@ -176,7 +190,7 @@ const Sync = (() => {
     const need = Sheet.readRanges().filter(t => meta.sheetIds[t] === undefined);
     const noMeta = meta.sheetIds[Sheet.META.title] === undefined;
     if (!need.length && !noMeta) return;
-    const r = await api(`${Google.SHEETS}/${meta.id}:batchUpdate`, {
+    const r = await sheetApi(meta.id, ':batchUpdate', {
       method: 'POST',
       body: {
         requests: [
@@ -187,21 +201,22 @@ const Sync = (() => {
     });
     r.replies.forEach(x => { meta.sheetIds[x.addSheet.properties.title] = x.addSheet.properties.sheetId; });
     if (!need.length) return;
-    await api(`${Google.SHEETS}/${meta.id}:batchUpdate`, {
+    await sheetApi(meta.id, ':batchUpdate', {
       method: 'POST',
       body: { requests: Sheet.setupRequests(Object.fromEntries(need.map(t => [t, meta.sheetIds[t]]))) },
     });
     // 核取方塊的欄 Google 會填 FALSE：清掉，補建的分頁才是空的（同步時整張寫回這台的資料）
-    await api(`${Google.SHEETS}/${meta.id}/values:batchClear`, {
+    await sheetApi(meta.id, '/values:batchClear', {
       method: 'POST',
       body: { ranges: need.map(t => a1(t)) },
     });
   }
 
   // 找到這次要同步的試算表（每次都重新確認：分頁可能被刪、試算表可能被丟到垃圾桶）
+  //   改全部的：總部的程式只碰總部那份，不用找
   async function locate() {
-    let meta = cloud.spreadsheetId ? await info(cloud.spreadsheetId) : null;
-    if (!meta) {
+    let meta = cloud.spreadsheetId || isEditor() ? await info(cloud.spreadsheetId || '') : null;
+    if (!meta && !isEditor()) {
       const id = await findSpreadsheet();
       if (id) meta = await info(id);
     }
@@ -217,7 +232,7 @@ const Sync = (() => {
   async function pull(meta) {
     const titles = [...Sheet.readRanges(), Sheet.META.title, ...(meta.sheetIds[Sheet.TONER] === undefined ? [] : [Sheet.TONER])];
     const ranges = titles.map(t => `ranges=${enc(a1(t))}`).join('&');
-    const r = await api(`${Google.SHEETS}/${meta.id}/values:batchGet?${ranges}`
+    const r = await sheetApi(meta.id, `/values:batchGet?${ranges}`
       + '&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER');
     return Object.fromEntries(titles.map((t, i) => [t, r.valueRanges[i].values || []]));
   }
@@ -348,7 +363,7 @@ const Sync = (() => {
       ...parsed.idFixes.map(({ tab, row, col, id }) => ({ range: a1(tab, `${Sheet.colLetter(col)}${row}`), values: [[id]] })),
     ];
     if (ids.length) {
-      await api(`${Google.SHEETS}/${meta.id}/values:batchUpdate`, {
+      await sheetApi(meta.id, '/values:batchUpdate', {
         method: 'POST',
         body: { valueInputOption: 'RAW', data: ids },
       });
@@ -432,14 +447,14 @@ const Sync = (() => {
 
     // 順序：先改既有的列（不影響列號）→ 由下往上刪（前面的列號才不會跑掉）→ 最後才新增
     if (writes.length) {
-      await api(`${Google.SHEETS}/${meta.id}/values:batchUpdate`, {
+      await sheetApi(meta.id, '/values:batchUpdate', {
         method: 'POST',
         body: { valueInputOption: 'RAW', data: writes },
       });
     }
     if (deletes.length) {
       deletes.sort((a, b) => b.row - a.row);
-      await api(`${Google.SHEETS}/${meta.id}:batchUpdate`, {
+      await sheetApi(meta.id, ':batchUpdate', {
         method: 'POST',
         body: {
           requests: deletes.map(d => ({
@@ -449,7 +464,7 @@ const Sync = (() => {
       });
     }
     if (added.length) {
-      await api(`${Google.SHEETS}/${meta.id}:batchUpdate`, {
+      await sheetApi(meta.id, ':batchUpdate', {
         method: 'POST',
         body: { requests: added.flatMap(c => Sheet.addColumnRequests(meta.sheetIds[c.tab], c.table, c.key, c.col)) },
       });
@@ -457,7 +472,7 @@ const Sync = (() => {
       const flags = added.filter(c => Sheet.TAB[c.table].fields.find(f => f.key === c.key).type === 'flag');
       const last = tab => byTitle[tab].length - deletes.filter(d => d.sheetId === meta.sheetIds[tab]).length;
       if (flags.length) {
-        await api(`${Google.SHEETS}/${meta.id}/values:batchClear`, {
+        await sheetApi(meta.id, '/values:batchClear', {
           method: 'POST',
           body: { ranges: flags.map(c => a1(c.tab, `${Sheet.colLetter(c.col)}${last(c.tab) + 1}:${Sheet.colLetter(c.col)}`)) },
         });
@@ -465,14 +480,14 @@ const Sync = (() => {
     }
     // 新增的列最後才加：可能插在中間（試算表裡有空白列時），之後就不能再依列號操作
     for (const [title, rows] of Object.entries(appends)) {
-      await api(`${Google.SHEETS}/${meta.id}/values/${enc(a1(title, 'A1'))}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      await sheetApi(meta.id, `/values/${enc(a1(title, 'A1'))}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
         method: 'POST',
         body: { values: rows },
       });
     }
     // 每張表都讀得到、改好了，才記成新的格式版本
     if (parsed.version < Sheet.VERSION && TABLES.every(t => done.includes(t))) {
-      await api(`${Google.SHEETS}/${meta.id}/values:batchUpdate`, {
+      await sheetApi(meta.id, '/values:batchUpdate', {
         method: 'POST',
         body: { valueInputOption: 'RAW', data: [{ range: a1(Sheet.META.title, 'A1'), values: Sheet.metaValues() }] },
       });
@@ -515,19 +530,27 @@ const Sync = (() => {
     offline = false;
     lastRunAt = Date.now();
     emit();
+    let demoted = false;
     try {
-      if (cloud.sales) {
+      let mailed = null;
+      if (isSales()) {
         // 讀信和拿資料同時做（讀信要幾秒，排隊會很慢）；這次讀到的下次更新才看得到（試算表上的程式每小時也會自己讀）
         //   自動的（打開、切回來）10 分鐘內讀過就不讀，按「更新」照讀
         const mailing = mail && (manual || salesMailDue()) ? readMail(cloud.hq) : null;
         await pushSales(Store.pendingSnapshot());
         await pullSales(manual);
         if (mailing && (await mailing).at) saveCloud();
-        return;
-      }
-      const mailed = mail && cloud.meterUrl ? await readMail() : null;
+        // 剛勾了改全部（見 pullSales）：接著照管理員那樣同步，拿整份
+        if (!isEditor()) return;
+      } else if (isEditor()) {
+        // 改全部的：和業務員一樣叫總部讀信（10 分鐘內讀過就不讀）；讀信的問題是總部要處理的，不提示，只寫讀到幾筆
+        const r = mail && (manual || salesMailDue()) ? await readMail(cloud.hq) : null;
+        mailed = r?.at && !r.noSender ? r : null;
+      } else if (mail && cloud.meterUrl) mailed = await readMail();
       const snap = Store.pendingSnapshot();
       let meta = await locate();
+      // 改全部的：總部的試算表打不開時不能重建（那是總部的）
+      if (!meta && isEditor()) throw new Error('總部的試算表打不開，請找管理員');
       if (!meta) {
         // 試算表被刪掉或丟進垃圾桶：不小心的話重建；想重新開始的話取消連結
         const rebuild = confirm(`雲端的「${NAME}」試算表找不到了，可能被刪除或丟進垃圾桶。\n\n`
@@ -547,7 +570,7 @@ const Sync = (() => {
         cloud.url = meta.url;
         hooks.toast('已用這台裝置的資料重新建立試算表');
         hooks.notify({ title: '已重新建立試算表', body: '雲端的試算表不見了，已用這台裝置的資料重新建立一份。' });
-      } else if (snap.full) {
+      } else if (snap.full && !isEditor()) { // 改全部的不能整份蓋掉總部的（也看不到匯入）
         await writeAll(meta.id, Store.exportPayload());
         Store.clearPending(snap);
         problems = [];
@@ -559,19 +582,25 @@ const Sync = (() => {
       cloud.lastSyncAt = new Date().toISOString();
       saveCloud();
       okAt = Date.now();
-      if (manual && mailed?.failed) hooks.toast('已同步，但讀信失敗：確認讀信網址對、部署時「誰可以存取」選了「任何人」', 'error');
+      if (manual && mailed?.failed) hooks.toast('已同步，但讀信失敗：確認設定的總部程式網址對、部署時「誰可以存取」選了「任何人」', 'error');
       else if (manual && mailed?.noSender) hooks.toast('已同步，但還沒填寄信用 Gmail，所以沒有讀信：到「設定 → 自動抄表 → 機器設定」填', 'error');
       else if (manual && mailed && !mailed.at) hooks.toast('已同步，但試算表上的程式是舊版：重貼程式、存檔，再到「管理部署作業」換新版本', 'error');
       else if (manual) hooks.toast(mailText(mailed) ? `已同步（${mailText(mailed)}）` : '已同步');
     } catch (e) {
-      if (e.code === 'network') offline = true;
+      // 改全部的被取消了（或不是業務員了）：換回業務員模式，下面馬上照業務員那樣再更新一次（沒送出的修改只送抄表、保養，見 pushSales）
+      if (e.code === 'not_editor') {
+        cloud.edit = false;
+        saveCloud();
+        demoted = true;
+      } else if (e.code === 'network') offline = true;
       else if (e.code !== 'need_login') error = e.message || String(e);
       if (manual && offline) hooks.toast('目前沒有網路，連上後會自動同步');
       else if (manual && error) hooks.toast(`同步失敗：${error}`, 'error');
     } finally {
       running = false;
       emit();
-      if (again) {
+      if (demoted) await run({ manual, mail }); // 等它跑完（排在後面的那一次它會接著跑）
+      else if (again) {
         const m = againMail;
         again = againMail = false;
         run({ mail: m });
@@ -625,6 +654,13 @@ const Sync = (() => {
       return;
     }
     if (r.error) throw new Error(/密語/.test(r.error) ? OLD_SCRIPT : r.error);
+    // 勾了改全部：這台只有他負責的那部分，清掉，run 接著照管理員那樣同步、拿整份（要送的在 pushSales 已經送了）
+    if (r.edit) {
+      Store.loadRemote({});
+      Object.assign(cloud, { denied: false, edit: true, name: r.name, email: r.email, perms: r.perms || [], all: !!r.all, admin: r.admin, heads: {} });
+      saveCloud();
+      return;
+    }
     const parsed = Sheet.fromValues(r.values || {});
     Store.mergeRemote(parsed.data);
     const heads = Object.fromEntries(['抄表', '保養'].map(t => [t, r.values?.[t]?.[0]]).filter(([, h]) => h));
@@ -721,7 +757,7 @@ const Sync = (() => {
   // 寫在 _meta 分頁第 2 列、第 4 列（第 1 列是格式版本、第 3 列是試算表上的程式寫的，不動）；空字串是清掉。登入過期時丟出 need_login，請使用者先按「同步」
   async function setMeta(cell, key, field, value) {
     if (!cloud?.spreadsheetId) return;
-    await api(`${Google.SHEETS}/${cloud.spreadsheetId}/values:batchUpdate`, {
+    await sheetApi(cloud.spreadsheetId, '/values:batchUpdate', {
       method: 'POST',
       body: { valueInputOption: 'RAW', data: [{ range: a1(Sheet.META.title, cell), values: [[key, value]] }] },
     });
@@ -918,5 +954,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, isSales, salesAll, salesCan, salesSee, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
+  return { init, state, isSales, isEditor, salesAll, salesCan, salesSee, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
 })();

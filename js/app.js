@@ -74,7 +74,7 @@
     Place.changed(key, rec);
     Customer.changed(key, rec);
     Lists.refresh();
-    if (menu.open) renderListsMenu();
+    if (menu.open) renderMenu();
   }
   // 人員表單的「複製邀請連結」（schema 的 action，見 invite）
   Form.init({ toast, onChanged, action: (t, rec) => { if (t === 'people' && rec) invite(rec); } });
@@ -148,24 +148,50 @@
     Customer.refresh();
   };
 
-  // ---------- 設定：清單（見 lists.js）、資料備份 ----------
+  // ---------- 設定：最上面是帳號（Google 雲端硬碟、業務員），其他一項一列，點了打開自己的一頁 ----------
+  //   清單（見 lists.js）、總部程式、自動抄表、資料備份；設定的東西變多也不會把設定擠亂
   const menu = $('menu-sheet');
+  const settingsMenu = $('settings-menu');
   const listsMenu = $('lists-menu');
+
+  // 設定裡的清單：幾項、幾個不在清單裡；客戶、位置有自己的一頁（底部第二、三格），這裡不列
+  const menuLists = () => Refs.lists().filter(l => l.table !== 'locations' && l.table !== 'customers').map(l => ({
+    l, n: Refs.listItems(l).length, miss: new Set(Lists.missingOf(l).flatMap(x => x.values)).size,
+  }));
+
+  // 一列：名稱、下面一行小字（要處理的紅字）、右邊幾項
+  const menuRow = (attr, { title, note = '', warn = false, uses = '' }) => `
+    <li>
+      <button type="button" class="list-item" ${attr}>
+        <span class="member-info"><b>${U.esc(title)}</b>${note ? `<small class="${warn ? 'warn-text' : ''}">${U.esc(note)}</small>` : ''}</span>
+        ${uses ? `<span class="uses">${U.esc(uses)}</span>` : ''}<span class="go" aria-hidden="true">›</span>
+      </button>
+    </li>`;
+
+  // 設定的目錄：每一項寫現在的情形
+  function renderSettingsMenu() {
+    const st = Sync.state();
+    const ls = menuLists();
+    const miss = ls.reduce((n, x) => n + x.miss, 0);
+    const t = Store.lastExportAt();
+    const needLink = '連結 Google 帳號後才能設定';
+    settingsMenu.innerHTML = [
+      ['lists', { title: '清單', note: miss ? `${miss} 個不在清單裡` : '', warn: true, uses: `${ls.length} 種` }],
+      ['hq', !st.linked ? { title: '總部程式', note: needLink }
+        : st.meterUrl ? { title: '總部程式', uses: `已設定（${hqTail(st.meterUrl)}）` }
+        : { title: '總部程式', note: '還沒設定：自動抄表、業務員都要用', warn: true }],
+      ['meter', !st.linked ? { title: '自動抄表', note: needLink }
+        : st.meterNoSender ? { title: '自動抄表', note: '還沒填寄信用 Gmail', warn: true }
+        : { title: '自動抄表', note: st.meterReadAt ? `上次讀信 ${U.fmtDateTime(st.meterReadAt)}` : '' }],
+      ['backup', { title: '資料備份', note: t ? `上次匯出：${U.fmtDateTime(t)}` : '尚未匯出過備份' }],
+    ].filter(([k]) => !st.edit || k === 'lists') // 改全部的只有清單：總部程式、自動抄表、資料備份是總部的
+      .map(([k, row]) => menuRow(`data-open="${k}"`, row)).join('');
+  }
 
   // 每一份清單一列：名稱、幾項；有不在清單裡的值時寫出來
   function renderListsMenu() {
-    // 客戶、位置有自己的一頁（底部第二、三格），這裡不列
-    listsMenu.innerHTML = Refs.lists().filter(l => l.table !== 'locations' && l.table !== 'customers').map(l => {
-      const n = Refs.listItems(l).length;
-      const miss = new Set(Lists.missingOf(l).flatMap(x => x.values)).size;
-      return `
-        <li>
-          <button type="button" class="list-item" data-list="${U.esc(l.key)}">
-            <span class="member-info"><b>${U.esc(l.title)}</b>${miss ? `<small class="warn-text">${miss} 個不在清單裡</small>` : ''}</span>
-            <span class="uses">${n} 項</span><span class="go" aria-hidden="true">›</span>
-          </button>
-        </li>`;
-    }).join('');
+    listsMenu.innerHTML = menuLists().map(({ l, n, miss }) =>
+      menuRow(`data-list="${U.esc(l.key)}"`, { title: l.title, note: miss ? `${miss} 個不在清單裡` : '', warn: true, uses: `${n} 項` })).join('');
   }
   listsMenu.addEventListener('click', e => {
     const btn = e.target.closest('[data-list]');
@@ -179,15 +205,35 @@
     $('last-export').textContent = t ? `上次匯出：${U.fmtDateTime(t)}` : '尚未匯出過備份';
   }
 
-  function openMenu() {
+  // 資料改了、匯出匯入之後：設定開著時，目錄、清單、資料備份一起重畫
+  function renderMenu() {
+    renderSettingsMenu();
     renderListsMenu();
     renderBackupInfo();
+  }
+
+  function openMenu() {
+    renderMenu();
     if (!menu.open) menu.showModal();
   }
 
   $('btn-menu').addEventListener('click', () => openMenu());
   menu.querySelector('[data-act="close"]').addEventListener('click', () => menu.close());
   menu.addEventListener('click', e => { if (e.target === menu) menu.close(); }); // 點背景關閉
+
+  // 設定的子頁（index.html 的 .settings-page）：疊在設定上面打開，返回、點背景回到設定
+  const pages = { lists: $('lists-page'), hq: $('hq-page'), meter: $('meter-page'), backup: $('backup-page') };
+  function openPage(key) {
+    pages[key].showModal();
+    pages[key].querySelector('.sheet-body').scrollTop = 0;
+  }
+  settingsMenu.addEventListener('click', e => {
+    const btn = e.target.closest('[data-open]');
+    if (btn) openPage(btn.dataset.open);
+  });
+  Object.values(pages).forEach(dlg => dlg.addEventListener('click', e => {
+    if (e.target === dlg || e.target.closest('[data-act="close"]')) dlg.close();
+  }));
 
   function download(file) {
     const url = URL.createObjectURL(file);
@@ -216,7 +262,7 @@
       download(file);
     }
     Store.markExported();
-    renderBackupInfo();
+    renderMenu();
     toast('已匯出 data.json');
   });
 
@@ -281,13 +327,16 @@
     });
     if (!pick) return;
 
+    let renamed = 0;
     if (pick === 'file') Store.replaceAll(parsed);
-    else Store.addAll(extra);
+    else {
+      Store.addAll(extra);
+      renamed = Records.fileCodes(extra); // 編號撞到的換檔案那筆
+    }
     Records.upgrade();
     Object.values(lists).forEach(l => l.reset());
-    renderListsMenu();
-    renderBackupInfo();
-    toast(pick === 'file' ? '匯入完成' : extra.length ? `已加入 ${extra.length} 筆` : '檔案裡沒有 Google 沒有的資料');
+    renderMenu();
+    toast(pick === 'file' ? '匯入完成' : extra.length ? `已加入 ${extra.length} 筆${renamed ? `（${renamed} 個編號撞到，換了新的）` : ''}` : '檔案裡沒有 Google 沒有的資料');
   });
 
   // ---------- Google 雲端硬碟（同步的流程見 sync.js） ----------
@@ -328,11 +377,15 @@
   function renderCloud(st) {
     $('cloud-head').textContent = st.sales ? '業務員' : 'Google 雲端硬碟';
     if (st.sales) {
+      // 改全部的（見 sync.js 的 isEditor）：和總部一樣，只是用自己的 Gmail
+      const can = st.edit ? '看全部、改全部' : `${salesCanText(st) ? `新增${salesCanText(st)}` : '只能看'}${st.salesAll ? '・看全部' : ''}`;
+      const scope = st.edit ? '看得到、改得到全部，和總部一樣'
+        : `${st.salesAll ? '看得到全部的客戶' : '只看得到你負責的客戶'}；新增的會送到總部，送出後不能改、不能刪`;
       cloudEl.innerHTML = `
         <ul class="member-list cloud-info">
           <li><span class="member-info"><small>姓名</small><b>${U.esc(st.salesName || '—')}</b></span></li>
           <li><span class="member-info"><small>帳號</small><b>${U.esc(st.email || '還沒登入')}</b></span></li>
-          <li><span class="member-info"><small>可以做</small><b>${U.esc(salesCanText(st) ? `新增${salesCanText(st)}` : '只能看')}${st.salesAll ? '・看全部' : ''}</b></span></li>
+          <li><span class="member-info"><small>可以做</small><b>${U.esc(can)}</b></span></li>
           <li><span class="member-info"><small>總部</small><b>${U.esc(st.admin || '—')}</b></span></li>
           <li><span class="member-info"><small>總部網址</small><b>${U.esc(hqTail(st.hq))}</b></span></li>
           <li><span class="member-info"><small>上次更新</small><b>${st.lastSyncAt ? U.fmtDateTime(st.lastSyncAt) : '—'}</b></span></li>
@@ -341,7 +394,7 @@
         <button type="button" class="wide-btn primary" data-act="sync" ${st.running ? 'disabled' : ''}>${st.running ? '更新中…' : '更新'}</button>
         ${redirectNote}
         <button type="button" class="text-btn danger cloud-logout" data-act="leave">離開</button>
-        <p class="note muted cloud-logout-note">${st.salesAll ? '看得到全部的客戶' : '只看得到你負責的客戶'}；新增的會送到總部，送出後不能改、不能刪。離開會清掉這台的資料，總部的資料不會動。</p>`;
+        <p class="note muted cloud-logout-note">${scope}。離開會清掉這台的資料，總部的資料不會動。</p>`;
       return;
     }
     if (!st.configured && !st.linked) {
@@ -402,7 +455,7 @@
     else if (act === 'logout') Sync.logout();
     else if (act === 'leave') {
       const n = Sync.state().pending;
-      const lost = n ? `還有 ${n} 筆新增的沒有送出，離開就沒了。\n` : '';
+      const lost = n ? `還有 ${n} 筆${Sync.isEditor() ? '修改' : '新增的'}沒有送出，離開就沒了。\n` : '';
       if (confirm(`${lost}離開後，這台的資料會清掉，總部的資料不會動。之後要再看，請管理員重新傳邀請連結。\n\n確定離開？`)) Sync.leave();
     }
     else if (act === 'inbox') {
@@ -411,9 +464,12 @@
     }
   });
 
-  // ---------- 自動抄表：機器把張數寄到 Gmail，試算表上的小程式（apps-script/meter.gs）寫進「抄表」；客戶電腦上的抄表程式每天或每週回報，寫進「最新回報」 ----------
-  //   「說明」打開 index.html 的 #meter-help：兩種送法、抄表程式怎麼用、出問題時
+  // ---------- 總部程式、自動抄表 ----------
+  //   總部程式：試算表上的小程式（apps-script/meter.gs）部署成網頁應用程式；自動抄表讀信、抄表程式回報、業務員拿資料都用它的網址
   //   每個人貼在自己的試算表上：App 只能碰自己建立的檔案，沒辦法替使用者裝；按鈕直接複製程式，不會貼到舊版
+  //   自動抄表：機器把張數寄到 Gmail，總部程式寫進「抄表」；客戶電腦上的抄表程式每天或每週回報，寫進「最新回報」
+  //   「說明」打開 index.html 的 #meter-help：兩種送法、抄表程式怎麼用、出問題時
+  const hqEl = $('hq');
   const meterEl = $('meter');
   let meterCode = null;
   // 先抓好程式：iPhone 只在點擊的當下准許寫入剪貼簿，按了才去抓會被擋
@@ -421,51 +477,69 @@
     .then(r => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
     .catch(e => { meterCode = null; throw e; });
 
-  // 讀信網址：試算表上的程式部署成網頁應用程式的網址（公司帳號是 /a/macros/網域/s/…）；存在試算表裡，其他裝置同步後也有（見 sync.js）
+  // 總部程式網址：試算表上的程式部署成網頁應用程式的網址（公司帳號是 /a/macros/網域/s/…）；存在試算表裡，其他裝置同步後也有（見 sync.js 的 meterUrl）
   const METER_URL = /^https:\/\/script\.google\.com\/(?:a\/macros\/[^/]+|macros)\/s\/[\w-]+\/exec$/;
-  let meterKey = '';
+  const needLinkNote = '<p class="note muted cloud-intro">連結 Google 帳號後才能設定。</p>';
 
-  // 只在帳號、試算表、讀信網址變了才重畫：同步狀態一直在變，重畫會清掉正在打的網址、收起打開的步驟
-  function renderMeter(st) {
+  // 總部程式：只在帳號、試算表、網址變了才重畫：同步狀態一直在變，重畫會清掉正在打的網址、收起打開的步驟
+  //   業務員看不到（設定的目錄是 admin-only）
+  let hqKey = '';
+  function renderHq(st) {
     const key = [st.linked, st.sales, st.email, st.url, st.meterUrl].join('|');
-    if (key === meterKey) return;
-    meterKey = key;
-    if (st.sales) {
-      meterEl.innerHTML = ''; // 業務員看不到這一段（index.html 的 admin-only）
-      return;
-    }
-    const help = '<button type="button" class="link-btn" data-act="meter-help">說明</button>';
-    if (!st.linked) {
-      meterEl.innerHTML = `<p class="note muted cloud-intro">連結 Google 帳號後才能設定。${help}</p>`;
+    if (key === hqKey) return;
+    hqKey = key;
+    if (st.sales || !st.linked) {
+      hqEl.innerHTML = st.sales ? '' : needLinkNote;
       return;
     }
     loadMeterCode().catch(() => {});
-    const ready = !!st.meterUrl;
-    meterEl.innerHTML = `
-      <p class="note muted cloud-intro">機器自己寄信，試算表上的小程式寫進「抄表」；客戶電腦上的抄表程式每天或每週回報，寫進「最新回報」。${help}</p>
-      <details class="steps-box" ${ready ? '' : 'open'}>
-        <summary>設定步驟（用電腦做）</summary>
+    const copy = '<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>';
+    hqEl.innerHTML = `
+      <p class="note muted cloud-intro">總部試算表上的小程式。自動抄表讀信、客戶電腦上的抄表程式、業務員拿資料，都用它的網址。</p>
+      <details class="steps-box" ${st.meterUrl ? '' : 'open'}>
+        <summary>設定步驟（用電腦做一次）</summary>
         <ol class="steps muted">
-          <li>機器：按「<button type="button" class="link-btn" data-act="machine">機器設定</button>」照著設；最上面的寄信用 Gmail 一定要填，程式只讀它寄來的信</li>
-          <li>「${st.url ? `<a class="link-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : '打開試算表'}」（右上角頭像要是 ${U.esc(st.email)}），選「擴充功能」→「Apps Script」</li>
-          <li>刪掉裡面原本的內容，按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」貼上，存檔</li>
-          <li>左邊「服務」旁邊的 ＋ → 選「Google Sheets API」→「新增」（業務員拿資料比較快，只要做一次）</li>
+          <li>「${st.url ? `<a class="link-btn" href="${U.esc(st.url)}" target="_blank" rel="noopener">打開試算表</a>` : '打開試算表'}」（右上角頭像要是 ${U.esc(st.email)}）→「擴充功能」→「Apps Script」，刪掉原本的內容，按「${copy}」貼上，存檔</li>
+          <li>左邊「服務」旁邊的 ＋ →「Google Sheets API」→「新增」</li>
           <li>上方選 install，按「執行」，照畫面允許（「進階」→「前往」）</li>
-          <li>App 打開、按「同步」時讀信，還有抄表程式、業務員，都要用這個網址（第 3 步貼好、存檔後再做，部署會固定當下的程式）：「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
-          <li>抄表程式裡已經有總部的網址和密語，不用填；換了網址才要填進程式的「設定.txt」（看${help}）</li>
+          <li>「部署」→「新增部署作業」→ 類型選「網頁應用程式」、誰可以存取選「任何人」→「部署」，複製網址貼到下面</li>
         </ol>
-        <div class="field meter-url">
-          <label for="meter-url">讀信網址</label>
-          <input id="meter-url" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec" value="${U.esc(st.meterUrl)}">
-        </div>
-        <button type="button" class="wide-btn" data-act="save-meter-url">儲存網址</button>
-        <p class="note muted">之後改了程式：按「<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>」重貼、存檔，執行一次 install（有跳權限就允許），再「部署」→「管理部署作業」→ 鉛筆 → 版本選「新版本」→「部署」，網址不變。不要按「新增部署作業」，那會換一個新網址。</p>
       </details>
-      <p class="note muted">5-866-112 寄測試信（結算月份空白，不算帳）。</p>`;
+      <div class="field meter-url">
+        <label for="meter-url">總部程式網址</label>
+        <input id="meter-url" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec" value="${U.esc(st.meterUrl)}">
+      </div>
+      <button type="button" class="wide-btn" data-act="save-meter-url">儲存網址</button>
+      <p class="note muted">之後改了程式：按「${copy}」重貼、存檔，執行一次 install（有跳權限就允許），再「部署」→「管理部署作業」→ 鉛筆 → 版本選「新版本」→「部署」，網址不變。不要按「新增部署作業」，那會換一個新網址。</p>`;
+  }
+
+  // 自動抄表：機器設定、說明各一列
+  let meterKey = '';
+  function renderMeter(st) {
+    const key = [st.linked, st.sales, st.meterUrl, st.senderMail, st.meterNoSender].join('|');
+    if (key === meterKey) return;
+    meterKey = key;
+    if (st.sales) {
+      meterEl.innerHTML = '';
+      return;
+    }
+    const help = menuRow('data-act="meter-help"', { title: '說明', note: '兩種送法、抄表程式怎麼裝、出問題時' });
+    if (!st.linked) {
+      meterEl.innerHTML = `${needLinkNote}<ul class="member-list lists-menu">${help}</ul>`;
+      return;
+    }
+    meterEl.innerHTML = `
+      <p class="note muted cloud-intro">機器自己寄信，總部程式寫進「抄表」；客戶電腦上的抄表程式每天或每週回報，寫進「最新回報」。</p>
+      ${st.meterUrl ? '' : '<p class="note warn-text">先到設定的「總部程式」設定好，才收得到。</p>'}
+      <ul class="member-list lists-menu">
+        ${menuRow('data-act="machine"', { title: '機器設定', note: st.senderMail ? `寄信用 Gmail：${st.senderMail}` : '還沒填寄信用 Gmail（程式只讀它寄來的信）', warn: !st.senderMail })}
+        ${help}
+      </ul>
+      <p class="note muted">抄表程式裡已經有總部的網址和密語，不用填。5-866-112 寄測試信（結算月份空白，不算帳）。</p>`;
   }
 
   // 抄表頁最上面一排小字：上次讀信的時間（試算表上的程式每次看完信箱都記下來，同步時讀回來）
-  //   有讀信網址時，打開 App、切回來、按「同步」會先讀信再同步（見 sync.js 的 run）；同步中寫「同步中…」，同步完換回時間
+  //   有總部程式網址時，打開 App、切回來、按「同步」會先讀信再同步（見 sync.js 的 run）；同步中寫「同步中…」，同步完換回時間
   const meterLine = document.createElement('p');
   meterLine.className = 'meter-line';
   lists.readings.el.querySelector('.list').before(meterLine);
@@ -545,7 +619,7 @@
     else if (act === 'machine') openMachine();
   });
 
-  meterEl.addEventListener('click', async e => {
+  [hqEl, meterEl].forEach(el => el.addEventListener('click', async e => {
     const btn = e.target.closest('[data-act]');
     const act = btn?.dataset.act;
     if (act === 'save-meter-url') saveMeterUrl();
@@ -559,7 +633,7 @@
         toast('複製失敗，請改用電腦的瀏覽器', 'error');
       }
     }
-  });
+  }));
 
   // 畫面上方的提示列：只在需要使用者處理時出現；自動同步進行中不出現，免得一直閃
   function renderSyncBar(st) {
@@ -636,14 +710,14 @@
   syncBtn.addEventListener('click', () => { if (syncAction) syncAction(); });
 
   // ---------- 業務員（見 sync.js 的業務員） ----------
-  //   管理員在人員表單按「複製邀請連結」：App 的網址加 ?join=總部試算表上的程式的網址（就是讀信網址，部署一次大家共用）
+  //   管理員在人員表單按「複製邀請連結」：App 的網址加 ?join=總部試算表上的程式的網址（設定的總部程式網址，部署一次大家共用）
   const JOIN_KEY = `${Store.PREFIX}join`;
   // 總部網址只寫最後幾個字（…ImyHkzWyw）：手機、電腦一比就知道是不是連到同一個
   const hqTail = url => { const m = String(url ?? '').match(/\/s\/([\w-]+)\/exec/); return m ? `…${m[1].slice(-9)}` : '—'; };
   async function invite(rec) {
     const url = Sync.state().meterUrl;
     if (!url) {
-      toast('先到設定的「自動抄表」，把試算表上的程式部署好、填上讀信網址', 'error');
+      toast('先到設定的「總部程式」，把試算表上的程式部署好、填上網址', 'error');
       return;
     }
     const link = `${location.origin}${location.pathname}?join=${encodeURIComponent(url)}`;
@@ -702,12 +776,12 @@
   function showSales(st) {
     whoText = st.linked ? st.email || st.salesName : '';
     renderWho();
-    const k = [st.sales, st.salesAll, st.salesPerms.join()].join('|');
+    const k = [st.sales, st.edit, st.salesAll, st.salesPerms.join()].join('|');
     const first = salesKey === null;
     if (k === salesKey) return;
     salesKey = k;
     if (first) return; // 打開 App 時已經照存著的狀態畫好了
-    document.body.classList.toggle('sales', st.sales);
+    document.body.classList.toggle('sales', st.sales && !st.edit); // 改全部的畫面照管理員
     refreshAll();
     Lists.refresh();
     checkLists();
@@ -857,15 +931,14 @@
       checkLists();
       checkDue();
       checkReports();
-      if (menu.open) {
-        renderListsMenu();
-        renderBackupInfo();
-      }
+      if (menu.open) renderMenu();
     },
     onStatus(st) {
       showSales(st);
       renderSyncBar(st);
       renderCloud(st);
+      if (menu.open) renderSettingsMenu();
+      renderHq(st);
       renderMeter(st);
       renderMeterLine(st);
       Inbox.syncStatus(st);

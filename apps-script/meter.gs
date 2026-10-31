@@ -15,6 +15,7 @@
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
 //   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「最新回報」，不算帳（見 doPost），要帶密語
 //   業務員的 App 也 POST 到同一個網址拿資料（見 salesData_）、新增抄表和保養（見 salesAdd_）：帶 Google 登入的權杖，不用密語，只碰得到他負責的客戶
+//   勾了改全部的業務員：讀寫整份試算表都請這裡代做（見 sheetFor_），和管理員一樣
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
@@ -85,6 +86,7 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     if (body.action === 'data') return json_(salesData_(body.token));
     if (body.action === 'add') return json_(salesAdd_(body.token, body.items));
+    if (body.action === 'sheet') return json_(sheetFor_(body.token, body.method, body.path, body.body));
     const key = PropertiesService.getScriptProperties().getProperty('key');
     if (!key) return json_({ error: '還沒有密語：試算表上方「自動抄表」→「密語」' });
     if (body.key !== key) return json_({ error: '密語不對' });
@@ -362,7 +364,8 @@ function salesData_(token) {
   const read = Date.now() - start - who;
   const person = salesPerson_(values['人員'], email, today_(ss));
   if (!person) return { error: `${email} 不是業務員，請找管理員`, denied: true };
-  const out = { ...person, email, admin: owner_(ss), values: salesRows_(values, person) };
+  // 改全部的不用挑列：App 接著照管理員那樣讀整份（見 sheetFor_）
+  const out = { ...person, email, admin: owner_(ss), values: person.edit ? {} : salesRows_(values, person) };
   return { ...out, read: { via: readVia_, ms: { who, read, total: Date.now() - start } } };
 }
 
@@ -462,6 +465,37 @@ function reportSales_(ss, tab, { id, report }) {
   cell.setValue(report);
   return { id, ok: true };
 }
+
+// ---------- 改全部的業務員：代他讀寫總部的試算表 ----------
+//   { action: 'sheet', token, method: 'GET' 或 'POST', path: 接在試算表網址後面的（'?fields=…'、'/values:batchGet?…'、':batchUpdate'…）, body }
+//   App 只有 drive.file，打不開總部的試算表：這裡用總部的身分打試算表的 API，回 { json: Google 回的 }，App 照管理員同步那樣用
+//   每一次都先對人員：不是業務員了回 denied: true，取消改全部回 noEdit: true（App 換回業務員模式）
+//   只碰得到這份試算表：path 只收 App 同步用到的那幾種寫法
+const SHEET_PATH = /^(\?[^/]*|\/values:batch(Get|Update|Clear)(\?[^/]*)?|:batchUpdate|\/values\/[^/?]+:append\?[^/]*)$/;
+function sheetFor_(token, method, path, body) {
+  const email = whoIs_(token);
+  if (!email) return { error: '登入已過期，請重新登入', login: true };
+  const ss = SpreadsheetApp.getActive();
+  const person = salesPerson_(readTabs_(ss, ['人員'])['人員'], email, today_(ss));
+  if (!person) return { error: `${email} 不是業務員，請找管理員`, denied: true };
+  if (!person.edit) return { error: '沒有勾「改全部」', noEdit: true };
+  if (!sheetPathOk_(path)) return { error: '總部的程式不接受這個動作' };
+  const post = method === 'POST';
+  const res = UrlFetchApp.fetch(`https://sheets.googleapis.com/v4/spreadsheets/${ss.getId()}${path}`, {
+    method: post ? 'post' : 'get',
+    headers: { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` },
+    ...(post ? { contentType: 'application/json', payload: JSON.stringify(body || {}) } : {}),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  const text = res.getContentText();
+  let json = {};
+  try { json = text ? JSON.parse(text) : {}; } catch (_) { /* 照下面回錯誤 */ }
+  if (code >= 200 && code < 300) return { json };
+  return { error: `Google 回應錯誤（${code}）：${(json.error && json.error.message) || text.slice(0, 120)}`, status: code };
+}
+
+const sheetPathOk_ = path => typeof path === 'string' && SHEET_PATH.test(path) && !/\.\.|%2e|%2f|\\/i.test(path);
 
 // 分頁的標題列；缺了這幾欄就補在最後面（管理員的 App 同步時也會補，誰先補都一樣）
 function ensureCols_(sheet, names) {
@@ -566,7 +600,7 @@ const yes_ = v => v === true || /^(是|true|v|✓|✔|y|yes|1)$/i.test(String(v 
 const codeKey_ = v => String(v ?? '').trim().toUpperCase();
 
 // 人員：Email 一樣（不分大小寫）、勾了業務員、沒填離職日或還沒到那天
-//   回傳 { name: 姓名, perms: 權限（['記抄表', '記保養']）, all: 勾了看全部 }；不是業務員時回傳 null；today 是今天的序號
+//   回傳 { name: 姓名, perms: 權限（['記抄表', '記保養']）, all: 勾了看全部, edit: 勾了改全部 }；不是業務員時回傳 null；today 是今天的序號
 function salesPerson_(rows, email, today) {
   if (!rows || !rows.length) return null;
   const col = h => rows[0].indexOf(h);
@@ -576,7 +610,7 @@ function salesPerson_(rows, email, today) {
     && yes_(r[col('業務員')]) && !left(r[col('離職日')]) && String(r[col('姓名')] ?? '').trim());
   if (!hit) return null;
   const perms = String(hit[col('權限')] ?? '').split(/[、,，;；\n]+/).map(x => x.trim()).filter(Boolean);
-  return { name: String(hit[col('姓名')]).trim(), perms, all: yes_(hit[col('看全部')]) };
+  return { name: String(hit[col('姓名')]).trim(), perms, all: yes_(hit[col('看全部')]), edit: yes_(hit[col('改全部')]) };
 }
 
 // 業務員看得到的列：values 是 { 分頁名稱: [標題列, ...列] }（日期是序號），回傳同樣的樣子

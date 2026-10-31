@@ -1273,6 +1273,26 @@ const Records = (() => {
     return out;
   }
 
+  // 匯入 data.json、以 Google 為主，加進來之後（見 Store.addAll）：設備、位置編號和原本的撞號時，換檔案那筆（原本的不動），
+  //   檔案裡用到它的資料跟著換；兩份各自記的（業務員自己記過一份）都從 26-0001、L0001 編起；items 是 fileOnly 回傳的，回傳換了幾個
+  function fileCodes(items) {
+    const added = new Set(items.map(i => `${i.table}:${i.rec.id}`));
+    let n = 0;
+    [['devices', nextDeviceCode], ['locations', nextLocationCode]].forEach(([t, next]) => {
+      items.filter(i => i.table === t).forEach(({ rec }) => {
+        const from = key(rec.code);
+        if (!from || !Store.list(t).some(r => !added.has(`${t}:${r.id}`) && key(r.code) === from)) return;
+        const to = next(Store.get(t, rec.id));
+        Store.update(t, rec.id, { code: to });
+        Refs.refsTo(t).forEach(({ table, field }) => Store.list(table)
+          .filter(r => added.has(`${table}:${r.id}`) && Refs.valuesOf(field, r[field.key]).some(v => key(v) === from))
+          .forEach(r => Store.update(table, r.id, { [field.key]: Refs.valuesOf(field, r[field.key]).map(v => (key(v) === from ? to : v)).join('、') })));
+        n++;
+      });
+    });
+    return n;
+  }
+
   // ---------- 位置換成編號、舊資料轉換 ----------
   // 新增一個位置（名字有「倉庫」的勾倉庫）
   function addPlace(name, more = {}) {
@@ -1338,6 +1358,6 @@ const Records = (() => {
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     shownDevices, isShown, canAdd, TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
-    partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
+    partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,
   };
 })();

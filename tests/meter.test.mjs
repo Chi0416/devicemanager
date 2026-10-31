@@ -7,26 +7,42 @@ import vm from 'node:vm';
 
 const ctx = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../apps-script/meter.gs', import.meta.url), 'utf8'), ctx, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_, tab_, writeLatest_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_, tab_, writeLatest_ })', ctx);
+const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_, tab_, writeLatest_, sheetPathOk_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_, tab_, writeLatest_, sheetPathOk_ })', ctx);
 const plain = v => JSON.parse(JSON.stringify(v));
 
 const PEOPLE = [
-  ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '業務員', '權限', '看全部', '入職日', '離職日', '備註', 'id'],
-  ['阿明', '', '', '', '', ' A@Gmail.com ', true, '記抄表', false, '', '', '', 'p1'],
-  ['小華', '', '', '', '', 'x@gmail.com', false, '', false, '', '', '', 'p2'],
-  ['老王', '', '', '', '', 'w@gmail.com', true, '', false, '', 100, '', 'p3'],
-  ['未來', '', '', '', '', 'f@gmail.com', 'v', '記抄表、記保養', true, '', 300, '', 'p4'],
+  ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '業務員', '權限', '看全部', '入職日', '離職日', '備註', 'id', '改全部'],
+  ['阿明', '', '', '', '', ' A@Gmail.com ', true, '記抄表', false, '', '', '', 'p1', false],
+  ['小華', '', '', '', '', 'x@gmail.com', false, '', false, '', '', '', 'p2', true],
+  ['老王', '', '', '', '', 'w@gmail.com', true, '', false, '', 100, '', 'p3', false],
+  ['未來', '', '', '', '', 'f@gmail.com', 'v', '記抄表、記保養', true, '', 300, '', 'p4', true],
 ];
 
-test('業務員是誰：Email 一樣（不分大小寫）、勾了業務員、還沒離職；帶權限、看全部；不是的回 null', () => {
-  assert.deepEqual(plain(salesPerson_(PEOPLE, 'a@gmail.com', 200)), { name: '阿明', perms: ['記抄表'], all: false });
-  assert.equal(salesPerson_(PEOPLE, 'x@gmail.com', 200), null); // 沒勾業務員
+test('業務員是誰：Email 一樣（不分大小寫）、勾了業務員、還沒離職；帶權限、看全部、改全部；不是的回 null', () => {
+  assert.deepEqual(plain(salesPerson_(PEOPLE, 'a@gmail.com', 200)), { name: '阿明', perms: ['記抄表'], all: false, edit: false });
+  assert.equal(salesPerson_(PEOPLE, 'x@gmail.com', 200), null); // 沒勾業務員（勾了改全部也不算）
   assert.equal(salesPerson_(PEOPLE, 'w@gmail.com', 200), null); // 離職日過了
   assert.equal(salesPerson_(PEOPLE, 'w@gmail.com', 100), null); // 離職那天就不行
-  // 手打的 v 也算勾了；離職日還沒到；勾了看全部
-  assert.deepEqual(plain(salesPerson_(PEOPLE, 'f@gmail.com', 200)), { name: '未來', perms: ['記抄表', '記保養'], all: true });
+  // 手打的 v 也算勾了；離職日還沒到；勾了看全部、改全部
+  assert.deepEqual(plain(salesPerson_(PEOPLE, 'f@gmail.com', 200)), { name: '未來', perms: ['記抄表', '記保養'], all: true, edit: true });
   assert.equal(salesPerson_(PEOPLE, 'nobody@gmail.com', 200), null);
   assert.equal(salesPerson_([], 'a@gmail.com', 200), null);
+  // 舊的試算表沒有改全部這一欄：當作沒勾
+  assert.equal(salesPerson_(PEOPLE.map(r => r.slice(0, 13)), 'f@gmail.com', 200).edit, false);
+});
+
+test('改全部的代讀寫：只收 App 同步用到的那幾種寫法，碰不到別的試算表', () => {
+  const tab = encodeURIComponent("'抄表'");
+  [
+    '?fields=spreadsheetUrl,sheets.properties(sheetId,title)',
+    `/values:batchGet?ranges=${tab}&ranges=${encodeURIComponent("'_meta'")}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`,
+    '/values:batchUpdate', '/values:batchClear', ':batchUpdate',
+    `/values/${encodeURIComponent("'抄表'!A1")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+  ].forEach(p => assert.equal(sheetPathOk_(p), true, p));
+  [
+    '', '/', '/../other-id', '/..%2Fother-id/values:batchGet', '/values:batchGet/../../x', '/values/a/b:append?x=1',
+    '/values/%2E%2E:append?x', '/developerMetadata', ':copyTo', 'https://example.com', undefined, null, 1,
+  ].forEach(p => assert.equal(sheetPathOk_(p), false, String(p)));
 });
 
 // 阿明負責大華（L0001）、舊客戶（L0004，停用了）；小華負責長榮（L0002）；L0003 是倉庫

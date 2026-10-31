@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.31.15">
+  <link rel="manifest" href="manifest.json?v=2026.10.31.16">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.31.15">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.31.16">
 </head>
 <body>
   <div class="app">
@@ -218,34 +218,68 @@
       <button type="button" class="text-btn" data-act="close">關閉</button>
     </div>
     <div class="sheet-body">
-      <!-- 清單：設備的類別、位置、品牌、保管人、廠商從這裡選（見 lists.js）；admin-only 的業務員看不到 -->
-      <div class="admin-only">
-        <h3 class="section-head">清單</h3>
-        <ul id="lists-menu" class="member-list lists-menu"></ul>
-      </div>
+      <!-- 設定一項一列，點了打開自己的一頁（下面的 .settings-page，見 app.js 的 renderSettingsMenu）；admin-only 的業務員看不到 -->
+      <ul id="settings-menu" class="member-list lists-menu admin-only"></ul>
 
       <h3 id="cloud-head" class="section-head">Google 雲端硬碟</h3>
       <div id="cloud"></div>
 
-      <!-- 自動抄表：把 apps-script/meter.gs 貼到自己的試算表（見 app.js） -->
-      <div class="admin-only">
-        <h3 class="section-head">自動抄表</h3>
-        <div id="meter"></div>
-      </div>
+      <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
+           css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
+      <p class="note muted">版本 2026.10.31.16</p>
+    </div>
+  </dialog>
 
-      <div class="admin-only">
-      <h3 class="section-head">資料備份</h3>
+  <!-- 設定的子頁：從設定的目錄打開，返回回到設定（見 app.js 的 openPage） -->
+  <!-- 清單：設備的類別、品牌、保管人、廠商從這裡選（見 lists.js） -->
+  <dialog id="lists-page" class="sheet settings-page">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title">清單</h2>
+      <span></span>
+    </div>
+    <div class="sheet-body">
+      <ul id="lists-menu" class="member-list lists-menu"></ul>
+    </div>
+  </dialog>
+
+  <!-- 總部程式：把 apps-script/meter.gs 貼到總部的試算表、部署，填網址（見 app.js 的 renderMeter）；自動抄表、業務員都用這個網址 -->
+  <dialog id="hq-page" class="sheet settings-page">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title">總部程式</h2>
+      <span></span>
+    </div>
+    <div class="sheet-body">
+      <div id="hq"></div>
+    </div>
+  </dialog>
+
+  <!-- 自動抄表：機器設定、說明（見 app.js 的 renderMeter） -->
+  <dialog id="meter-page" class="sheet settings-page">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title">自動抄表</h2>
+      <span></span>
+    </div>
+    <div class="sheet-body">
+      <div id="meter"></div>
+    </div>
+  </dialog>
+
+  <dialog id="backup-page" class="sheet settings-page">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" data-act="close">返回</button>
+      <h2 class="sheet-title">資料備份</h2>
+      <span></span>
+    </div>
+    <div class="sheet-body">
       <dl id="stats" class="stats"></dl>
       <p id="last-export" class="muted"></p>
       <button id="btn-export" type="button" class="wide-btn primary">匯出 data.json</button>
       <button id="btn-import" type="button" class="wide-btn">匯入 data.json</button>
       <p class="note muted">連結 Google 時，匯入前可以選以檔案或以 Google 為主。</p>
       <input id="file-import" type="file" accept=".json,application/json" hidden>
-      </div>
-
-      <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
-           css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.31.15</p>
     </div>
   </dialog>
 
@@ -322,7 +356,7 @@
       </ul>
 
       <h3 class="section-head">1. 試算表（兩種都要，用電腦做一次）</h3>
-      <p class="note muted">照設定裡「自動抄表」的設定步驟做：第 6 步的部署兩種都會用到。</p>
+      <p class="note muted">照設定裡「總部程式」的步驟做，兩種都會用到。</p>
 
       <h3 class="section-head">2. 機器自己寄信</h3>
       <p class="note muted">照「<button type="button" class="link-btn" data-act="machine">機器設定</button>」設好，每月 1 號寄出；試算表上的程式每小時讀信，寫一筆上個月的帳。5-866-112 寄測試信（不算帳）。</p>
@@ -355,7 +389,7 @@
         <li><span class="member-info"><b>備註寫「序號 X 對不到設備」</b><small>App 裡登記這個序號，下次讀信時自動補上</small></span></li>
         <li><span class="member-info"><b>連不到</b><small>IP 對不對（設備詳情的最新回報寫上次回報時的 IP）、機器有沒有開、SNMP 有沒有開；讀不到的程式會等 10 秒自動再讀一次</small></span></li>
         <li><span class="member-info"><b>抄表.exe 不見了（被防毒刪掉）</b><small>Windows 安全性 → 病毒與威脅防護 → 管理設定 → 排除項目 → 新增「資料夾」，選抄表那個資料夾（要系統管理員），再把資料夾重新複製一次</small></span></li>
-        <li><span class="member-info"><b>網址、密語</b><small>程式裡已經有總部的，不用填；換了網址或密語不對時，在程式資料夾的「設定.txt」填「網址 =」（設定裡的讀信網址）、「密語 =」（試算表上方「自動抄表」→「密語」），不用重新打包</small></span></li>
+        <li><span class="member-info"><b>網址、密語</b><small>程式裡已經有總部的，不用填；換了網址或密語不對時，在程式資料夾的「設定.txt」填「網址 =」（設定 → 總部程式的網址）、「密語 =」（試算表上方「自動抄表」→「密語」），不用重新打包</small></span></li>
         <li><span class="member-info"><b>試算表上的程式是舊版、找不到指令碼函式</b><small>「複製程式」重貼、存檔，再「管理部署作業」→ 鉛筆 → 新版本</small></span></li>
       </ul>
     </div>
@@ -405,25 +439,25 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.31.15"></script>
-  <script src="js/schema.js?v=2026.10.31.15"></script>
-  <script src="js/storage.js?v=2026.10.31.15"></script>
-  <script src="js/refs.js?v=2026.10.31.15"></script>
-  <script src="js/records.js?v=2026.10.31.15"></script>
-  <script src="js/list.js?v=2026.10.31.15"></script>
-  <script src="js/form.js?v=2026.10.31.15"></script>
-  <script src="js/picker.js?v=2026.10.31.15"></script>
-  <script src="js/lists.js?v=2026.10.31.15"></script>
-  <script src="js/detail.js?v=2026.10.31.15"></script>
-  <script src="js/overview.js?v=2026.10.31.15"></script>
-  <script src="js/places.js?v=2026.10.31.15"></script>
-  <script src="js/customers.js?v=2026.10.31.15"></script>
-  <script src="js/config.js?v=2026.10.31.15"></script>
-  <script src="js/google.js?v=2026.10.31.15"></script>
-  <script src="js/sheet.js?v=2026.10.31.15"></script>
-  <script src="js/sync.js?v=2026.10.31.15"></script>
-  <script src="js/inbox.js?v=2026.10.31.15"></script>
-  <script src="js/app.js?v=2026.10.31.15"></script>
+  <script src="js/util.js?v=2026.10.31.16"></script>
+  <script src="js/schema.js?v=2026.10.31.16"></script>
+  <script src="js/storage.js?v=2026.10.31.16"></script>
+  <script src="js/refs.js?v=2026.10.31.16"></script>
+  <script src="js/records.js?v=2026.10.31.16"></script>
+  <script src="js/list.js?v=2026.10.31.16"></script>
+  <script src="js/form.js?v=2026.10.31.16"></script>
+  <script src="js/picker.js?v=2026.10.31.16"></script>
+  <script src="js/lists.js?v=2026.10.31.16"></script>
+  <script src="js/detail.js?v=2026.10.31.16"></script>
+  <script src="js/overview.js?v=2026.10.31.16"></script>
+  <script src="js/places.js?v=2026.10.31.16"></script>
+  <script src="js/customers.js?v=2026.10.31.16"></script>
+  <script src="js/config.js?v=2026.10.31.16"></script>
+  <script src="js/google.js?v=2026.10.31.16"></script>
+  <script src="js/sheet.js?v=2026.10.31.16"></script>
+  <script src="js/sync.js?v=2026.10.31.16"></script>
+  <script src="js/inbox.js?v=2026.10.31.16"></script>
+  <script src="js/app.js?v=2026.10.31.16"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>
