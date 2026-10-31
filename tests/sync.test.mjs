@@ -655,11 +655,11 @@ test('最新回報：試算表上沒有「最新回報」分頁時不讀、也�
   assert.equal(fake.files[id].sheets.some(s => s.title === '最新回報'), false);
 
   fake.files[id].sheets.push({ sheetId: 500, title: '最新回報', grid: [
-    ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'],
-    ['313CM615862', '26-0001', '', 46316, '08:30', 123490, 2866, 80, 40, 60, 10],
+    ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C', 'IP'],
+    ['313CM615862', '26-0001', '', 46316, '08:30', 123490, 2866, 80, 40, 60, 10, '192.168.1.20'],
   ] });
   await d.Sync.syncNow();
-  const row = { serial: '313CM615862', device: '26-0001', date: '2026-10-21', time: '08:30', bw: 123490, color: 2866, K: 80, Y: 40, M: 60, C: 10 };
+  const row = { serial: '313CM615862', device: '26-0001', date: '2026-10-21', time: '08:30', bw: 123490, color: 2866, K: 80, Y: 40, M: 60, C: 10, ip: '192.168.1.20' };
   assert.deepEqual(plain(d.Sync.state().toner), [row]);
   assert.deepEqual(JSON.parse(d.ls['devmgr.cloud']).toner, [row]);
   assert.equal(fake.values(id, '最新回報').length, 2);

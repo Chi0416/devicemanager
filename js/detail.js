@@ -175,6 +175,7 @@ const Detail = (() => {
   // 最新回報：抄表程式最新一次回報的張數、碳粉（找哪一筆、多久以前見 records.js 的 latestReport）
   //   右上角回報的日期時間和幾天前（今天、昨天、N 天前），抄表跟客戶確認日期時一眼看得出多舊；今天、昨天綠字，超過 3 天橘字，中間灰字（跟設備卡片一樣）
   //   黑白、彩色張數兩格；K Y M C 四格（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）；20% 以下紅字；百分比下面一條碳粉顏色的細條（讀不到的只有灰色底條）
+  //   有 IP 時碳粉下面一行小字寫回報時的 IP（回報停了時看得出是不是 IP 換了）
   //   有張數時最下面一個「抄表」：打開抄表表單，帶入這台、回報的日期和張數，結算月份自己選
   //   沒回報過的也顯示：張數、四格「—」、灰色底條，右上角「還沒有回報」
   function latestHTML(d) {
@@ -197,6 +198,7 @@ const Detail = (() => {
         <span class="uc-head"><b>最新回報</b><span class="${Records.reportTone(days)}">${U.esc(when)}</span></span>
         <span class="card-grid latest-counts">${counts}</span>
         <span class="card-grid toner-grid">${cells}</span>
+        ${t?.ip ? `<p class="toner-ip">IP ${U.esc(t.ip)}</p>` : ''}
         ${read}
       </div>`;
   }

@@ -7,7 +7,7 @@ import vm from 'node:vm';
 
 const ctx = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../apps-script/meter.gs', import.meta.url), 'utf8'), ctx, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_ })', ctx);
+const { salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_, tab_, writeLatest_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesPlan_, reportText_, senders_, senderOf_, resultText_, valuesOf_, readTabs_, tab_, writeLatest_ })', ctx);
 const plain = v => JSON.parse(JSON.stringify(v));
 
 const PEOPLE = [
@@ -184,4 +184,64 @@ test('讀分頁：Apps Script 加了 Google Sheets API 服務時一次讀完（�
   assert.deepEqual(plain(asked), [{ id: 'sheet1', valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER', ranges: ["'位置'", "'客戶''s'"] }]);
   assert.equal(vm.runInContext('readVia_', ctx), 'service');
   delete ctx.Sheets;
+});
+
+// 假的分頁：只有 tab_、writeLatest_ 用到的幾個方法；grid 是全部格子，formats 記每一欄設的格式
+function fakeSheet(grid, maxColumns = 26) {
+  const sheet = {
+    grid, formats: {}, frozen: 0, maxColumns,
+    getLastColumn: () => Math.max(0, ...grid.map(r => r.length)),
+    getLastRow: () => grid.length,
+    getMaxColumns: () => sheet.maxColumns,
+    getMaxRows: () => 1000,
+    insertColumnsAfter: (after, n) => { sheet.maxColumns += n; },
+    setFrozenRows: n => { sheet.frozen = n; },
+    appendRow: row => grid.push([...row]),
+    getRange: (row, col, rows = 1, cols = 1) => {
+      if (col + cols - 1 > sheet.maxColumns) throw new Error('超出分頁的欄數');
+      const range = {
+        getValues: () => Array.from({ length: rows }, (_, i) => Array.from({ length: cols }, (_, j) => grid[row - 1 + i]?.[col - 1 + j] ?? '')),
+        setValues: values => {
+          values.forEach((r, i) => r.forEach((v, j) => { (grid[row - 1 + i] ||= [])[col - 1 + j] = v; }));
+          return range;
+        },
+        setFontWeight: () => range,
+        setNumberFormat: f => { if (rows > 1) sheet.formats[col] = f; return range; },
+      };
+      return range;
+    },
+  };
+  return sheet;
+}
+
+test('最新回報分頁：沒有時建一個（標題、格式照名稱）；以前建的少了 IP 欄時加在最後面；寫一列時 IP 在 IP 那欄', () => {
+  const LATEST_HEAD = plain(vm.runInContext('LATEST_HEAD', ctx));
+  const FORMATS = vm.runInContext('LATEST_FORMATS', ctx);
+  assert.equal(LATEST_HEAD.at(-1), 'IP');
+  const sheets = {};
+  const ss = { getSheetByName: n => sheets[n] || null, insertSheet: n => (sheets[n] = fakeSheet([])) };
+
+  const made = tab_(ss, '最新回報', LATEST_HEAD, FORMATS);
+  assert.deepEqual(sheets.最新回報.grid[0], LATEST_HEAD);
+  assert.equal(sheets.最新回報.frozen, 1);
+  assert.deepEqual(plain(sheets.最新回報.formats), { 1: '@', 2: '@', 3: '@', 4: 'yyyy/mm/dd', 5: '@', 12: '@' });
+  writeLatest_(made, ['A1', '26-0001', 'RNP1', 46326, '08:30', 100, 20, 50, 40, 30, 20, '192.168.1.20']);
+  assert.deepEqual(sheets.最新回報.grid[1], ['A1', '26-0001', 'RNP1', 46326, '08:30', 100, 20, 50, 40, 30, 20, '192.168.1.20']);
+
+  // 以前的程式建的分頁：沒有 IP 欄，只有 11 欄寬（欄數不夠時先加欄）；原本的列不動，同一台蓋過去時 IP 寫在新的那欄
+  const old = LATEST_HEAD.slice(0, -1);
+  sheets.最新回報 = fakeSheet([[...old], ['B2', '26-0002', '', 46320, '09:00', 5, '', 10, '', '', '']], 11);
+  const t = tab_(ss, '最新回報', LATEST_HEAD, FORMATS);
+  assert.deepEqual(sheets.最新回報.grid[0], LATEST_HEAD);
+  assert.equal(sheets.最新回報.maxColumns, 12);
+  assert.deepEqual(plain(sheets.最新回報.formats), { 12: '@' });
+  assert.equal(t.width, 12);
+  writeLatest_(t, ['b2', '26-0002', '', 46326, '10:00', 9, '', 8, '', '', '', '10.0.0.5']);
+  assert.deepEqual(sheets.最新回報.grid.slice(1), [['b2', '26-0002', '', 46326, '10:00', 9, '', 8, '', '', '', '10.0.0.5']]);
+
+  // 欄位順序被人換過：照標題找欄
+  sheets.最新回報 = fakeSheet([['IP', ...old]]);
+  const moved = tab_(ss, '最新回報', LATEST_HEAD, FORMATS);
+  writeLatest_(moved, ['C3', '', '', 46326, '11:00', 1, '', '', '', '', '', '10.0.0.9']);
+  assert.deepEqual(sheets.最新回報.grid[1], ['10.0.0.9', 'C3', '', '', 46326, '11:00', 1, '', '', '', '', '']);
 });

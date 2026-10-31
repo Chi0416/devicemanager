@@ -442,12 +442,12 @@ test('_meta 第 4 列的寄信用 Gmail（機器設定）讀得到；中間空�
   assert.equal(Sheet.fromValues({}).senderMail, '');
 });
 
-test('「最新回報」分頁（試算表上的程式寫的）：依標題找欄，日期、時間、張數、碳粉讀得懂，空白和看不懂的是 null；沒有這個分頁時是 null', () => {
-  const head = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
+test('「最新回報」分頁（試算表上的程式寫的）：依標題找欄，日期、時間、張數、碳粉、IP 讀得懂，空白和看不懂的是 null；沒有這個分頁時是 null', () => {
+  const head = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C', 'IP'];
   const r = Sheet.fromValues({
     最新回報: [
       head,
-      ['313CM615862', '26-0001', 'RNP0026735', 46316, '08:30', 123490, 2866, 80, 40, 60, 10],
+      ['313CM615862', '26-0001', 'RNP0026735', 46316, '08:30', 123490, 2866, 80, 40, 60, 10, ' 192.168.1.20 '],
       [' 3101R800451 ', '', '', '2026/10/17', 0.375, 45678, '', 30],
       [],
       ['', '26-0002', '', 46316, '09:00', 1, 1, 50],
@@ -455,12 +455,12 @@ test('「最新回報」分頁（試算表上的程式寫的）：依標題找�
     ],
   });
   assert.deepEqual(plain(r.toner), [
-    { serial: '313CM615862', device: '26-0001', date: '2026-10-21', time: '08:30', bw: 123490, color: 2866, K: 80, Y: 40, M: 60, C: 10 },
-    { serial: '3101R800451', device: '', date: '2026-10-17', time: '09:00', bw: 45678, color: null, K: 30, Y: null, M: null, C: null },
-    { serial: 'E123', device: '', date: '2026-10-21', time: '09:10', bw: null, color: null, K: null, Y: null, M: null, C: null },
+    { serial: '313CM615862', device: '26-0001', date: '2026-10-21', time: '08:30', bw: 123490, color: 2866, K: 80, Y: 40, M: 60, C: 10, ip: '192.168.1.20' },
+    { serial: '3101R800451', device: '', date: '2026-10-17', time: '09:00', bw: 45678, color: null, K: 30, Y: null, M: null, C: null, ip: '' },
+    { serial: 'E123', device: '', date: '2026-10-21', time: '09:10', bw: null, color: null, K: null, Y: null, M: null, C: null, ip: '' },
   ]);
   const moved = Sheet.fromValues({ 最新回報: [['碳粉C', '序號', '黑白張數', '日期'], [5, 'A1', 900, 46316]] });
-  assert.deepEqual(plain(moved.toner), [{ serial: 'A1', device: '', date: '2026-10-21', time: '', bw: 900, color: null, K: null, Y: null, M: null, C: 5 }]);
+  assert.deepEqual(plain(moved.toner), [{ serial: 'A1', device: '', date: '2026-10-21', time: '', bw: 900, color: null, K: null, Y: null, M: null, C: 5, ip: '' }]); // 以前的分頁沒有 IP 欄
   assert.equal(Sheet.fromValues({}).toner, null);
   assert.equal(Sheet.fromValues({ 碳粉: [['序號'], ['A1']] }).toner, null); // 以前的「碳粉」分頁不讀
 });

@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.31.14">
+  <link rel="manifest" href="manifest.json?v=2026.10.31.15">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.31.14">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.31.15">
 </head>
 <body>
   <div class="app">
@@ -245,7 +245,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.31.14</p>
+      <p class="note muted">版本 2026.10.31.15</p>
     </div>
   </dialog>
 
@@ -353,7 +353,7 @@
       <ul class="member-list help-list">
         <li><span class="member-info"><b>「抄表」沒有新的列</b><small>寄信的每小時才讀一次：試算表上方「自動抄表」→「現在讀信」</small></span></li>
         <li><span class="member-info"><b>備註寫「序號 X 對不到設備」</b><small>App 裡登記這個序號，下次讀信時自動補上</small></span></li>
-        <li><span class="member-info"><b>連不到</b><small>IP 對不對、機器有沒有開、SNMP 有沒有開</small></span></li>
+        <li><span class="member-info"><b>連不到</b><small>IP 對不對（設備詳情的最新回報寫上次回報時的 IP）、機器有沒有開、SNMP 有沒有開；讀不到的程式會等 10 秒自動再讀一次</small></span></li>
         <li><span class="member-info"><b>抄表.exe 不見了（被防毒刪掉）</b><small>Windows 安全性 → 病毒與威脅防護 → 管理設定 → 排除項目 → 新增「資料夾」，選抄表那個資料夾（要系統管理員），再把資料夾重新複製一次</small></span></li>
         <li><span class="member-info"><b>網址、密語</b><small>程式裡已經有總部的，不用填；換了網址或密語不對時，在程式資料夾的「設定.txt」填「網址 =」（設定裡的讀信網址）、「密語 =」（試算表上方「自動抄表」→「密語」），不用重新打包</small></span></li>
         <li><span class="member-info"><b>試算表上的程式是舊版、找不到指令碼函式</b><small>「複製程式」重貼、存檔，再「管理部署作業」→ 鉛筆 → 新版本</small></span></li>
@@ -405,25 +405,25 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.31.14"></script>
-  <script src="js/schema.js?v=2026.10.31.14"></script>
-  <script src="js/storage.js?v=2026.10.31.14"></script>
-  <script src="js/refs.js?v=2026.10.31.14"></script>
-  <script src="js/records.js?v=2026.10.31.14"></script>
-  <script src="js/list.js?v=2026.10.31.14"></script>
-  <script src="js/form.js?v=2026.10.31.14"></script>
-  <script src="js/picker.js?v=2026.10.31.14"></script>
-  <script src="js/lists.js?v=2026.10.31.14"></script>
-  <script src="js/detail.js?v=2026.10.31.14"></script>
-  <script src="js/overview.js?v=2026.10.31.14"></script>
-  <script src="js/places.js?v=2026.10.31.14"></script>
-  <script src="js/customers.js?v=2026.10.31.14"></script>
-  <script src="js/config.js?v=2026.10.31.14"></script>
-  <script src="js/google.js?v=2026.10.31.14"></script>
-  <script src="js/sheet.js?v=2026.10.31.14"></script>
-  <script src="js/sync.js?v=2026.10.31.14"></script>
-  <script src="js/inbox.js?v=2026.10.31.14"></script>
-  <script src="js/app.js?v=2026.10.31.14"></script>
+  <script src="js/util.js?v=2026.10.31.15"></script>
+  <script src="js/schema.js?v=2026.10.31.15"></script>
+  <script src="js/storage.js?v=2026.10.31.15"></script>
+  <script src="js/refs.js?v=2026.10.31.15"></script>
+  <script src="js/records.js?v=2026.10.31.15"></script>
+  <script src="js/list.js?v=2026.10.31.15"></script>
+  <script src="js/form.js?v=2026.10.31.15"></script>
+  <script src="js/picker.js?v=2026.10.31.15"></script>
+  <script src="js/lists.js?v=2026.10.31.15"></script>
+  <script src="js/detail.js?v=2026.10.31.15"></script>
+  <script src="js/overview.js?v=2026.10.31.15"></script>
+  <script src="js/places.js?v=2026.10.31.15"></script>
+  <script src="js/customers.js?v=2026.10.31.15"></script>
+  <script src="js/config.js?v=2026.10.31.15"></script>
+  <script src="js/google.js?v=2026.10.31.15"></script>
+  <script src="js/sheet.js?v=2026.10.31.15"></script>
+  <script src="js/sync.js?v=2026.10.31.15"></script>
+  <script src="js/inbox.js?v=2026.10.31.15"></script>
+  <script src="js/app.js?v=2026.10.31.15"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

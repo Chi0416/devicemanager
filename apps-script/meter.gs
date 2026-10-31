@@ -73,7 +73,7 @@ function doGet() {
   return json_(checkMail());
 }
 
-// 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, date: '2026-10-21', time: '08:30', test }] }
+// 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, ip: '192.168.1.20', date: '2026-10-21', time: '08:30', test }] }
 //   客戶電腦上背景每天一次、客戶在視窗按「提交計數器」都送這個；密語對不上就不收
 //   寫進「最新回報」分頁：一台一列，只留最新一次（再送的蓋過那一列），試算表不會越來越大；沒有這個分頁時自己建
 //     App 同步時讀這個分頁（設備詳情的最新回報卡），要抄表時從那裡帶入張數
@@ -105,7 +105,8 @@ function json_(data) {
 }
 
 const LATEST = '最新回報';
-const LATEST_HEAD = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C'];
+const LATEST_HEAD = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C', 'IP'];
+const LATEST_FORMATS = { 序號: '@', 設備: '@', 主機板號碼: '@', 日期: 'yyyy/mm/dd', 時間: '@', IP: '@' };
 
 function writePosted_(list) {
   const { ss, readings, col, codeOf } = sheets_();
@@ -125,9 +126,9 @@ function writePosted_(list) {
     if (r.test === true) {
       return { serial, device: append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: true, note: `自動抄表（腳本測試）${time}` }) };
     }
-    latest = latest || tab_(ss, LATEST, LATEST_HEAD, { 'A:C': '@', 'D:D': 'yyyy/mm/dd', 'E:E': '@' });
+    latest = latest || tab_(ss, LATEST, LATEST_HEAD, LATEST_FORMATS);
     const t = 'KYMC'.split('').map(c => count_((r.toner || {})[c]));
-    writeLatest_(latest, [serial, code, String(r.rnp || ''), serial_(y, m, day), time, bw, color, ...t]);
+    writeLatest_(latest, [serial, code, String(r.rnp || ''), serial_(y, m, day), time, bw, color, ...t, String(r.ip || '').trim()]);
     return { serial, device: code };
   });
 }
@@ -137,23 +138,27 @@ function count_(v) {
   return Number.isInteger(v) && v >= 0 ? v : '';
 }
 
-// 「最新回報」分頁和它的欄位；沒有時建一個，formats 是各欄的格式（{ 'A:A': 'yyyy/mm/dd' }）
+// 「最新回報」分頁和它的欄位；沒有時建一個，formats 是各欄的格式（{ 日期: 'yyyy/mm/dd' }）
+//   以前建的分頁少了後來加的欄（IP）：加在最後面，格式跟著設
 //   App 只讀不寫，同步不會動到
 function tab_(ss, name, heads, formats) {
   let sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
-    sheet.getRange(1, 1, 1, heads.length).setValues([heads]).setFontWeight('bold');
     sheet.setFrozenRows(1);
-    Object.keys(formats).forEach(a1 => sheet.getRange(a1).setNumberFormat(formats[a1]));
   }
-  const head = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
-  const col = heads.map(h => {
-    const i = head.indexOf(h);
-    if (i < 0) throw new Error(`「${name}」分頁找不到「${h}」這一欄`);
-    return i;
-  });
-  return { sheet, col, width: head.length };
+  const head = sheet.getLastColumn() ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String) : [];
+  const add = heads.filter(h => !head.includes(h));
+  if (add.length) {
+    const more = head.length + add.length - sheet.getMaxColumns();
+    if (more > 0) sheet.insertColumnsAfter(sheet.getMaxColumns(), more);
+    sheet.getRange(1, head.length + 1, 1, add.length).setValues([add]).setFontWeight('bold');
+    add.forEach((h, i) => {
+      if (formats[h]) sheet.getRange(1, head.length + i + 1, sheet.getMaxRows(), 1).setNumberFormat(formats[h]);
+    });
+    head.push(...add);
+  }
+  return { sheet, col: heads.map(h => head.indexOf(h)), width: head.length };
 }
 
 // 寫一列最新回報：同一台（序號）已經有的蓋過去，沒有的加在最下面

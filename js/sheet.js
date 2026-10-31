@@ -235,7 +235,7 @@ const Sheet = (() => {
     return v > 0 ? v : 1;
   }
 
-  // 「最新回報」分頁：[{ serial, device, date, time, bw, color, K, Y, M, C }]，依標題找欄；沒有這個分頁時是 null
+  // 「最新回報」分頁：[{ serial, device, date, time, bw, color, K, Y, M, C, ip }]，依標題找欄；沒有這個分頁時是 null
   //   日期讀成 2026-10-21；時間是文字 08:30（被改成時間格式也讀得懂）；張數 0 以上的整數、碳粉 0～100，空白、看不懂的是 null；沒有序號的列略過
   function readToner(values) {
     if (!values) return null;
@@ -258,6 +258,7 @@ const Sheet = (() => {
         bw: count(cell(cells, '黑白張數')),
         color: count(cell(cells, '彩色張數')),
         ...Object.fromEntries(['K', 'Y', 'M', 'C'].map(c => [c, level(cell(cells, `碳粉${c}`))])),
+        ip: String(cell(cells, 'IP') ?? '').trim(),
       };
     });
   }
