@@ -140,9 +140,10 @@ const Sync = (() => {
     try {
       const f = isEditor() ? {} : await api(`${Google.DRIVE}/files/${id}?fields=trashed`);
       if (f.trashed) return null;
-      const s = await sheetApi(id, '?fields=spreadsheetUrl,sheets.properties(sheetId,title)');
+      const s = await sheetApi(id, '?fields=spreadsheetUrl,sheets.properties(sheetId,title,gridProperties.rowCount)');
       const sheetIds = Object.fromEntries(s.sheets.map(x => [x.properties.title, x.properties.sheetId]));
-      return { id, url: s.spreadsheetUrl, sheetIds };
+      const rowCount = Object.fromEntries(s.sheets.map(x => [x.properties.title, x.properties.gridProperties?.rowCount]));
+      return { id, url: s.spreadsheetUrl, sheetIds, rowCount };
     } catch (e) {
       if (e.code === 'not_found') return null;
       throw e;
@@ -469,8 +470,10 @@ const Sync = (() => {
         body: { requests: added.flatMap(c => Sheet.addColumnRequests(meta.sheetIds[c.tab], c.table, c.key, c.col)) },
       });
       // 勾選的欄設成核取方塊時，Google 會把整欄的空白格填成 FALSE：資料下面的清掉，新增的列才會接在資料下面
-      const flags = added.filter(c => Sheet.TAB[c.table].fields.find(f => f.key === c.key).type === 'flag');
+      //   資料下面沒有空白列（分頁的列數剛好到資料最後一列）時沒東西要清，清了 Google 會回錯誤
       const last = tab => byTitle[tab].length - deletes.filter(d => d.sheetId === meta.sheetIds[tab]).length;
+      const below = tab => !(meta.rowCount?.[tab] <= byTitle[tab].length);
+      const flags = added.filter(c => Sheet.TAB[c.table].fields.find(f => f.key === c.key).type === 'flag' && below(c.tab));
       if (flags.length) {
         await sheetApi(meta.id, '/values:batchClear', {
           method: 'POST',

@@ -34,7 +34,7 @@ test('業務員是誰：Email 一樣（不分大小寫）、勾了業務員、�
 test('改全部的代讀寫：只收 App 同步用到的那幾種寫法，碰不到別的試算表', () => {
   const tab = encodeURIComponent("'抄表'");
   [
-    '?fields=spreadsheetUrl,sheets.properties(sheetId,title)',
+    '?fields=spreadsheetUrl,sheets.properties(sheetId,title,gridProperties.rowCount)',
     `/values:batchGet?ranges=${tab}&ranges=${encodeURIComponent("'_meta'")}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`,
     '/values:batchUpdate', '/values:batchClear', ':batchUpdate',
     `/values/${encodeURIComponent("'抄表'!A1")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,

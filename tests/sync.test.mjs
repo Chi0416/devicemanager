@@ -11,7 +11,7 @@ class FakeGoogle {
   static ROWS = 30;
 
   constructor() {
-    this.files = {}; // id → { title, appProperties, trashed, sheets: [{ sheetId, title, grid }] }
+    this.files = {}; // id → { title, appProperties, trashed, sheets: [{ sheetId, title, grid, rows }] }（rows：分頁的列數，沒設是 1000 列）
     this.n = 0;
     this.calls = [];
     this.onBatchGet = null; // 讀取時插入的動作（模擬同步途中使用者又改了資料）
@@ -120,7 +120,7 @@ class FakeGoogle {
     if (rest === '' && method === 'GET') {
       return ok({
         spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${id}`,
-        sheets: f.sheets.map(s => ({ properties: { sheetId: s.sheetId, title: s.title } })),
+        sheets: f.sheets.map(s => ({ properties: { sheetId: s.sheetId, title: s.title, gridProperties: { rowCount: s.rows ?? 1000 } } })),
       });
     }
     if (rest === ':batchUpdate') {
@@ -141,13 +141,18 @@ class FakeGoogle {
         }
         if (r.deleteDimension) {
           const { sheetId, startIndex, endIndex } = r.deleteDimension.range;
-          f.sheets.find(s => s.sheetId === sheetId).grid.splice(startIndex, endIndex - startIndex);
+          const s = f.sheets.find(x => x.sheetId === sheetId);
+          s.grid.splice(startIndex, endIndex - startIndex);
+          if (s.rows) s.rows -= endIndex - startIndex;
         }
         return {};
       });
       return ok({ replies });
     }
     if (rest === '/values:batchClear') {
+      // 模擬 Google：從分頁最後一列下面開始清，整個請求回錯誤
+      const over = body.ranges.find(r => { const { title, row } = FakeGoogle.parseRange(r); return row >= (this.sheet(id, title).rows ?? Infinity); });
+      if (over) return { status: 400, ok: false, text: async () => JSON.stringify({ error: { message: `Range (${over}) exceeds grid limits` } }) };
       body.ranges.forEach(r => {
         const { title, col, endCol, row, whole } = FakeGoogle.parseRange(r);
         const s = this.sheet(id, title);
@@ -167,9 +172,11 @@ class FakeGoogle {
     }
     m = rest.match(/^\/values\/(.+):append$/);
     if (m) {
-      const grid = this.sheet(id, FakeGoogle.parseRange(m[1]).title).grid;
+      const s = this.sheet(id, FakeGoogle.parseRange(m[1]).title);
+      const grid = s.grid;
       const last = FakeGoogle.read(grid).length;
       body.values.forEach((row, i) => { grid[last + i] = row.map(v => (v === null ? undefined : v)); });
+      if (s.rows) s.rows = Math.max(s.rows, last + body.values.length);
       return ok({});
     }
     throw new Error(`未模擬的網址 ${method} ${url}`);
@@ -1019,6 +1026,23 @@ test('舊的試算表補上「業務員」欄（核取方塊，Google 把整欄�
   assert.equal(rows[2][rows[0].indexOf('業務員')], true);
   assert.deepEqual(plain(d.Sync.state().problems), []);
   assert.equal(d.Store.list('people').length, 2);
+});
+
+test('舊的試算表補上「改全部」欄，人員分頁下面沒有空白列（列數剛好到最後一個人）：不清資料下面的格子，同步不會失敗', async () => {
+  const { fake, d, id } = await linked();
+  d.Store.add('people', person(d, { name: '舊人' }));
+  d.Store.add('people', person(d, { name: '阿明', email: 'a@gmail.com', sales: true, perms: '記抄表' }));
+  await d.Sync.syncNow();
+  dropCols(fake, id, '人員', ['改全部']);
+  fake.sheet(id, '人員').rows = fake.values(id, '人員').length;
+  await d.Sync.syncNow();
+  assert.ok(!d.Sync.state().error, d.Sync.state().error);
+  const rows = fake.values(id, '人員');
+  assert.ok(rows[0].includes('改全部'));
+  d.Store.add('people', person(d, { name: '小華' }));
+  await d.Sync.syncNow();
+  assert.ok(!d.Sync.state().error, d.Sync.state().error);
+  assert.deepEqual(fake.values(id, '人員').map(r => r[0]), ['姓名', '舊人', '阿明', '小華']);
 });
 
 test('試算表裡已經有只有 id、沒勾核取方塊的列（上一版補欄後留下的）：同步時刪掉，App 裡讀進來的沒有姓名的人員直接拿掉，不用問、不用提醒', async () => {
