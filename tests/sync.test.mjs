@@ -8,6 +8,8 @@ import vm from 'node:vm';
 
 // ---------- 模擬的 Google API ----------
 class FakeGoogle {
+  static ROWS = 30;
+
   constructor() {
     this.files = {}; // id → { title, appProperties, trashed, sheets: [{ sheetId, title, grid }] }
     this.n = 0;
@@ -16,11 +18,12 @@ class FakeGoogle {
     this.meter = null;      // 讀信網址被叫的時候（模擬試算表上的程式讀信）：() => 回傳的 { count, fixed, at }；沒設是讀信失敗
   }
 
-  // 'title'!A5、'title'!A:ZZ、title
+  // 'title'!A5、'title'!A:ZZ、'title'!K5:K、title；whole 是沒寫範圍（整個分頁）
   static parseRange(r) {
-    const m = r.match(/^(?:'((?:[^']|'')+)'|([^!]+))(?:!([A-Z]+)(\d+)?(?::[A-Z]+\d*)?)?$/);
-    const col = (m[3] || 'A').split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
-    return { title: (m[1] || m[2]).replace(/''/g, "'"), col, row: m[4] ? Number(m[4]) - 1 : 0 };
+    const m = r.match(/^(?:'((?:[^']|'')+)'|([^!]+))(?:!([A-Z]+)(\d+)?(?::([A-Z]+)\d*)?)?$/);
+    const num = s => s.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+    const col = num(m[3] || 'A');
+    return { title: (m[1] || m[2]).replace(/''/g, "'"), col, endCol: m[5] ? num(m[5]) : col, row: m[4] ? Number(m[4]) - 1 : 0, whole: !m[3] };
   }
 
   sheet(id, title) {
@@ -30,7 +33,7 @@ class FakeGoogle {
   // 試算表讀回來的樣子：空字串是空格，尾端的空格與空列省略
   static read(grid) {
     const rows = grid.map(r => {
-      const out = (r || []).map(v => (v === undefined || v === null ? '' : v));
+      const out = Array.from(r || [], v => (v === undefined || v === null ? '' : v)); // 沒寫過的格子也是空格
       while (out.length && out.at(-1) === '') out.pop();
       return out;
     });
@@ -119,6 +122,15 @@ class FakeGoogle {
           f.sheets.push({ sheetId, title: r.addSheet.properties.title, hidden: !!r.addSheet.properties.hidden, grid: [] });
           return { addSheet: { properties: { sheetId, title: r.addSheet.properties.title } } };
         }
+        // 模擬 Google：欄設成核取方塊時，整欄的空白格填成 FALSE（試算表預設 1000 列，這裡只模擬到 ROWS 列）
+        if (r.setDataValidation?.rule.condition.type === 'BOOLEAN') {
+          const { sheetId, startRowIndex, startColumnIndex } = r.setDataValidation.range;
+          const grid = f.sheets.find(s => s.sheetId === sheetId).grid;
+          for (let i = startRowIndex; i < FakeGoogle.ROWS; i++) {
+            grid[i] ||= [];
+            if (grid[i][startColumnIndex] === undefined || grid[i][startColumnIndex] === '') grid[i][startColumnIndex] = false;
+          }
+        }
         if (r.deleteDimension) {
           const { sheetId, startIndex, endIndex } = r.deleteDimension.range;
           f.sheets.find(s => s.sheetId === sheetId).grid.splice(startIndex, endIndex - startIndex);
@@ -128,7 +140,12 @@ class FakeGoogle {
       return ok({ replies });
     }
     if (rest === '/values:batchClear') {
-      body.ranges.forEach(r => { this.sheet(id, FakeGoogle.parseRange(r).title).grid = []; });
+      body.ranges.forEach(r => {
+        const { title, col, endCol, row, whole } = FakeGoogle.parseRange(r);
+        const s = this.sheet(id, title);
+        if (whole) s.grid = [];
+        else s.grid.slice(row).forEach(cells => { for (let c = col; c <= endCol; c++) if (cells && c < cells.length) cells[c] = undefined; });
+      });
       return ok({});
     }
     if (rest === '/values:batchUpdate') {
@@ -971,6 +988,59 @@ test('試算表少了選填的欄，同一次也有新增的設備：新的那�
   const rows = fake.values(id, '設備');
   assert.equal(rows[0].at(-1), '機型');
   assert.equal(rows[2][rows[0].length - 1], 'L3210');
+});
+
+// 人員的「業務員」（核取方塊）是 2026-10-31 補的欄：Google 會把整欄的空白格填成 FALSE
+const person = (d, more) => ({ ...d.Refs.blankRecord('people'), ...more });
+const dropCols = (fake, id, tab, names) => {
+  const g = fake.sheet(id, tab).grid;
+  const cols = names.map(n => g[0].indexOf(n)).filter(i => i >= 0).sort((a, b) => b - a);
+  g.forEach(row => cols.forEach(c => row && row.splice(c, 1)));
+};
+
+test('舊的試算表補上「業務員」欄（核取方塊，Google 把整欄空白格填成 FALSE）：同一次清掉資料下面的格子，新增的人接在資料下面，不會多出沒有姓名的人員', async () => {
+  const { fake, d, id } = await linked();
+  d.Store.add('people', person(d, { name: '舊人' }));
+  await d.Sync.syncNow();
+  dropCols(fake, id, '人員', ['業務員', '權限']);
+  d.Store.add('people', person(d, { name: '阿明', email: 'a@gmail.com', sales: true, perms: '記抄表' }));
+  await d.Sync.syncNow();
+  await d.Sync.syncNow();
+  const rows = fake.values(id, '人員');
+  assert.deepEqual(rows.map(r => r[0]), ['姓名', '舊人', '阿明']);
+  assert.equal(rows[2][rows[0].indexOf('業務員')], true);
+  assert.deepEqual(plain(d.Sync.state().problems), []);
+  assert.equal(d.Store.list('people').length, 2);
+});
+
+test('試算表裡已經有只有 id、沒勾核取方塊的列（上一版補欄後留下的）：同步時刪掉，App 裡讀進來的沒有姓名的人員直接拿掉，不用問、不用提醒', async () => {
+  const { fake, d, id } = await linked();
+  d.asked.answer = false; // 問的話選「保留，並寫回試算表」，問了就會把沒有姓名的寫回去
+  d.Store.add('people', person(d, { name: '舊人' }));
+  await d.Sync.syncNow();
+  // 上一版的樣子：第 3～20 列只有 FALSE 和 id（App 也讀進來了），新增的人在最下面
+  const g = fake.sheet(id, '人員').grid;
+  const [sales, idCol] = ['業務員', 'id'].map(h => g[0].indexOf(h));
+  for (let r = 2; r < 20; r++) {
+    g[r] = [];
+    g[r][sales] = false;
+    g[r][idCol] = `j${r}`;
+    d.Store.add('people', person(d, { id: `j${r}` }));
+  }
+  g[20] = [];
+  g[20][0] = '阿明';
+  g[20][sales] = true;
+  g[20][idCol] = 'p-amin';
+  d.Store.add('people', person(d, { id: 'p-amin', name: '阿明', sales: true }));
+  d.Store.clearAllPending();
+  d.asked.messages.length = 0;
+  await d.Sync.syncNow();
+  assert.deepEqual(fake.values(id, '人員').map(r => r[0]), ['姓名', '舊人', '阿明']);
+  assert.deepEqual(plain(d.Store.list('people').map(p => p.name)).sort(), ['舊人', '阿明']);
+  assert.deepEqual(d.asked.messages, []);
+  assert.ok(!d.notes.some(n => /試算表/.test(n)));
+  assert.deepEqual(plain(d.Sync.state().problems), []);
+  assert.equal(d.Sync.state().pending, 0);
 });
 
 test('在試算表裡改了清單的名字：用到舊名字的設備一起改，同一次寫回試算表', async () => {

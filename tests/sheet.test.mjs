@@ -214,6 +214,18 @@ test('人員沒有用途欄、廠商沒有類型欄（舊的欄 App 不讀）', 
   assert.deepEqual(v['廠商'][0], ['名稱', '聯絡人', '電話', '地址', '停用', '備註', 'id']);
 });
 
+test('只有 id、沒勾的核取方塊的列不是資料（補上勾選欄時 Google 把空白格填成 FALSE）：不讀、不補 id，記在 junk', () => {
+  const v = plain(Sheet.toValues(sample()));
+  const head = v['人員'][0];
+  const row = (cells) => head.map(h => (h in cells ? cells[h] : ''));
+  v['人員'].push(row({ 業務員: false }), row({ 業務員: false, id: 'x1' }), row({}), row({ 姓名: '新來的', 業務員: false }));
+  const r = plain(Sheet.fromValues(asRead(v)));
+  assert.deepEqual(r.data.people.map(p => p.name), ['王小明', '陳大華', '新來的']);
+  assert.deepEqual(r.junk, [{ table: 'people', tab: '人員', row: 4 }, { table: 'people', tab: '人員', row: 5 }]);
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.idFixes.length, 1); // 只有「新來的」補 id
+});
+
 test('寫回一筆時依目前的標題列排列，不認得的欄位不動（null）', () => {
   const row = plain(Sheet.encodeRow('devices', sample().devices[0], ['自己加的', '編號', '名稱', 'id']));
   assert.deepEqual(row, [null, 'NB-001', '會議室筆電', 'd1']);

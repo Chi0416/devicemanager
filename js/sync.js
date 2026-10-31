@@ -167,6 +167,11 @@ const Sync = (() => {
       method: 'POST',
       body: { requests: Sheet.setupRequests(Object.fromEntries(need.map(t => [t, meta.sheetIds[t]]))) },
     });
+    // 核取方塊的欄 Google 會填 FALSE：清掉，補建的分頁才是空的（同步時整張寫回這台的資料）
+    await api(`${Google.SHEETS}/${meta.id}/values:batchClear`, {
+      method: 'POST',
+      body: { ranges: need.map(t => a1(t)) },
+    });
   }
 
   // 找到這次要同步的試算表（每次都重新確認：分頁可能被刪、試算表可能被丟到垃圾桶）
@@ -194,6 +199,9 @@ const Sync = (() => {
   }
 
   // ---------- 讀回、合併、寫回 ----------
+  // 每一欄都空白、沒勾的資料（以前從只有 id、沒勾的核取方塊的列讀進來的，見 sheet.js 的 junk）：試算表沒有了就直接拿掉，不用問、不用提醒
+  const blankRec = (t, r) => SCHEMAS[t].fields.every(f => [undefined, null, '', false].includes(r[f.key]));
+
   // 一筆資料的簡短說明（提醒用），例如「設備：NB-001 會議室筆電 使用中」「選項：位置 3F 會議室」「異動：24-0001 2026/10/11 移機」
   function describe(t, r) {
     if (SCHEMAS[t].describe) return `${SCHEMAS[t].title}：${SCHEMAS[t].describe(r)}`;
@@ -214,7 +222,7 @@ const Sync = (() => {
     const gone = TABLES.filter(t => !skip.includes(t)).flatMap(t => {
       const remote = new Set(parsed.data[t].map(r => r.id));
       return Store.list(t)
-        .filter(r => !remote.has(r.id) && !pending.has(`${t}:${r.id}`))
+        .filter(r => !remote.has(r.id) && !pending.has(`${t}:${r.id}`) && !blankRec(t, r))
         .map(r => ({ table: t, id: r.id, text: describe(t, r) }));
     });
     if (!gone.length) return;
@@ -377,6 +385,8 @@ const Sync = (() => {
       const rec = Store.get(t, id);
       if (rec) put(t, rec);
     });
+    // 只有 id、沒勾的核取方塊的列：刪掉
+    parsed.junk.filter(j => handled(j.table)).forEach(j => deletes.push({ sheetId: meta.sheetIds[j.tab], row: j.row }));
     // 在 App 裡改好、這次整列寫回的資料，試算表上原本看不懂的地方已經不算問題了
     problems = problems.filter(p => !(p.row && overwritten.has(`${p.tab}:${p.row}`)));
 
@@ -419,6 +429,15 @@ const Sync = (() => {
         method: 'POST',
         body: { requests: added.flatMap(c => Sheet.addColumnRequests(meta.sheetIds[c.tab], c.table, c.key, c.col)) },
       });
+      // 勾選的欄設成核取方塊時，Google 會把整欄的空白格填成 FALSE：資料下面的清掉，新增的列才會接在資料下面
+      const flags = added.filter(c => Sheet.TAB[c.table].fields.find(f => f.key === c.key).type === 'flag');
+      const last = tab => byTitle[tab].length - deletes.filter(d => d.sheetId === meta.sheetIds[tab]).length;
+      if (flags.length) {
+        await api(`${Google.SHEETS}/${meta.id}/values:batchClear`, {
+          method: 'POST',
+          body: { ranges: flags.map(c => a1(c.tab, `${Sheet.colLetter(c.col)}${last(c.tab) + 1}:${Sheet.colLetter(c.col)}`)) },
+        });
+      }
     }
     // 新增的列最後才加：可能插在中間（試算表裡有空白列時），之後就不能再依列號操作
     for (const [title, rows] of Object.entries(appends)) {

@@ -4,6 +4,7 @@
 //   第一列是中文標題（和表單欄位名稱一樣），最後一欄是 id；讀取時依標題找欄位，調換欄位順序也讀得到
 //   編號、序號等文字欄設成純文字（001 不會變成 1）；日期存成試算表的日期（可以排序、篩選）；勾選的欄位是核取方塊
 //   讀取時容許手動輸入：空白列略過、沒有 id 的列補上 id；
+//   只有 id、沒勾的核取方塊的列不是資料（補上勾選欄時 Google 會把整欄空白格填成 FALSE）：記在 junk，同步時刪掉
 //   缺了選填的欄（新版加的欄位、被刪掉的欄）：記在 addColumns，同步時補在最後面、用 App 的資料填上；
 //     這一欄讀不到，所以讀回來的資料沒有這個欄位（合併時用 App 的值，見 storage.js 的 mergeRemote）
 //   看不懂的值記在 problems（例如「設備第 12 列：購買日期看不懂」），其他資料照常讀進來
@@ -205,6 +206,10 @@ const Sheet = (() => {
     values.slice(1).forEach((cells, i) => {
       const row = i + 2;
       if (!cells || cells.every(blank)) return;
+      if (cells.every((v, c) => c === idCol || blank(v) || v === false)) {
+        ctx.junk.push({ table: t, tab, row });
+        return;
+      }
       const rec = {};
       fields.forEach(f => {
         const col = at[f.key]?.col;
@@ -258,25 +263,26 @@ const Sheet = (() => {
   }
 
   // byTitle：{ 分頁名稱: values }，由 readRanges() 的範圍讀回，有 _meta、最新回報分頁時也一起讀
-  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, meterUrl, meterReadAt, senderMail, toner }
+  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, toner }
   //   data 和 data.json 同樣的結構
   //   rowOf[分頁][id] 是那一筆在第幾列；headers[分頁] 是標題列（補上 id 欄之後）
   //   broken 是缺分頁或缺欄位的資料表：讀到的資料不完整，同步時不要拿來取代 App 裡的資料
   //   version 是試算表目前的格式版本；rewrites 是要改寫的格子 [{ table, tab, row, col, value }]（改名的標題）
   //   addColumns 是要補上的欄 [{ table, tab, key, col }]；missing[表] 是讀不到的欄位（試算表上還沒有這一欄）
+  //   junk 是只有 id、沒勾的核取方塊的列 [{ table, tab, row }]
   function fromValues(byTitle) {
     const ctx = {
       problems: [], idFixes: [], addIdHeader: [], addColumns: [], missing: {}, rowOf: {}, headers: {}, broken: [],
-      version: metaVersion(byTitle[META.title]), rewrites: [],
+      version: metaVersion(byTitle[META.title]), rewrites: [], junk: [],
     };
     const data = {};
     TABLES.forEach(t => { data[t] = readTable(t, byTitle[TAB[t].title], ctx); });
-    const { problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites } = ctx;
+    const { problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk } = ctx;
     const meterUrl = String(metaValue(byTitle[META.title], METER_KEY) ?? '').trim();
     const meterReadAt = String(metaValue(byTitle[META.title], METER_AT_KEY) ?? '').trim();
     const senderMail = String(metaValue(byTitle[META.title], SENDER_KEY) ?? '').trim();
     const toner = readToner(byTitle[TONER]);
-    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, meterUrl, meterReadAt, senderMail, toner };
+    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, toner };
   }
 
   // 一格的值（補上的欄用）
