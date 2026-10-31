@@ -158,11 +158,11 @@ test('業務員回報的字：前面加名字，不重複加；空白是清掉',
 test('讀信只讀寄信用 Gmail（_meta 的 senderMail，好幾個用逗號分開）寄來的信；還沒填時不讀，選單寫要去哪裡填', () => {
   const ss = rows => ({ getSheetByName: n => (n === '_meta' && rows ? { getDataRange: () => ({ getValues: () => rows }) } : null) });
   const meta = v => [['version', 1], ['meterUrl', 'https://x'], ['meterReadAt', ''], ['senderMail', v]];
-  assert.deepEqual(plain(senders_(ss(meta(' GSOA.copier@gmail.com, meter@gmail.com ')))), ['gsoa.copier@gmail.com', 'meter@gmail.com']);
+  assert.deepEqual(plain(senders_(ss(meta(' METER.abc@gmail.com, meter@gmail.com ')))), ['meter.abc@gmail.com', 'meter@gmail.com']);
   assert.deepEqual(plain(senders_(ss(meta('')))), []);
   assert.deepEqual(plain(senders_(ss(null))), []); // 沒有 _meta 分頁
-  assert.equal(senderOf_({ getFrom: () => 'RICOH <GSOA.Copier@gmail.com>' }), 'gsoa.copier@gmail.com');
-  assert.equal(senderOf_({ getFrom: () => 'gsoa.copier@gmail.com' }), 'gsoa.copier@gmail.com');
+  assert.equal(senderOf_({ getFrom: () => 'RICOH <Meter.ABC@gmail.com>' }), 'meter.abc@gmail.com');
+  assert.equal(senderOf_({ getFrom: () => 'meter.abc@gmail.com' }), 'meter.abc@gmail.com');
   assert.equal(resultText_({ count: 0, fixed: 0, noSender: true }), '沒有讀信：先到 App「設定 → 自動抄表 → 機器設定」填寄信用 Gmail');
   assert.equal(resultText_({ count: 2, fixed: 0 }), '寫進 2 筆');
 });
