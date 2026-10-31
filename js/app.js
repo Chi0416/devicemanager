@@ -349,10 +349,19 @@
       return;
     }
     if (!st.linked) {
+      // 業務員：iPhone 主畫面的 App 和 Safari 的資料分開，在 Safari 打開的邀請連結帶不過來，在這裡貼上（見 joinByPaste）
+      //   狀態一變就重畫，貼好的連結要留著
+      const typed = $('join-link')?.value || '';
       cloudEl.innerHTML = `
         <p class="note muted cloud-intro">連結後，資料會存到你自己的 Google 雲端硬碟（一份試算表）。手機和電腦登入同一個帳號，就能看到同一份資料，也可以直接用 Google 試算表查看、修改。</p>
         <button type="button" class="wide-btn primary" data-act="link" ${st.running ? 'disabled' : ''}>${st.running ? '連結中…' : '連結 Google 帳號'}</button>
-        ${redirectNote}`;
+        ${redirectNote}
+        <div class="field join-link">
+          <label for="join-link">業務員：貼上管理員傳的邀請連結</label>
+          <input id="join-link" type="url" inputmode="url" autocomplete="off" placeholder="https://…?join=…">
+        </div>
+        <button type="button" class="wide-btn" data-act="join" ${st.running ? 'disabled' : ''}>用邀請連結登入</button>`;
+      $('join-link').value = typed;
       return;
     }
     cloudEl.innerHTML = `
@@ -389,6 +398,7 @@
     if (act === 'link') Sync.startLink();
     else if (act === 'sync') Sync.syncNow();
     else if (act === 'redirect') Sync.loginByRedirect();
+    else if (act === 'join') joinByPaste();
     else if (act === 'logout') Sync.logout();
     else if (act === 'leave') {
       const n = Sync.state().pending;
@@ -660,6 +670,23 @@
     }
     try { sessionStorage.setItem(JOIN_KEY, url); } catch (_) {}
   })();
+  //   設定裡貼上邀請連結（整個連結，或只有總部網址）：和打開邀請連結一樣記下來，按的當下接著做提示列的按鈕（登入，或先問要不要換）
+  function inviteFrom(text) {
+    const s = String(text ?? '').trim();
+    let url = s;
+    try { url = new URL(s).searchParams.get('join') ?? s; } catch (_) {}
+    return METER_URL.test(url) ? url : '';
+  }
+  function joinByPaste() {
+    const url = inviteFrom($('join-link')?.value);
+    if (!url) {
+      toast('邀請連結不完整，請管理員重新複製', 'error');
+      return;
+    }
+    try { sessionStorage.setItem(JOIN_KEY, url); } catch (_) {}
+    renderSyncBar(Sync.state());
+    if (syncAction) syncAction();
+  }
   //   業務員模式：編輯的按鈕藏起來（style.css 的 .sales），新增只有抄表、保養（照權限）；可以做什麼寫在設定裡
   //   換了模式、權限、看全部時全部重畫（設備頁、總覽只算他的，新增按鈕跟著權限）
   const salesCanText = st => [st.salesPerms.includes('記抄表') && '抄表', st.salesPerms.includes('記保養') && '保養'].filter(Boolean).join('、');
