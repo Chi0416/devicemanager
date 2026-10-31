@@ -188,10 +188,25 @@
       .map(([k, row]) => menuRow(`data-open="${k}"`, row)).join('');
   }
 
+  // 清單頁分區：設備照新增設備時表單的順序；沒列在這裡的清單排在「其他」
+  const LIST_GROUPS = [
+    ['設備', ['options:類別', 'options:品牌', 'options:機型', 'statuses', 'options:選配件']],
+    ['保養', ['options:保養項目']],
+    ['人員和廠商', ['people', 'vendors']],
+  ];
+
   // 每一份清單一列：名稱、幾項；有不在清單裡的值時寫出來
   function renderListsMenu() {
-    listsMenu.innerHTML = menuLists().map(({ l, n, miss }) =>
-      menuRow(`data-list="${U.esc(l.key)}"`, { title: l.title, note: miss ? `${miss} 個不在清單裡` : '', warn: true, uses: `${n} 項` })).join('');
+    const ls = menuLists();
+    const listed = LIST_GROUPS.flatMap(([, keys]) => keys);
+    const groups = [
+      ...LIST_GROUPS.map(([head, keys]) => [head, keys.map(k => ls.find(x => x.l.key === k)).filter(Boolean)]),
+      ['其他', ls.filter(x => !listed.includes(x.l.key))],
+    ].filter(([, items]) => items.length);
+    listsMenu.innerHTML = groups.map(([head, items]) => `
+      <h3 class="section-head">${head}</h3>
+      <ul class="member-list">${items.map(({ l, n, miss }) =>
+        menuRow(`data-list="${U.esc(l.key)}"`, { title: l.title, note: miss ? `${miss} 個不在清單裡` : '', warn: true, uses: `${n} 項` })).join('')}</ul>`).join('');
   }
   listsMenu.addEventListener('click', e => {
     const btn = e.target.closest('[data-list]');
