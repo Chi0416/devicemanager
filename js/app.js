@@ -1,5 +1,5 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份
-//   底部 5 格：總覽｜位置｜設備｜抄表｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜合約｜異動（所有設備的放在一起看）
+//   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜合約｜異動（所有設備的放在一起看）
 (() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
   Records.upgrade();
@@ -28,6 +28,7 @@
   const RECORD_PAGES = [['maintenance', '保養', '保養'], ['refurbs', '翻新', '翻新'], ['readings', '抄表', '抄表'], ['contracts', '合約', '合約'], ['moves', '異動', '異動']];
   const PAGES = {
     overview: { title: '總覽' },
+    customers: { title: '客戶' },
     locations: { title: '位置' },
     devices: SCHEMAS.devices,
     ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, SCHEMAS[k]])),
@@ -47,6 +48,8 @@
         window.scrollTo(0, 0);
       },
     }),
+    // 客戶：每個客戶一張卡片（見 customers.js），點了打開客戶詳情
+    customers: createCustomers(),
     // 位置：每個位置一張卡片（見 places.js），點了打開位置詳情
     locations: createPlaces(),
     // 點設備卡片打開詳情（見 detail.js）
@@ -87,6 +90,7 @@
   // 底部的每一格（key）和裡面的頁（pages：[頁面, 上方切換的名稱]）；只有一頁的不顯示上方切換
   const GROUPS = [
     { key: 'overview', label: '總覽', pages: [['overview', '總覽']] },
+    { key: 'customers', label: '客戶', pages: [['customers', '客戶']] },
     { key: 'locations', label: '位置', pages: [['locations', '位置']] },
     { key: 'devices', label: '設備', pages: [['devices', '設備']] },
     { key: 'readings', label: '抄表', pages: [['readings', '抄表']] },
@@ -94,7 +98,7 @@
   ];
   const groupOf = key => GROUPS.find(g => g.key === key || g.pages.some(([k]) => k === key));
   // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽沒有新增按鈕
-  const ADD = { locations: ['locations', '位置'], devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.map(([k, , what]) => [k, [k, what]])) };
+  const ADD = { customers: ['customers', '客戶'], locations: ['locations', '位置'], devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.map(([k, , what]) => [k, [k, what]])) };
   const tabBtns = [...document.querySelectorAll('.tabbar [data-tab]')];
   const subtabsEl = $('subtabs');
   const addBtn = $('btn-add');
@@ -149,8 +153,8 @@
 
   // 每一份清單一列：名稱、幾項；有不在清單裡的值時寫出來
   function renderListsMenu() {
-    // 位置有自己的一頁（底部第二格），這裡不列
-    listsMenu.innerHTML = Refs.lists().filter(l => l.table !== 'locations').map(l => {
+    // 客戶、位置有自己的一頁（底部第二、三格），這裡不列
+    listsMenu.innerHTML = Refs.lists().filter(l => l.table !== 'locations' && l.table !== 'customers').map(l => {
       const n = Refs.listItems(l).length;
       const miss = new Set(Lists.missingOf(l).flatMap(x => x.values)).size;
       return `

@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.10.31.8">
+  <link rel="manifest" href="manifest.json?v=2026.10.31.9">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.10.31.8">
+  <link rel="stylesheet" href="css/style.css?v=2026.10.31.9">
 </head>
 <body>
   <div class="app">
@@ -56,6 +56,11 @@
       <button type="button" role="tab" data-tab="overview">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg>
         <span>總覽</span>
+      </button>
+      <!-- 客戶：每個客戶一張卡片（見 customers.js） -->
+      <button type="button" role="tab" data-tab="customers">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20.5V5.5A1.5 1.5 0 0 1 6.5 4h7A1.5 1.5 0 0 1 15 5.5v15"/><path d="M15 10h3a1.5 1.5 0 0 1 1.5 1.5v9"/><path d="M3 20.5h18"/><path d="M8.5 8h3M8.5 11.5h3M8.5 15h3"/></svg>
+        <span>客戶</span>
       </button>
       <button type="button" role="tab" data-tab="locations">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.4"/></svg>
@@ -169,7 +174,7 @@
     </div>
     <div class="sheet-body"></div>
   </dialog>
-  <!-- 客戶詳情（見 detail.js 的 Customer）：位置頁點客戶卡片、清單裡點客戶、位置詳情點客戶打開 -->
+  <!-- 客戶詳情（見 detail.js 的 Customer）：客戶頁點一張卡片、位置詳情點客戶打開 -->
   <dialog id="customer-sheet" class="sheet detail">
     <div class="sheet-head">
       <button type="button" class="text-btn" data-act="close">返回</button>
@@ -213,7 +218,7 @@
       <button type="button" class="text-btn" data-act="close">關閉</button>
     </div>
     <div class="sheet-body">
-      <!-- 清單：設備的類別、位置、客戶、品牌、保管人、廠商從這裡選（見 lists.js）；admin-only 的業務員看不到 -->
+      <!-- 清單：設備的類別、位置、品牌、保管人、廠商從這裡選（見 lists.js）；admin-only 的業務員看不到 -->
       <div class="admin-only">
         <h3 class="section-head">清單</h3>
         <ul id="lists-menu" class="member-list lists-menu"></ul>
@@ -240,7 +245,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.10.31.8</p>
+      <p class="note muted">版本 2026.10.31.9</p>
     </div>
   </dialog>
 
@@ -401,24 +406,25 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.10.31.8"></script>
-  <script src="js/schema.js?v=2026.10.31.8"></script>
-  <script src="js/storage.js?v=2026.10.31.8"></script>
-  <script src="js/refs.js?v=2026.10.31.8"></script>
-  <script src="js/records.js?v=2026.10.31.8"></script>
-  <script src="js/list.js?v=2026.10.31.8"></script>
-  <script src="js/form.js?v=2026.10.31.8"></script>
-  <script src="js/picker.js?v=2026.10.31.8"></script>
-  <script src="js/lists.js?v=2026.10.31.8"></script>
-  <script src="js/detail.js?v=2026.10.31.8"></script>
-  <script src="js/overview.js?v=2026.10.31.8"></script>
-  <script src="js/places.js?v=2026.10.31.8"></script>
-  <script src="js/config.js?v=2026.10.31.8"></script>
-  <script src="js/google.js?v=2026.10.31.8"></script>
-  <script src="js/sheet.js?v=2026.10.31.8"></script>
-  <script src="js/sync.js?v=2026.10.31.8"></script>
-  <script src="js/inbox.js?v=2026.10.31.8"></script>
-  <script src="js/app.js?v=2026.10.31.8"></script>
+  <script src="js/util.js?v=2026.10.31.9"></script>
+  <script src="js/schema.js?v=2026.10.31.9"></script>
+  <script src="js/storage.js?v=2026.10.31.9"></script>
+  <script src="js/refs.js?v=2026.10.31.9"></script>
+  <script src="js/records.js?v=2026.10.31.9"></script>
+  <script src="js/list.js?v=2026.10.31.9"></script>
+  <script src="js/form.js?v=2026.10.31.9"></script>
+  <script src="js/picker.js?v=2026.10.31.9"></script>
+  <script src="js/lists.js?v=2026.10.31.9"></script>
+  <script src="js/detail.js?v=2026.10.31.9"></script>
+  <script src="js/overview.js?v=2026.10.31.9"></script>
+  <script src="js/places.js?v=2026.10.31.9"></script>
+  <script src="js/customers.js?v=2026.10.31.9"></script>
+  <script src="js/config.js?v=2026.10.31.9"></script>
+  <script src="js/google.js?v=2026.10.31.9"></script>
+  <script src="js/sheet.js?v=2026.10.31.9"></script>
+  <script src="js/sync.js?v=2026.10.31.9"></script>
+  <script src="js/inbox.js?v=2026.10.31.9"></script>
+  <script src="js/app.js?v=2026.10.31.9"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>

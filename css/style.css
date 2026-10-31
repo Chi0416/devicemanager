@@ -435,6 +435,8 @@ body:has(dialog[open]) { overflow: hidden; }
 .tabbar-inner { display: flex; max-width: var(--max-w); height: var(--tabbar-h); margin: 0 auto; }
 .tabbar button {
   flex: 1;
+  min-width: 0; /* 6 格在窄手機（320）也放得下：按鈕的預設內距讓每格最少 64，第 6 格會被擠出去 */
+  padding: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1107,6 +1109,13 @@ button.model-cell:active .model-name { color: var(--accent-text); }
 .cust-row.off b { color: var(--muted); }
 .cust-row .go { flex: none; font-size: 18px; line-height: 1; color: var(--muted); }
 .cust-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* 客戶頁最下面：還沒選客戶的位置，點了展開，一個位置一列（.cust-row，跟客戶詳情一樣） */
+.nocust { margin-top: 14px; padding: 2px 16px; border: .5px solid var(--border); border-radius: 14px; background: var(--surface); }
+.nocust-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; padding: 12px 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.nocust-head .go { font-size: 18px; line-height: 1; color: var(--muted); transition: transform .15s; }
+.nocust-head[aria-expanded="true"] .go { transform: rotate(90deg); }
+.nocust .note { margin: 0 0 8px; }
+.nocust .cust-row:last-child { padding-bottom: 12px; }
 /* 位置詳情的異動：一台待過一段一張卡片，下面左右兩格是進來、離開，點一格打開那筆異動（卡片本身不能點） */
 .stay-card { cursor: default; }
 .stay-card:active { background: var(--surface); }

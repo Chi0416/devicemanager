@@ -1,11 +1,8 @@
-// 位置頁（底部第二格）：每個位置一張卡片，點了打開位置詳情（見 detail.js 的 Place）
+// 位置頁（底部第三格）：每個位置一張卡片，點了打開位置詳情（見 detail.js 的 Place）
 //   倉庫排最上面，其他照名稱；卡片：名稱、現在放的機器（空著寫最後一次搬走，倉庫寫幾台）、合約（快到期、已到期標色）、最近一期用量（跟前一期比）
 //   上面搜尋（名稱、以前的名字、客戶、放著的機器的機型名稱序號都找得到），篩選：全部（沒停用的）／有機器／空著／倉庫／停用
 //   放著的機器狀態和位置對不上（庫存放在客戶那裡、出租中放在倉庫，跟總覽一樣）：原本的標籤左邊加橘色「狀態不對」
 //   用量、合約一次算好全部的位置（見 records.js 的 usageByPlace、currentContracts）
-//   客戶有兩個位置以上（停用的不算）：「全部」裡合成一張客戶卡片，點了打開客戶詳情（見 detail.js 的 Customer）；其他篩選一個位置一張
-//     卡片：名稱、客戶標籤、幾個位置幾台機器、合約（快到期、已到期的有幾份）、主要業務員；裡面有位置狀態不對時加橘色「狀態不對」
-//     搜尋時：客戶的名稱、統編、母公司、聯絡人、電話、傳真對得上才出客戶卡片，位置收在裡面；只對得上位置的（3F、機器序號）照樣一個位置一張
 function createPlaces() {
   const FILTERS = [['', '全部'], ['on', '有設備'], ['empty', '空著'], ['stock', '倉庫'], ['off', '停用']];
   const state = { keyword: '', filter: '', flashId: null };
@@ -52,7 +49,7 @@ function createPlaces() {
         || String(a.p.name ?? '').localeCompare(String(b.p.name ?? ''), 'zh-Hant', { numeric: true }));
   }
 
-  // 位置的客戶的統編、電話…也找得到（名稱在 placeText 裡）
+  // 位置的客戶的統編、電話…也找得到（名稱在 placeText 裡）；客戶自己的卡片在客戶頁（見 customers.js）
   const searchText = x => [Records.placeText(x.p.code), Records.customerText(Records.customerOf(x.p) || {}),
     ...x.on.map(d => `${Records.label(d)} ${d.serial || ''}`)].join(' ');
   const inFilter = x => (state.filter ? x.kind === state.filter : x.kind !== 'off');
@@ -71,13 +68,12 @@ function createPlaces() {
     return m ? `${shortDate(m.date)} ${m.type || ''} ${Records.label(Records.device(m.device))}`.replace(/\s+/g, ' ').trim() : '還沒有放過機器';
   }
 
-  const cell = (label, main, sub, cls = '') =>
-    `<span class="cell"><small>${U.esc(label)}</small><span class="${cls}">${main}</span>${sub ? `<em>${U.esc(sub)}</em>` : ''}</span>`;
-
   function cellsHTML(x) {
     if (x.p.stock) return '';
     const c = Records.contractShort(x.contract);
     const u = Records.usageSummary(x.usage);
+    const cell = (label, main, sub, cls = '') =>
+      `<span class="cell"><small>${U.esc(label)}</small><span class="${cls}">${main}</span>${sub ? `<em>${U.esc(sub)}</em>` : ''}</span>`;
     const contract = c ? cell('合約', U.esc(c.text), c.sub, c.warn ? 'warn' : '') : cell('合約', '沒有合約', '', 'muted');
     let use;
     if (u) {
@@ -105,63 +101,15 @@ function createPlaces() {
       </button>`;
   }
 
-  // 客戶卡片：兩個位置以上（停用的不算）的客戶；places 是它的位置（rows 的那幾列，停用的也在）
-  function customerRows(all) {
-    const by = new Map();
-    all.forEach(x => {
-      const c = Records.customerOf(x.p);
-      if (!c) return;
-      if (!by.has(c.id)) by.set(c.id, { c, places: [] });
-      by.get(c.id).places.push(x);
-    });
-    return [...by.values()].filter(g => g.places.filter(x => x.kind !== 'off').length >= 2);
-  }
-
-  function customerHTML(g) {
-    const on = g.places.filter(x => x.kind !== 'off');
-    const n = on.reduce((sum, x) => sum + x.on.length, 0);
-    const flash = g.c.id === state.flashId || g.places.some(x => x.p.id === state.flashId);
-    return `
-      <button type="button" class="card place-card${flash ? ' flash' : ''}" data-customer="${U.esc(g.c.id)}">
-        <span class="card-top">
-          <span class="card-title">${U.esc(g.c.name)}</span>
-          ${on.some(x => x.wrong) ? '<span class="badge orange">狀態不對</span>' : ''}
-          <span class="badge blue">客戶</span>
-        </span>
-        <span class="card-sub">${on.length} 個位置・${n ? `${n} 台機器` : '沒有機器'}</span>
-        ${customerCells(g.c, on)}
-      </button>`;
-  }
-
-  // 合約：這些位置目前的合約（一份寫好幾個位置的算一份），有到期、快到期的寫幾份
-  function customerCells(c, on) {
-    const list = [...new Set(on.map(x => x.contract).filter(Boolean))];
-    const ends = list.map(Records.contractShort);
-    const over = ends.filter(e => e.text === '已到期').length;
-    const soon = ends.filter(e => e.warn).length - over;
-    const contract = !list.length ? cell('合約', '沒有合約', '', 'muted')
-      : over || soon ? cell('合約', over ? `${over} 份已到期` : `${soon} 份快到期`, `共 ${list.length} 份`, 'warn')
-        : cell('合約', `${list.length} 份`, '');
-    const sales = cell('主要業務員', c.sales ? U.esc(c.sales) : '—', '', c.sales ? '' : 'muted');
-    return `<span class="card-grid place-grid">${contract}${sales}</span>`;
-  }
-
-  // 全部：客戶卡片（客戶對得上搜尋的字）和其他的位置一起照名稱排，倉庫排最上面
   function render() {
     const all = rows();
     const kw = state.keyword.trim().toLowerCase();
-    const hit = text => !kw || text.toLowerCase().includes(kw);
-    const matched = all.filter(x => hit(searchText(x)));
+    const matched = kw ? all.filter(x => searchText(x).toLowerCase().includes(kw)) : all;
     const count = f => matched.filter(x => (f ? x.kind === f : x.kind !== 'off')).length;
     chipsEl.innerHTML = FILTERS.map(([f, label]) => `
       <button type="button" class="chip filter${state.filter === f ? ' on' : ''}" data-filter="${f}" aria-pressed="${state.filter === f}">${label}<span>${count(f)}</span></button>`).join('');
-    const groups = state.filter ? [] : customerRows(all).filter(g => hit(Records.customerText(g.c)));
-    const folded = new Set(groups.flatMap(g => g.places.map(x => x.p.id)));
-    const list = [
-      ...groups.map(g => ({ name: g.c.name, stock: false, html: customerHTML(g) })),
-      ...matched.filter(x => inFilter(x) && !folded.has(x.p.id)).map(x => ({ name: x.p.name, stock: x.kind === 'stock', html: cardHTML(x) })),
-    ].sort((a, b) => (b.stock - a.stock) || String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-Hant', { numeric: true }));
-    listEl.innerHTML = list.length ? list.map(x => x.html).join('')
+    const list = matched.filter(inFilter);
+    listEl.innerHTML = list.length ? list.map(cardHTML).join('')
       : `<p class="empty">${all.length ? '沒有符合條件的位置' : '還沒有位置<br>點右上角「＋ 新增位置」開始建立'}</p>`;
     state.flashId = null;
   }
@@ -175,11 +123,10 @@ function createPlaces() {
   });
   listEl.addEventListener('click', e => {
     const card = e.target.closest('.card');
-    if (card?.dataset.customer) Customer.open(card.dataset.customer);
-    else if (card) Place.open(card.dataset.id);
+    if (card) Place.open(card.dataset.id);
   });
 
-  // 新增或修改了位置：那一張閃一下（收在客戶卡片裡的，客戶卡片閃）；被篩選、搜尋藏起來的話先清掉
+  // 新增或修改了位置：那一張閃一下；被篩選、搜尋藏起來的話先清掉
   function changed(rec) {
     if (rec && Store.get('locations', rec.id)) {
       const x = rows().find(r => r.p.id === rec.id);

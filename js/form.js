@@ -38,6 +38,7 @@ const Form = (() => {
   let combos = [];    // 從清單選的欄位：{ list, info, open }（不是的欄位為 null）
   let manys = [];     // 可以選好幾個的欄位：表單上列出全部的那一塊（不是的欄位為 null）
   let autos = [];     // 系統產生的欄位：顯示值的那一格（不是的欄位為 null）
+  let heads = [];     // 小標題（schema 的 section）：{ el, from, to }，從第 from 個欄位到 to 之前是這一段
   let initial = [];   // 開啟或連續新增後的欄位值，用來判斷是否有未儲存的內容
   let original = [];  // 打開表單時的值（不在清單上的舊值，沒改的話照常可以存）
   let calcked = [];   // 各欄位上次自動算出來的值（schema 的 calc）；算出來的值變了、欄位還是上次的值時才跟著換
@@ -161,6 +162,7 @@ const Form = (() => {
     manys = fields.map(() => null);
     autos = fields.map(() => null);
     locked = fields.map(f => !!(rec && ((ctx.view && f.key !== 'report') || (f.lock && f.lock(rec)))));
+    heads = [];
     inputs = fields.map((f, i) => {
       // 一段的小標題（schema 的 section），佔滿整列
       if (f.section) {
@@ -168,6 +170,7 @@ const Form = (() => {
         head.className = 'form-section';
         head.textContent = f.section;
         fieldsEl.appendChild(head);
+        heads.push({ el: head, from: i });
       }
       const inp = makeInput(f, i === fields.length - 1);
       inp.id = `fld-${f.key}`;
@@ -244,6 +247,7 @@ const Form = (() => {
       fieldsEl.appendChild(wrap);
       return inp;
     });
+    heads.forEach((h, k) => { h.to = heads[k + 1]?.from ?? fields.length; });
     fields.forEach((f, i) => setVal(i, rec ? editValue(rec[f.key]) : f.key in preset ? editValue(preset[f.key]) : defaultValue(f)));
     syncTexts();
     // 修改舊資料：先記下現在算出來的值，之後依的欄位改了才跟著換（打開舊資料時不會被填上）；新增時馬上填
@@ -578,6 +582,8 @@ const Form = (() => {
     if (ctx.fields.some(f => f.showIf)) {
       const v = formValues();
       ctx.fields.forEach((f, i) => { if (f.showIf) inputs[i].closest('.field').hidden = !f.showIf(v); });
+      // 一段的欄位全部藏起來時（新增合約時的提前結束日），小標題也藏
+      heads.forEach(h => { h.el.hidden = inputs.slice(h.from, h.to).every(inp => inp.closest('.field').hidden); });
     }
     // 顯示的字依其他欄位算的（異動的原位置依日期）：沒有在打字時跟著換
     combos.forEach((c, i) => { if (c && ctx.fields[i].shown && !c.open) syncText(i); });

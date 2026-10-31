@@ -477,6 +477,9 @@ const Records = (() => {
   // 搜尋用：名稱、統編、母公司、聯絡人、電話、傳真；地址常寫樓層，不拿來比（打 3F 時鼎泰國際 4F、5F 會跟著出來）
   const customerText = c => [c.name, c.taxId, c.parent, c.contact, c.phone, c.fax].filter(Boolean).join(' ');
 
+  // 還沒選客戶的位置（客戶空白，或打的名字不在客戶裡）：倉庫、停用的不算；客戶頁最下面列出來，方便補（見 customers.js）
+  const noCustomerPlaces = () => Store.list('locations').filter(p => !p.stock && !p.disabled && !customerOf(p)).sort(byName);
+
   // 母公司只分一層：自己、已經有母公司的不能選
   const parentChoices = values => r => r.id !== values.id && !key(r.parent);
   // 存檔時：底下有公司的不能再有母公司；選的母公司自己也有母公司時，請他選最上面的
@@ -1329,7 +1332,7 @@ const Records = (() => {
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
     moveDateNote, moveToNote, isStock, disableCheck, salesCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
-    customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, parentChoices, parentCheck,
+    customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, noCustomerPlaces, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,

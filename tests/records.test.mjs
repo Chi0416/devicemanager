@@ -446,6 +446,16 @@ test('客戶：位置的客戶存名稱；客戶的位置（倉庫不算）、�
   assert.equal(Store.get('locations', f3.id).customer, '鼎泰');
 });
 
+test('還沒選客戶的位置：客戶空白或打的名字不在客戶裡；倉庫、停用的不算；選了客戶就不列', () => {
+  const { Store, Records, add } = withCustomers();
+  const a = add('locations', { code: 'L0005', name: '安心診所 櫃台' });
+  add('locations', { code: 'L0006', name: '不在清單', customer: '沒有這個客戶' });
+  add('locations', { code: 'L0007', name: '舊位置', disabled: true });
+  assert.deepEqual(plain(Records.noCustomerPlaces().map(p => p.name)), ['不在清單', '安心診所 櫃台']);
+  Store.update('locations', a.id, { customer: '宏遠建設' });
+  assert.deepEqual(plain(Records.noCustomerPlaces().map(p => p.name)), ['不在清單']);
+});
+
 test('客戶的主要業務員：只列勾了業務員的人；位置選了客戶時業務員先帶他，倉庫不帶', () => {
   const { Refs, Records, field, dt } = withCustomers();
   const f = field('customers', 'sales');
@@ -1516,4 +1526,18 @@ test('抄表、保養卡片最下面一行：有業務員回報時寫回報（�
   assert.equal(field('readings', 'report').showIf({ report: '' }), false);
   assert.equal(field('readings', 'report').showIf({ report: '阿明：x' }), true);
   assert.equal(field('maintenance', 'by').hidden, true);
+});
+
+test('表單的順序（formOrder）：寫的欄位都有、不重複；新增時不出現停用、以前的名字、提前結束日', () => {
+  const { SCHEMAS, field } = app();
+  Object.entries(SCHEMAS).forEach(([t, s]) => {
+    const keys = s.fields.map(f => f.key);
+    (s.formOrder || []).forEach(k => assert.ok(keys.includes(k), `${t} 的 formOrder 沒有 ${k}`));
+    assert.equal(new Set(s.formOrder || []).size, (s.formOrder || []).length, `${t} 的 formOrder 重複`);
+  });
+  [['locations', 'disabled'], ['locations', 'oldNames'], ['contracts', 'earlyEnd'], ['vendors', 'disabled'], ['statuses', 'disabled'], ['options', 'disabled']]
+    .forEach(([t, k]) => {
+      assert.equal(field(t, k).showIf({ id: null }), false, `${t}.${k} 新增時`);
+      assert.equal(field(t, k).showIf({ id: 'x' }), true, `${t}.${k} 編輯時`);
+    });
 });

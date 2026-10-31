@@ -17,7 +17,7 @@
 //   digits:      數字顯示時最少的小數位數
 //   full:        表單中佔滿整列（預設半列）
 //   tight:       表單上字距縮一點（主機板號碼 15 碼在半格裡放得下）
-//   section:     表單裡從這個欄位開始的一段的小標題（基本資料、機器識別…）
+//   section:     表單裡從這個欄位開始的一段的小標題（基本資料、機器識別…）；照表單上的順序（formOrder）算；一段的欄位全部藏起來時小標題也藏
 //   formLabel:   表單上的名稱和試算表的標題不一樣時（紀錄的設備欄：試算表寫「設備」，表單上寫「位置」，異動寫「原位置」）
 //   placeholder: 從清單選的欄位裡的灰字，沒有時寫「選擇或搜尋」
 //   hidden:      表單上不顯示，由 calc 填好（異動的原位置）
@@ -48,7 +48,9 @@
 //   was:         這個欄位以前在試算表上的標題（改名前），讀得到舊標題的試算表，同步時改成新標題
 //   （資料表）title:     頁面標題，也是試算表的分頁名稱
 //   （資料表）formTitle: 表單標題用的名稱，沒有時用 title；可以是函式：formTitle(這一筆或新增時帶入的值)（選項寫清單的名稱）
-//   （資料表）formOrder: 表單上先排的欄位（其他照 fields 的順序）；試算表照 fields 的順序（異動：表單上類型在最上面）
+//   （資料表）formOrder: 表單上先排的欄位（其他照 fields 的順序）；試算表照 fields 的順序（後來加的欄位試算表上排在最後，表單上照這裡排）
+//                       表單的排法：常填的在上面、系統自己記的在下面；自動帶的跟在它依的欄位後面；同一組的放在一起，長的表單加小標題（section）；
+//                       停用放最後，新增時不出現（showIf: v => !!v.id）
 //   （資料表）describe:  一筆資料的簡短說明（儲存後的提示、提醒裡用）：describe(列)；沒有時用 card 的編號、名稱、標籤
 //   （資料表）unit:      筆數的單位（「3 台設備」），被清單引用時的說明用
 //   （資料表）card:      列表卡片：code 灰色小字、title 名稱（可以是函式：title(列)）、sub(列) 名稱下面一行小字、badge 標籤、primary 右上角、
@@ -253,6 +255,8 @@ const SCHEMAS = {
     // 標題寫機型＋名稱（IMC6000 #1001），下面一行寫機器序號（查機器、印紀錄時最常用）
     //   序號那一行的右邊（狀態標籤下面）寫最新回報多久以前（今天 08:30、5 天前）；沒回報過的不寫（見 records.js 的 reportNote）
     card: { title: r => Records.label(r), sub: r => (r.serial ? `序號 ${r.serial}` : ''), side: r => Records.reportNote(r), badge: 'status', grid: ['location', 'keeper'] },
+    // 表單上：類別、品牌、機型、名稱（卡片寫機型＋名稱，名稱的提醒要先選機型）；狀態跟著位置帶，放在位置後面
+    formOrder: ['code', 'category', 'brand', 'model', 'name', 'serial', 'board', 'location', 'status', 'keeper'],
     note: warrantyNote,
     describe: r => Records.label(r),
     unique: [['code'], ['board']],
@@ -298,6 +302,8 @@ const SCHEMAS = {
     title: '位置',
     unit: '個位置',
     noList: true,
+    // 表單上：先選客戶（業務員跟著帶），再寫名稱、地址；倉庫很少新增，放在下面；停用、以前的名字只有編輯時有
+    formOrder: ['code', 'customer', 'name', 'address', 'sales', 'note', 'stock', 'disabled', 'oldNames'],
     target: { name: 'code', addAs: 'name', label: r => r.name || r.code, sub: r => Records.placeSub(r), also: r => r.oldNames,
       active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
     unique: [['code'], ['name']],
@@ -307,7 +313,7 @@ const SCHEMAS = {
     fields: [
       { key: 'code',     label: '編號',       type: 'text', auto: nextLocationCode, hidden: true },
       { key: 'name',     label: '名稱',       type: 'text', full: true, hint: '寫到分得出是哪一格，例如「大華公司 3F」' },
-      { key: 'oldNames', label: '以前的名字', type: 'text', optional: true, full: true, multiline: true, hint: '改名時自動記下來' },
+      { key: 'oldNames', label: '以前的名字', type: 'text', optional: true, full: true, multiline: true, hint: '改名時自動記下來', showIf: v => !!v.id },
       { key: 'stock',    label: '倉庫',       type: 'flag', optional: true, hint: '倉庫、維修中心這類，可以放好幾台' },
       // 客戶：存客戶名稱；兩個位置以上的客戶在位置頁合成一張卡片（見 places.js）；倉庫沒有這一格
       { key: 'customer', label: '客戶',       type: 'ref', ref: 'customers', optional: true, full: true, showIf: v => v.stock !== 'true' },
@@ -318,7 +324,7 @@ const SCHEMAS = {
       { key: 'address',  label: '地址',       type: 'text', optional: true, full: true },
       // 還放著機器的不能停用（先撤機）
       { key: 'disabled', label: '停用',       type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的資料照常顯示',
-        check: v => Records.disableCheck(v) },
+        showIf: v => !!v.id, check: v => Records.disableCheck(v) },
       { key: 'note',     label: '備註',       type: 'text', optional: true, full: true, multiline: true },
     ],
   },
@@ -331,21 +337,23 @@ const SCHEMAS = {
     title: '客戶',
     unit: '個客戶',
     noList: true,
+    // 表單上：公司資料、聯絡方式、其他（主要業務員是我們這邊的人，放在後面）
+    formOrder: ['name', 'taxId', 'parent', 'contact', 'phone', 'fax', 'billAddress', 'shipAddress', 'sales', 'note'],
     target: { name: 'name', sub: r => [r.taxId && `統編 ${r.taxId}`, r.parent && `母公司 ${r.parent}`].filter(Boolean).join(' · '),
       removeHint: '先把用到它的位置改掉' },
     unique: [['name']],
     uniqueMsg: dup => `已經有「${dup.name}」了`,
     describe: r => r.name,
     fields: [
-      { key: 'name',        label: '名稱',       type: 'text', full: true },
+      { key: 'name',        label: '名稱',       type: 'text', full: true, section: '公司資料' },
       { key: 'taxId',       label: '統一編號',   type: 'tel', optional: true },
-      { key: 'sales',       label: '主要業務員', type: 'ref', ref: 'people', optional: true, noAdd: true, hint: '新增位置時業務員先帶他',
+      { key: 'sales',       label: '主要業務員', type: 'ref', ref: 'people', optional: true, full: true, noAdd: true, hint: '新增位置時業務員先帶他', section: '其他',
         only: () => p => !!p.sales, onlyNote: () => '沒有勾「業務員」，先到人員勾', check: v => Records.salesCheck(v, 'customers') },
-      { key: 'parent',      label: '母公司',     type: 'ref', ref: 'customers', optional: true, full: true,
+      { key: 'parent',      label: '母公司',     type: 'ref', ref: 'customers', optional: true,
         only: v => Records.parentChoices(v), onlyNote: () => '已經有母公司的不能選（只分一層）', check: v => Records.parentCheck(v) },
       { key: 'billAddress', label: '帳單地址',   type: 'text', optional: true, full: true, hint: '帳單寄母公司的，填母公司的地址' },
       { key: 'shipAddress', label: '送貨地址',   type: 'text', optional: true, full: true },
-      { key: 'contact',     label: '聯絡人',     type: 'text', optional: true },
+      { key: 'contact',     label: '聯絡人',     type: 'text', optional: true, section: '聯絡方式' },
       { key: 'phone',       label: '電話',       type: 'tel', optional: true },
       { key: 'fax',         label: '傳真',       type: 'tel', optional: true },
       noteField(),
@@ -361,8 +369,8 @@ const SCHEMAS = {
   //   狀態：撤機先帶庫存、安裝先帶出租中，可以改（失火選報廢、故障選維修中）；存了最新一筆時設備的狀態跟著改
   moves: {
     title: '異動',
-    // 表單上：類型一整列（手機上四個按鈕才不擠），下面日期和狀態一列（狀態跟著類型帶）；試算表照下面欄位的順序
-    formOrder: ['type', 'date', 'status'],
+    // 表單上：類型一整列（手機上四個按鈕才不擠），再來日期、原位置、新位置；狀態跟著類型帶，放在新位置後面；試算表照下面欄位的順序
+    formOrder: ['type', 'date', 'device', 'to', 'status'],
     once: true,
     period: recordMonth('date'),
     card: { title: r => Records.moveTitle(r), badge: 'type', grid: [] },
@@ -400,6 +408,8 @@ const SCHEMAS = {
   contracts: {
     title: '合約',
     once: true,
+    // 表單上：合約、抄表、其他三段；提前結束日很少用，放最後，只有編輯時有（新簽的合約不會提前結束）
+    formOrder: ['locations', 'signDate', 'endDate', 'content', 'billing', 'cycle', 'readDay', 'earlyEnd'],
     period: recordMonth('signDate'),
     card: { title: r => Records.firstLine(r.content) || '合約', grid: [] },
     status: r => (Records.isCurrentContract(r) ? { label: '目前', cls: 'blue' } : null),
@@ -418,15 +428,15 @@ const SCHEMAS = {
     afterSave: (before, after) => Records.logContract(before, after),
     afterRemove: r => Records.dropContractLog(r),
     fields: [
-      placeField('locations', '位置', { many: true, full: true, placeholder: '選擇或搜尋，可以選好幾個' }),
+      placeField('locations', '位置', { many: true, full: true, placeholder: '選擇或搜尋，可以選好幾個', section: '合約' }),
       // 不預設今天：補登舊合約忘了改日期，會變成這個位置目前的合約
       { key: 'signDate', label: '簽約日', type: 'date' },
       { key: 'endDate', label: '到期日', type: 'date', optional: true },
-      { key: 'earlyEnd', label: '提前結束日', type: 'date', optional: true, hint: '違約、提前結束時才填' },
+      { key: 'earlyEnd', label: '提前結束日', type: 'date', optional: true, hint: '違約、提前結束時才填', section: '其他', showIf: v => !!v.id },
       { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true },
       { key: 'billing', label: '計費方式', type: 'text', optional: true, full: true, multiline: true },
       { key: 'readDay', label: '抄表日期', type: 'text', optional: true, full: true },
-      { key: 'cycle', label: '抄表週期', type: 'text', optional: true, full: true, toggle: toggleOf(READ_CYCLES), hint: '空白＝每月' },
+      { key: 'cycle', label: '抄表週期', type: 'text', optional: true, full: true, toggle: toggleOf(READ_CYCLES), hint: '空白＝每月', section: '抄表' },
     ],
   },
 
@@ -508,18 +518,20 @@ const SCHEMAS = {
     search: ['device', 'content', 'engineer', 'serial', 'source', 'note'],
     searchText: r => Records.deviceText(r.device, r.date),
     searchHint: '搜尋位置或翻新項目',
+    // 表單上：翻新（日期、工程師、項目、噴漆）、機器來歷（序號、國別、來源、入庫日）、其他
+    formOrder: ['device', 'date', 'engineer', 'content', 'painted', 'serial', 'country', 'source', 'stockDate', 'note'],
     fields: [
       deviceField(),
-      dateField('date', '翻新日期'),
+      dateField('date', '翻新日期', { section: '翻新' }),
       { key: 'stockDate', label: '入庫日', type: 'date', optional: true },
       { key: 'engineer',  label: '工程師', type: 'ref', ref: 'people', optional: true },
-      { key: 'serial',    label: '序號', type: 'text', optional: true, caps: true, upper: true,
+      { key: 'serial',    label: '序號', type: 'text', optional: true, caps: true, upper: true, section: '機器來歷',
         calc: v => Records.device(v.device)?.serial || '', note: v => Records.serialNote(v) },
       { key: 'country',   label: '國別', type: 'text', optional: true, toggle: toggleOf(COUNTRIES) },
       { key: 'source',    label: '廠商或來源', was: ['原廠商'], type: 'text', optional: true },
       { key: 'painted',   label: '噴漆', type: 'flag', optional: true },
       { key: 'content',   label: '翻新項目', type: 'text', full: true, multiline: true },
-      noteField(),
+      { ...noteField(), section: '其他' },
     ],
   },
 
@@ -553,11 +565,12 @@ const SCHEMAS = {
     seed: () => DEFAULT_STATUSES.map((s, i) => ({ id: `seed-s${i + 1}`, name: s.name, color: s.color, order: i + 1, quiet: !!s.quiet, disabled: false })),
     fields: [
       { key: 'name',     label: '名稱',     type: 'text' },
-      { key: 'order',    label: '順序',     type: 'number', optional: true, hint: '數字小的排前面；新增設備時預設選第一個' },
+      // 順序在設定的清單用 ↑ ↓ 排（存 1、2、3…），表單上不顯示
+      { key: 'order',    label: '順序',     type: 'number', optional: true, hidden: true },
       { key: 'color',    label: '顏色',     type: 'text', full: true, default: '藍', suggest: COLORS.map(c => c.value),
         toggle: COLORS.map(c => ({ value: c.value, label: c.value, tone: c.tone, match: new RegExp(`^${c.value}$`) })) },
       { key: 'quiet',    label: '不用提醒', type: 'flag', optional: true, hint: '報廢、遺失這類：不提醒保固、保養' },
-      { key: 'disabled', label: '停用',     type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示' },
+      { key: 'disabled', label: '停用',     type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示', showIf: v => !!v.id },
     ],
   },
 
@@ -580,7 +593,7 @@ const SCHEMAS = {
         toggle: OPTION_LISTS.map(v => ({ value: v, label: v, tone: '', match: new RegExp(`^${v}$`) })) },
       { key: 'name',     label: '名稱', type: 'text', full: true, clean: cleanOption },
       { key: 'order',    label: '順序', type: 'number', optional: true, hidden: true },
-      { key: 'disabled', label: '停用', type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示' },
+      { key: 'disabled', label: '停用', type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示', showIf: v => !!v.id },
       // 只有機型有：總覽依世代分組，汰舊換新時看得出舊的還有幾台；空白時照型號猜，猜不到的放「其他」
       //   試算表上排在最後（後來加的欄），表單上在名稱下面（formOrder）
       { key: 'gen',      label: '世代', type: 'text', optional: true, full: true, suggest: GENERATIONS,
@@ -607,22 +620,24 @@ const SCHEMAS = {
     uniqueMsg: (dup, keys) => (keys[0] === 'code'
       ? `員工編號 ${dup.code} 已經用過了（${dup.name}）`
       : `已經有「${dup.name}」了；同名的話可以寫成「${dup.name}（部門）」`),
+    // 表單上：基本資料、業務員（後來加的一組，放在一起）、其他
+    formOrder: ['name', 'code', 'jobTitle', 'dept', 'phone', 'email', 'joinDate', 'leaveDate', 'sales', 'perms', 'all', 'note'],
     fields: [
-      { key: 'name',      label: '姓名',     type: 'text' },
+      { key: 'name',      label: '姓名',     type: 'text', section: '基本資料' },
       { key: 'code',      label: '員工編號', type: 'text', optional: true, caps: true, upper: true, hint: '有填的話不能重複' },
       { key: 'jobTitle',  label: '職稱',     type: 'text', optional: true },
       { key: 'dept',      label: '部門',     type: 'text', optional: true },
       { key: 'phone',     label: '電話',     type: 'tel', optional: true },
       { key: 'email',     label: 'Email',    type: 'email', optional: true, hint: '業務員用這個 Gmail 登入',
         check: v => (v.sales === 'true' && !String(v.email ?? '').trim() ? '業務員要填 Email' : '') },
-      { key: 'sales',     label: '業務員',   type: 'flag', optional: true, hint: '負責的客戶在位置上選' },
+      { key: 'sales',     label: '業務員',   type: 'flag', optional: true, hint: '負責的客戶在位置上選', section: '業務員' },
       { key: 'perms',     label: '權限',     type: 'multi', choices: SALES_PERMS, optional: true, full: true, hint: '只能新增，不能改、不能刪',
         showIf: v => v.sales === 'true', calc: v => (v.sales === 'true' ? SALES_PERMS.join('、') : '') },
       { key: 'all',       label: '看全部',   type: 'flag', optional: true, hint: '看得到所有的客戶，不只自己負責的（主管用）',
         showIf: v => v.sales === 'true' },
       { key: 'joinDate',  label: '入職日',   type: 'date', optional: true },
       { key: 'leaveDate', label: '離職日',   type: 'date', optional: true, hint: '這天以後不會出現在選單裡' },
-      { key: 'note',      label: '備註',     type: 'text', optional: true, full: true, multiline: true },
+      { key: 'note',      label: '備註',     type: 'text', optional: true, full: true, multiline: true, section: '其他' },
     ],
   },
 
@@ -634,12 +649,14 @@ const SCHEMAS = {
       off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
     unique: [['name']],
     uniqueMsg: dup => `已經有「${dup.name}」了`,
+    // 表單上：停用放最後，只有編輯時有
+    formOrder: ['name', 'contact', 'phone', 'address', 'note', 'disabled'],
     fields: [
       { key: 'name',     label: '名稱',   type: 'text' },
       { key: 'contact',  label: '聯絡人', type: 'text', optional: true },
       { key: 'phone',    label: '電話',   type: 'tel', optional: true },
       { key: 'address',  label: '地址',   type: 'text', optional: true, full: true },
-      { key: 'disabled', label: '停用',   type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示' },
+      { key: 'disabled', label: '停用',   type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示', showIf: v => !!v.id },
       { key: 'note',     label: '備註',   type: 'text', optional: true, full: true, multiline: true },
     ],
   },
