@@ -9,6 +9,7 @@
 //                           每次列選單時呼叫一次，先算好要用的（異動的新位置：空的位置在最上面）
 //                     only：下拉選單依表單填的內容只列一部分：only(values) 回傳 (一項) → true/false，不用篩時回傳 null（異動依類型）
 //                     onlyNote：打了一項沒列出來的名字時，選單裡寫為什麼：onlyNote(values) 回傳文字
+//                     noAdd：這一欄的下拉選單不能「＋ 新增」（位置的業務員：要先到人員勾業務員）
 //                multi（可以複選）：choices 是選項，存成「甲、乙」
 //                flag（勾選）：存 true／false，試算表上是核取方塊
 //   optional:    可以空白
@@ -127,6 +128,8 @@ const COUNTRIES = [{ value: '美', tone: '' }, { value: '日', tone: '' }]; // �
 const PAGE_KINDS = [{ value: '全部', tone: '' }, { value: '彩色', tone: '' }]; // 保養項目算哪種張數（全部＝黑白加彩色）
 // 合約的抄表週期（總覽的「該抄表了」照它算，空白當每月，見 records.js 的 readingsDue）
 const READ_CYCLES = ['每月', '雙月', '每季', '半年', '每年'].map(value => ({ value, tone: '' }));
+// 業務員的權限（人員勾了業務員才有；新的業務員預設全部打開，見 PLAN.md 的業務員）
+const SALES_PERMS = ['記抄表', '記保養', '做異動', '改設備'];
 
 // 設備的編號：年份兩位數＋流水號四位數（26-0001），年份照購買日期，沒填購買日期用今年
 //   同一年的取最大的號碼往下編；舊的、自己打的編號（NB-001）不影響
@@ -292,6 +295,9 @@ const SCHEMAS = {
       { key: 'name',     label: '名稱',       type: 'text', full: true, hint: '寫到分得出是哪一格，例如「大華公司 3F」' },
       { key: 'oldNames', label: '以前的名字', type: 'text', optional: true, full: true, multiline: true, hint: '改名時自動記下來' },
       { key: 'stock',    label: '倉庫',       type: 'flag', optional: true, hint: '倉庫、維修中心這類，可以放好幾台' },
+      // 負責的業務員：只列勾了業務員的人員；倉庫只有管理員看，不用填
+      { key: 'sales',    label: '業務員',     type: 'ref', ref: 'people', optional: true, full: true, noAdd: true, showIf: v => v.stock !== 'true',
+        only: () => p => !!p.sales, onlyNote: () => '沒有勾「業務員」，先到人員勾', check: v => Records.salesCheck(v) },
       // 還放著機器的不能停用（先撤機）
       { key: 'disabled', label: '停用',       type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的資料照常顯示',
         check: v => Records.disableCheck(v) },
@@ -541,7 +547,7 @@ const SCHEMAS = {
   people: {
     title: '人員',
     noList: true,
-    target: { name: 'name', active: stillHere, sub: r => [r.jobTitle, r.dept].filter(Boolean).join(' · '),
+    target: { name: 'name', active: stillHere, sub: r => [r.jobTitle, r.dept, r.sales && '業務員'].filter(Boolean).join(' · '),
       off: '已離職', removeHint: '不再使用的話，可以填「離職日」' },
     unique: [['code'], ['name']],
     uniqueMsg: (dup, keys) => (keys[0] === 'code'
@@ -553,7 +559,11 @@ const SCHEMAS = {
       { key: 'jobTitle',  label: '職稱',     type: 'text', optional: true },
       { key: 'dept',      label: '部門',     type: 'text', optional: true },
       { key: 'phone',     label: '電話',     type: 'tel', optional: true },
-      { key: 'email',     label: 'Email',    type: 'email', optional: true },
+      { key: 'email',     label: 'Email',    type: 'email', optional: true, hint: '業務員用這個 Gmail 登入',
+        check: v => (v.sales === 'true' && !String(v.email ?? '').trim() ? '業務員要填 Email' : '') },
+      { key: 'sales',     label: '業務員',   type: 'flag', optional: true, hint: '負責的客戶在位置上選' },
+      { key: 'perms',     label: '權限',     type: 'multi', choices: SALES_PERMS, optional: true, full: true,
+        showIf: v => v.sales === 'true', calc: v => (v.sales === 'true' ? SALES_PERMS.join('、') : '') },
       { key: 'joinDate',  label: '入職日',   type: 'date', optional: true },
       { key: 'leaveDate', label: '離職日',   type: 'date', optional: true, hint: '這天以後不會出現在選單裡' },
       { key: 'note',      label: '備註',     type: 'text', optional: true, full: true, multiline: true },

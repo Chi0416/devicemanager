@@ -319,6 +319,7 @@ const Place = (() => {
           ${p.stock ? '<span class="badge purple">倉庫</span>' : ''}
           ${p.disabled ? '<span class="badge gray">停用</span>' : ''}
         </span>
+        ${!p.stock && p.sales ? `<span class="card-sub">業務員：${U.esc(p.sales)}</span>` : ''}
         ${olds.length ? `<span class="card-sub">以前叫：${U.esc(olds.join('、'))}</span>` : ''}
         ${p.note ? `<span class="card-sub">${U.esc(Records.firstLine(p.note))}</span>` : ''}
         ${on.length ? links : '<span class="card-note">現在沒有機器</span>'}

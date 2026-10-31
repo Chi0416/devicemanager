@@ -287,7 +287,7 @@ const Form = (() => {
   //   點一下列出整份清單（停用的不列），打字時篩選；找不到時最下面是「＋ 新增」（紀錄的設備欄沒有）
   //   下拉選單蓋在下面的欄位上，表單不會跟著變長變短
   const listName = f => (f.list ? `${f.list}清單` : SCHEMAS[f.ref].title);
-  const canAdd = f => !Refs.targetOf(f.ref).noAdd;
+  const canAdd = f => !f.noAdd && !Refs.targetOf(f.ref).noAdd;
 
   //   顯示的字和存的值不一樣時（設備：顯示位置、存編號），另外一格給人看、打字搜尋，存的值放在藏起來的 inputs[i]
   const labelOf = f => Refs.targetOf(f.ref).label || null;
@@ -553,6 +553,7 @@ const Form = (() => {
       if (!cur || cur === calcked[i]) {
         inputs[i].value = c;
         if (c) setError(i, '');
+        if (f.toggle || f.type === 'multi') renderToggles();
         if (combos[i]) {
           syncText(i);
           renderCombo(i);

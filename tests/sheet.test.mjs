@@ -22,7 +22,7 @@ const device = (id, over = {}) => ({
 });
 
 const person = (id, over = {}) => ({
-  id, name: '', code: '', jobTitle: '', dept: '', phone: '', email: '', joinDate: null, leaveDate: null, note: '', ...over,
+  id, name: '', code: '', jobTitle: '', dept: '', phone: '', email: '', sales: false, perms: '', joinDate: null, leaveDate: null, note: '', ...over,
 });
 // 紀錄：設備欄寫設備編號
 const work = (id, over = {}) => ({ id, device: '', date: null, bw: null, color: null, note: '', ...over });
@@ -40,11 +40,11 @@ const sample = () => ({
   ],
   // 位置：編號系統給的，設備、異動、合約存編號；以前的名字可以好幾行
   locations: [
-    { id: 'l1', code: 'L0001', name: '3F 會議室', oldNames: '3F 小會議室（到 2026/01/01）', stock: false, disabled: false, note: '' },
-    { id: 'l2', code: 'L0002', name: '舊倉庫', oldNames: '', stock: true, disabled: true, note: '' },
+    { id: 'l1', code: 'L0001', name: '3F 會議室', oldNames: '3F 小會議室（到 2026/01/01）', stock: false, sales: '王小明', disabled: false, note: '' },
+    { id: 'l2', code: 'L0002', name: '舊倉庫', oldNames: '', stock: true, sales: '', disabled: true, note: '' },
   ],
   people: [
-    person('p1', { name: '王小明', code: 'E001', jobTitle: '資訊組長', dept: '資訊組', joinDate: '2020-02-01' }),
+    person('p1', { name: '王小明', code: 'E001', jobTitle: '資訊組長', dept: '資訊組', email: 'a@gmail.com', sales: true, perms: '記抄表、做異動', joinDate: '2020-02-01' }),
     person('p2', { name: '陳大華', leaveDate: '2026-06-30' }),
   ],
   vendors: [vendor('v1', { name: '原價屋', phone: '02-1234-5678' })],
@@ -208,8 +208,9 @@ test('勾選的欄位：寫成 true／false（核取方塊）；手打的「是�
 
 test('人員沒有用途欄、廠商沒有類型欄（舊的欄 App 不讀）', () => {
   const v = plain(Sheet.toValues(sample()));
-  assert.deepEqual(v['人員'][0], ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '入職日', '離職日', '備註', 'id']);
+  assert.deepEqual(v['人員'][0], ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '業務員', '權限', '入職日', '離職日', '備註', 'id']);
   assert.equal(v['人員'][1][1], 'E001');
+  assert.deepEqual(v['人員'][1].slice(6, 8), [true, '記抄表、做異動']); // 業務員是核取方塊，權限寫成「、」分開的文字
   assert.deepEqual(v['廠商'][0], ['名稱', '聯絡人', '電話', '地址', '停用', '備註', 'id']);
 });
 
@@ -350,8 +351,9 @@ test('紀錄：設備欄寫設備編號（純文字）；保養一筆一個項�
   assert.deepEqual(v['合約'][0], ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期', '抄表週期', 'id']);
   assert.equal(v['合約'][1][0], 'L0001、L0002'); // 位置存編號，好幾個用「、」分開
   assert.deepEqual(v['合約修改紀錄'][0], ['合約', '日期', '欄位', '改之前', '改之後', 'id']);
-  assert.deepEqual(v['位置'][0], ['編號', '名稱', '以前的名字', '倉庫', '停用', '備註', 'id']);
-  assert.deepEqual(v['位置'][2].slice(0, 5), ['L0002', '舊倉庫', '', true, true]);
+  assert.deepEqual(v['位置'][0], ['編號', '名稱', '以前的名字', '倉庫', '業務員', '停用', '備註', 'id']);
+  assert.deepEqual(v['位置'][1][4], '王小明'); // 業務員寫名字
+  assert.deepEqual(v['位置'][2].slice(0, 6), ['L0002', '舊倉庫', '', true, '', true]);
   assert.deepEqual(v['抄表'][0], ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', 'id']);
   assert.equal(v['抄表'][1][2], '2026/02'); // 結算月份存成文字
   assert.deepEqual(v['保養'][0], ['設備', '日期', '項目', '黑白張數', '彩色張數', '備註', 'id']);

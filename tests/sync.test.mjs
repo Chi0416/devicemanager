@@ -1005,14 +1005,14 @@ test('在試算表裡勾「停用」、新增人員（沒有 id），同步後 A
   const { fake, d, id } = await linked();
   const row = fake.values(id, '選項').findIndex(r => r[1] === '碎紙機') + 1;
   fake.setCell(id, '選項', row, 3, true);
-  fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '2020/2/1', '', '備註']);
+  fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '', '', '2020/2/1', '', '備註']);
   await d.Sync.syncNow();
   assert.equal(d.Store.list('options').find(o => o.name === '碎紙機').disabled, true);
   const p = d.Store.list('people')[0];
   assert.equal(p.name, '王小明');
   assert.equal(p.joinDate, '2020-02-01');
   assert.equal(p.note, '備註');
-  assert.equal(fake.values(id, '人員')[1][9], p.id);
+  assert.equal(fake.values(id, '人員')[1][11], p.id);
   assert.deepEqual(plain(d.Sync.state().problems), []);
 });
 

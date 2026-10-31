@@ -374,6 +374,38 @@ test('異動的表單：編輯時原位置鎖住、寫當時的位置；日期�
   assert.equal(Records.disableCheck({ disabled: 'true', code: DH }), '這裡還放著 #1001，先撤機');
 });
 
+test('業務員：人員勾業務員、預設全部權限、要填 Email；位置的業務員只列勾了業務員、沒離職的人，不能「＋ 新增」，倉庫不用填', () => {
+  const { Store, Refs, Records, field, add } = app();
+  // 人員：勾了業務員才有權限，權限預設全部打開；業務員一定要填 Email
+  assert.equal(field('people', 'perms').showIf({ sales: '' }), false);
+  assert.equal(field('people', 'perms').calc({ sales: 'true' }), '記抄表、記保養、做異動、改設備');
+  assert.equal(field('people', 'perms').calc({ sales: '' }), '');
+  const email = field('people', 'email').check;
+  assert.equal(email({ sales: 'true', email: ' ' }), '業務員要填 Email');
+  assert.equal(email({ sales: 'true', email: 'a@gmail.com' }), '');
+  assert.equal(email({ sales: '', email: '' }), '');
+  const a = add('people', { name: '阿明', email: 'a@gmail.com', sales: true, perms: '記抄表、記保養' });
+  add('people', { name: '小華' });
+  add('people', { name: '老王', sales: true, leaveDate: '2026-10-01' });
+  assert.equal(Refs.sub('people', a), '業務員');
+  // 位置：只列勾了業務員、沒離職的；沒有「＋ 新增」；倉庫不出現這一欄
+  const f = field('locations', 'sales');
+  assert.deepEqual(plain(Refs.items(f, { values: {} }).map(r => r.name)), ['阿明']);
+  assert.equal(f.noAdd, true);
+  assert.equal(f.showIf({ stock: 'true' }), false);
+  assert.equal(f.showIf({ stock: '' }), true);
+  // 選了沒勾業務員的人（打名字、試算表裡打的）不能存；倉庫、本來就是這個人的不擋
+  assert.equal(Records.salesCheck({ sales: '小華' }), '「小華」沒有勾業務員，先到人員勾');
+  assert.equal(Records.salesCheck({ sales: '阿明' }), '');
+  assert.equal(Records.salesCheck({ sales: '小華', stock: 'true' }), '');
+  const p = add('locations', { code: 'L0001', name: '大華貿易 3F', sales: '小華' });
+  assert.equal(Records.salesCheck({ id: p.id, sales: '小華' }), '');
+  // 人員改名：位置上的業務員跟著改
+  assert.equal(Refs.usesOf('people', a).length, 0);
+  Store.update('locations', p.id, { sales: '阿明' });
+  assert.deepEqual(plain(Refs.usesOf('people', a).map(u => u.key)), ['sales']);
+});
+
 test('「儲存，再新增一筆」：異動、合約、抄表、翻新沒有（一次一筆）；設備連續新增時，位置是倉庫才留著', () => {
   const { SCHEMAS, field } = withDevices();
   assert.deepEqual(plain(Object.keys(SCHEMAS).filter(k => SCHEMAS[k].once)), ['moves', 'contracts', 'readings', 'refurbs']);

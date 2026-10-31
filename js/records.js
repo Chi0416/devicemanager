@@ -438,6 +438,15 @@ const Records = (() => {
     return on.length ? `這裡還放著 ${on.length > 1 ? `${on.length} 台` : label(on[0])}，先撤機` : '';
   }
 
+  // 位置的業務員：選的人沒有勾業務員（後來取消了、試算表裡打的）；倉庫不用看，本來就是這個人的不擋
+  function salesCheck(values) {
+    const n = key(values.sales);
+    if (!n || values.stock === 'true') return '';
+    if (values.id && key(Store.get('locations', values.id)?.sales) === n) return '';
+    const p = Store.list('people').find(x => key(x.name) === n);
+    return p && !p.sales ? `「${p.name}」沒有勾業務員，先到人員勾` : '';
+  }
+
   // ---------- 合約 ----------
   // 合約的位置（編號）、位置的名稱
   const placesOf = r => Refs.multi(r?.locations);
@@ -1265,7 +1274,7 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, isStock, disableCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
