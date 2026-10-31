@@ -1425,3 +1425,30 @@ test('業務員回報問題：打開一筆抄表只改業務員回報，總部�
   assert.equal(d.Store.get('readings', r.id).report, '阿明：張數打錯，應該是 120');
   assert.equal(d.Store.list('readings').find(x => x.bw === 150).by, '阿明');
 });
+
+test('業務員換到另一個總部（打開不同的邀請連結）：這台的資料和還沒送出的先清掉，不會送到新的總部；記下新的網址', async () => {
+  const { fake } = await hq();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  assert.equal(s.Sync.state().hq, HQ);
+  fake.offline = true;
+  s.Store.add('readings', { ...s.Refs.blankRecord('readings'), device: '26-0001', date: '2026-10-31', bw: 150 });
+  await s.Sync.syncNow();
+  assert.equal(s.Sync.state().pending, 1);
+  fake.offline = false;
+  const calls = fake.calls.length;
+  const HQ2 = 'https://script.google.com/macros/s/hq2/exec';
+  await s.Sync.join(HQ2);
+  assert.equal(s.Sync.state().hq, HQ2);
+  assert.equal(s.Sync.state().pending, 0);
+  assert.ok(!s.Store.list('readings').some(r => r.bw === 150));
+  assert.deepEqual(fake.calls.slice(calls), ['GET /macros/s/hq2/exec', 'POST /macros/s/hq2/exec']); // 只拿資料，沒有送新增的
+  // 同一個總部再加入一次：資料不清掉
+  s.Store.add('readings', { ...s.Refs.blankRecord('readings'), device: '26-0001', date: '2026-10-31', bw: 160 });
+  fake.offline = true;
+  await s.Sync.syncNow();
+  fake.offline = false;
+  await s.Sync.join(HQ2);
+  assert.equal(s.Store.list('readings').filter(r => r.bw === 160).length, 1);
+});

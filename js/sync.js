@@ -81,6 +81,7 @@ const Sync = (() => {
       toner: cloud?.toner || null,
       lastSyncAt: cloud?.lastSyncAt || null,
       sales: !!cloud?.sales,
+      hq: cloud?.sales ? cloud.hq || '' : '',
       salesName: cloud?.name || '',
       salesAll: !!cloud?.all,
       salesPerms: cloud?.perms || [],
@@ -749,7 +750,12 @@ const Sync = (() => {
 
   // 打開邀請連結後按「登入」：記下總部的網址，用自己的 Gmail 登入，向總部拿資料（必須在使用者點擊的當下呼叫）
   //   先記下來：登入視窗打不開、改成整頁跳轉時，跳回來還知道要向哪裡拿
+  //   已經是別的總部的業務員：這台的資料（還有沒送出的）是那個總部的，先清掉，不會送到新的總部
   function join(url) {
+    if (cloud?.sales && cloud.hq !== url) {
+      Store.loadRemote({});
+      Store.clearAllPending();
+    }
     cloud = { sales: true, hq: url, email: '', name: '', admin: '' };
     error = '';
     saveCloud();

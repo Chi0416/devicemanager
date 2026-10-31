@@ -1,4 +1,4 @@
-// 進入點：分頁、列表、表單、設備詳情、位置詳情、清單、Google 雲端硬碟同步、提醒、資料備份
+// 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份
 //   底部 5 格：總覽｜位置｜設備｜抄表｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜合約｜異動（所有設備的放在一起看）
 (() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
@@ -69,16 +69,19 @@
     Object.entries(lists).forEach(([k, l]) => (k === key ? l.changed(rec) : refreshList(k, l)));
     Detail.changed(key, rec);
     Place.changed(key, rec);
+    Customer.changed(key, rec);
     Lists.refresh();
     if (menu.open) renderListsMenu();
   }
   // 人員表單的「複製邀請連結」（schema 的 action，見 invite）
   Form.init({ toast, onChanged, action: (t, rec) => { if (t === 'people' && rec) invite(rec); } });
   Picker.init({ toast, onChanged });
-  // 清單裡點一個位置：打開位置詳情（其他打開表單）
-  Lists.init({ toast, onChanged, openItem: (t, id) => (t === 'locations' ? Place.open(id) : Form.open(t, id)) });
+  // 清單裡點一個位置、客戶：打開位置詳情、客戶詳情（其他打開表單）
+  const DETAILS = { locations: Place, customers: Customer };
+  Lists.init({ toast, onChanged, openItem: (t, id) => (DETAILS[t] ? DETAILS[t].open(id) : Form.open(t, id)) });
   Detail.init();
   Place.init();
+  Customer.init();
 
   // ---------- 分頁 ----------
   // 底部的每一格（key）和裡面的頁（pages：[頁面, 上方切換的名稱]）；只有一頁的不顯示上方切換
@@ -137,6 +140,7 @@
     Object.entries(lists).forEach(([k, l]) => refreshList(k, l));
     Detail.refresh();
     Place.refresh();
+    Customer.refresh();
   };
 
   // ---------- 設定：清單（見 lists.js）、資料備份 ----------
@@ -325,6 +329,7 @@
           <li><span class="member-info"><small>帳號</small><b>${U.esc(st.email || '還沒登入')}</b></span></li>
           <li><span class="member-info"><small>可以做</small><b>${U.esc(salesCanText(st) ? `新增${salesCanText(st)}` : '只能看')}${st.salesAll ? '・看全部' : ''}</b></span></li>
           <li><span class="member-info"><small>總部</small><b>${U.esc(st.admin || '—')}</b></span></li>
+          <li><span class="member-info"><small>總部網址</small><b>${U.esc(hqTail(st.hq))}</b></span></li>
           <li><span class="member-info"><small>上次更新</small><b>${st.lastSyncAt ? U.fmtDateTime(st.lastSyncAt) : '—'}</b></span></li>
           <li><span class="member-info"><small>狀態</small><b class="${st.error ? 'warn' : ''}">${U.esc(salesStatusText(st))}</b></span></li>
         </ul>
@@ -546,8 +551,18 @@
     let btn = '';
     syncAction = null;
     const invite = joinUrl();
-    if (invite && st.sales) dropJoin();
-    if (invite && !st.sales) {
+    if (invite && st.sales && invite === st.hq) dropJoin();
+    if (invite && st.sales && invite !== st.hq) {
+      // 已經是業務員，又打開另一個總部的邀請連結：問要不要換過去（這台的資料會換成新總部的）
+      text = `收到另一個總部的邀請連結（${hqTail(invite)}），現在連的是 ${hqTail(st.hq)}`;
+      btn = '換過去';
+      syncAction = () => {
+        const lost = st.pending ? `還有 ${st.pending} 筆新增的沒有送出，換過去就沒了。\n` : '';
+        if (!confirm(`${lost}換到新的總部後，這台的資料會換成新總部的。\n\n確定換過去？`)) return;
+        dropJoin();
+        Sync.join(invite);
+      };
+    } else if (invite && !st.sales) {
       // 收到邀請：這個瀏覽器現在是別人的資料時，先登出（資料留在試算表）或清掉（只存在這台的）
       if (st.linked) {
         text = `收到業務員邀請。要換成業務員，這個瀏覽器的 ${st.email} 會先登出`;
@@ -607,6 +622,8 @@
   // ---------- 業務員（見 sync.js 的業務員） ----------
   //   管理員在人員表單按「複製邀請連結」：App 的網址加 ?join=總部試算表上的程式的網址（就是讀信網址，部署一次大家共用）
   const JOIN_KEY = `${Store.PREFIX}join`;
+  // 總部網址只寫最後幾個字（…ImyHkzWyw）：手機、電腦一比就知道是不是連到同一個
+  const hqTail = url => { const m = String(url ?? '').match(/\/s\/([\w-]+)\/exec/); return m ? `…${m[1].slice(-9)}` : '—'; };
   async function invite(rec) {
     const url = Sync.state().meterUrl;
     if (!url) {
