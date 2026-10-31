@@ -1,5 +1,5 @@
 // 清單：ref 欄位（設備的類別、位置、保管人…）從哪裡選、找得到找不到、新增、改名時一起改
-//   被引用的表（狀態、選項、人員、廠商、設備、位置）在 schema 裡有 target（見 schema.js）；ref 欄位存的是名字，不是 id
+//   被引用的表（狀態、選項、人員、廠商、設備、位置、客戶）在 schema 裡有 target（見 schema.js）；ref 欄位存的是名字，不是 id
 //     設備、位置存的是系統給的編號（target 的 name 是 code），畫面上顯示 target 的 label（位置、名稱）
 //   一個 ref 欄位的範圍（scope）：選項依「清單」分（類別、品牌…）；狀態、人員、廠商、設備、位置整張表都是
 //   可以選好幾個的欄位（many，合約的位置）：存成「L0001、L0002」，每一個各自對到清單
@@ -155,15 +155,16 @@ const Refs = (() => {
     return s.values.length;
   }
 
-  // 設定裡的「清單」：每一份清單一列（狀態一列，選項依清單分，人員、廠商各一列）
+  // 設定裡的「清單」：每一份清單一列（狀態一列，選項依清單分，位置、客戶、人員、廠商各一列）
   //   sortable：可以在清單頁用 ↑ ↓ 排順序（狀態、SORTED_LISTS 裡的選項）
   function lists() {
     const options = OPTION_LISTS.map(list => ({ key: `options:${list}`, table: 'options', list, title: list, sortable: SORTED_LISTS.includes(list) }));
     return [
       { key: 'statuses', table: 'statuses', title: SCHEMAS.statuses.title, sortable: true },
-      // 位置排在類別後面（以前在選項裡也是這個順序）
+      // 位置排在類別後面（以前在選項裡也是這個順序），客戶跟在位置後面
       ...options.slice(0, 1),
       { key: 'locations', table: 'locations', title: SCHEMAS.locations.title },
+      { key: 'customers', table: 'customers', title: SCHEMAS.customers.title },
       ...options.slice(1),
       { key: 'people', table: 'people', title: SCHEMAS.people.title },
       { key: 'vendors', table: 'vendors', title: SCHEMAS.vendors.title },

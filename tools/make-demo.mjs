@@ -3,6 +3,7 @@
 //   位置存編號（L0001…）：一個位置放一台，公司倉庫是倉庫；合約綁位置（鼎泰國際 3F、4F、5F 是同一份合約）
 //   有幾台跟著客戶搬到新辦公室：新的位置另簽一份合約，舊的那份提前結束
 //   大華貿易 3F 換過三次機（看位置的異動）
+//   客戶：位置名稱的第一段（鼎泰國際 3F → 鼎泰國際），鼎泰國際三個位置、搬過辦公室的兩個位置；宏遠集團是宏遠建設、東方汽車的母公司（自己沒有位置）
 //   用法：node tools/make-demo.mjs > data-demo.json，再到 App 的設定 → 匯入 data.json
 //   每次產生的內容都一樣（固定的亂數種子）；日期以 2026-10-11 為準（最新回報的日期照產生那天）
 //   data-demo.json 符合 .gitignore 的 data*.json，不會推上 GitHub
@@ -51,7 +52,7 @@ const OLD_NAMES = { '金城保險 3F': '金城產險 3F（到 2026/03/01）' };
 const STOCK = '公司倉庫';
 const PEOPLE = [
   { name: '陳志明', jobTitle: '技術組長', dept: '技術部', phone: '0912-345-678' },
-  { name: '林小芳', jobTitle: '業務', dept: '業務部', phone: '0922-111-222' },
+  { name: '林小芳', jobTitle: '業務', dept: '業務部', phone: '0922-111-222', email: 'lin@example.com', sales: true, perms: '記抄表、記保養' },
   { name: '王建宏', jobTitle: '工程師', dept: '技術部', phone: '0933-456-789' },
   { name: '張雅婷', jobTitle: '助理', dept: '管理部', phone: '' },
 ];
@@ -75,6 +76,7 @@ const data = {
     ...MODELS.map((name, i) => ({ id: uid(), list: '機型', name, order: i + 1, disabled: false })),
   ],
   locations: [],
+  customers: [],
   people: PEOPLE.map(p => rec('people', p)),
   vendors: VENDORS.map(v => rec('vendors', v)),
   devices: [], moves: [], contracts: [], contractLog: [], readings: [], maintenance: [], refurbs: [], parts: [],
@@ -277,5 +279,30 @@ data.toner = TONER.map(([device, ago, time, K, Y, M, C]) => {
 const first = data.contracts[0];
 data.contractLog.push(rec('contractLog', { contract: first.id, date: addDays(first.signDate, 3), field: '抄表日期', before: '每月 52 日', after: first.readDay }));
 data.contracts.forEach(c => { delete c.group; });
+
+// 客戶：放在最後產生（不動到上面的亂數和 id）；鼎泰國際、長榮物流有填資料，主要業務員是林小芳，位置的業務員跟著帶
+const GROUP_HQ = '宏遠集團';
+const CUSTOMER_INFO = {
+  鼎泰國際: { taxId: '24536817', contact: '周經理', phone: '02-2718-3355', fax: '02-2718-3356', sales: '林小芳',
+    billAddress: '台北市松山區南京東路三段 200 號 5F', shipAddress: '台北市松山區南京東路三段 200 號 3F' },
+  長榮物流: { taxId: '53817264', contact: '倉管 陳先生', phone: '03-385-1234', sales: '林小芳', billAddress: '桃園市大園區航站南路 9 號' },
+  [GROUP_HQ]: { taxId: '12873465', contact: '財務部 吳小姐', phone: '02-8780-1000', billAddress: '台北市信義區松仁路 100 號 20F' },
+  宏遠建設: { taxId: '12873473', parent: GROUP_HQ, billAddress: '台北市信義區松仁路 100 號 20F' },
+  東方汽車: { taxId: '12873481', parent: GROUP_HQ, billAddress: '台北市信義區松仁路 100 號 20F', shipAddress: '新北市三重區重新路五段 600 號' },
+};
+const addCustomer = name => {
+  let c = data.customers.find(x => x.name === name);
+  if (!c) {
+    c = rec('customers', { name, ...(CUSTOMER_INFO[name] || {}) });
+    data.customers.push(c);
+  }
+  return c;
+};
+addCustomer(GROUP_HQ);
+data.locations.filter(p => !p.stock).forEach(p => {
+  const c = addCustomer(p.name.split(' ')[0]);
+  p.customer = c.name;
+  p.sales = c.sales;
+});
 
 process.stdout.write(JSON.stringify({ app: 'devicemanager', version: 1, exportedAt: `${TODAY}T00:00:00.000Z`, ...data }, null, 2));

@@ -344,7 +344,7 @@ function serialMap_(sheet) {
 //   第一次加這段要重新授權（會用到 UrlFetchApp）：上方選 install 按「執行」，照畫面允許，再到「管理部署作業」換新版本
 //   不用 Session 拿總部的帳號：那要另外一個權限（userinfo.email），授權時不一定問得到，拿不到會讓整個失敗
 const CLIENT_ID = '460486615404-n7j6akqvhec4at7dt0f4937posghfr4p.apps.googleusercontent.com'; // App 的 OAuth 用戶端 ID（js/config.js）
-const SALES_TABS = ['位置', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST];
+const SALES_TABS = ['位置', '客戶', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST];
 
 function salesData_(token) {
   const email = whoIs_(token);
@@ -528,6 +528,7 @@ function salesPerson_(rows, email, today) {
 //   現在放在他位置的機器：這幾台的全部紀錄（包括搬來之前的）
 //   以前放過、已經搬走的機器：只給放在他位置那段時間的紀錄（搬進來那天到搬走那天，看異動），設備那一列也給（App 才寫得出是哪一台）
 //   合約：綁了他的位置的；合約修改紀錄跟著合約；最新回報：現在放在他位置的機器
+//   客戶：他的位置的客戶（位置的「客戶」寫客戶名稱，不分大小寫）
 //   狀態、選項、廠商：全部；人員：只給姓名
 //   別的位置、倉庫都不給（App 寫「其他位置」）
 //   勾了看全部的：全部都給（人員一樣只給姓名）
@@ -577,8 +578,12 @@ function salesRows_(values, person) {
   const contracts = pick('合約', r => places(r).some(p => mine.has(p)));
   const contractIds = new Set(contracts.slice(1).map(r => String(r[col('合約', 'id')] ?? '').trim()));
 
+  const name = v => String(v ?? '').trim().toLowerCase();
+  const customers = new Set(rows('位置').filter(r => mine.has(codeKey_(r[col('位置', '編號')]))).map(r => name(r[col('位置', '客戶')])).filter(Boolean));
+
   const out = {
     位置: pick('位置', r => mine.has(codeKey_(r[col('位置', '編號')]))),
+    客戶: pick('客戶', r => customers.has(name(r[col('客戶', '名稱')]))),
     設備: pick('設備', r => devices.has(codeKey_(r[col('設備', '編號')]))),
     合約: contracts,
     合約修改紀錄: pick('合約修改紀錄', r => contractIds.has(String(r[col('合約修改紀錄', '合約')] ?? '').trim())),

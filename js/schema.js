@@ -1,7 +1,7 @@
 // 資料表的欄位定義（除了 optional 的欄位，全部必填）
 //   type:        date | month | text | number | url | email | tel（網址、Email、電話都存成文字，表單上換成對應的鍵盤）
 //                month（月份）：存 2026-09，試算表上是文字 2026/09，表單上是年月的選單
-//                ref（從清單選，存的是名字）：ref 是哪張表（statuses、options、people、vendors、devices、locations）；
+//                ref（從清單選，存的是名字）：ref 是哪張表（statuses、options、people、vendors、devices、locations、customers）；
 //                     options 另外寫 list（類別、品牌…）
 //                     紀錄的「設備」欄也是 ref：存設備編號（devices 的 target 見下面）；位置存位置編號（locations）
 //                     many：可以選好幾個，存成「L0001、L0002」（合約的位置）
@@ -309,13 +309,46 @@ const SCHEMAS = {
       { key: 'name',     label: '名稱',       type: 'text', full: true, hint: '寫到分得出是哪一格，例如「大華公司 3F」' },
       { key: 'oldNames', label: '以前的名字', type: 'text', optional: true, full: true, multiline: true, hint: '改名時自動記下來' },
       { key: 'stock',    label: '倉庫',       type: 'flag', optional: true, hint: '倉庫、維修中心這類，可以放好幾台' },
-      // 負責的業務員：只列勾了業務員的人員；倉庫只有管理員看，不用填
+      // 客戶：存客戶名稱；兩個位置以上的客戶在位置頁合成一張卡片（見 places.js）；倉庫沒有這一格
+      { key: 'customer', label: '客戶',       type: 'ref', ref: 'customers', optional: true, full: true, showIf: v => v.stock !== 'true' },
+      // 負責的業務員：只列勾了業務員的人員；選了客戶時先帶客戶的主要業務員（自己改過的不蓋掉）；倉庫只有管理員看，不用填
       { key: 'sales',    label: '業務員',     type: 'ref', ref: 'people', optional: true, full: true, noAdd: true, showIf: v => v.stock !== 'true',
-        only: () => p => !!p.sales, onlyNote: () => '沒有勾「業務員」，先到人員勾', check: v => Records.salesCheck(v) },
+        only: () => p => !!p.sales, onlyNote: () => '沒有勾「業務員」，先到人員勾', check: v => Records.salesCheck(v),
+        calc: v => (v.stock === 'true' ? '' : Records.customerSales(v.customer)) },
+      { key: 'address',  label: '地址',       type: 'text', optional: true, full: true },
       // 還放著機器的不能停用（先撤機）
       { key: 'disabled', label: '停用',       type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的資料照常顯示',
         check: v => Records.disableCheck(v) },
       { key: 'note',     label: '備註',       type: 'text', optional: true, full: true, multiline: true },
+    ],
+  },
+
+  // 客戶：位置歸到客戶底下（一間學校好幾個位置）；點了打開客戶詳情（見 detail.js 的 Customer）
+  //   位置的「客戶」存客戶名稱（跟人員一樣，改名時位置跟著改）
+  //   主要業務員：主要接洽的人，位置選了這個客戶時業務員先帶他；業務員看得到哪些機器還是照位置的業務員
+  //   母公司：集團旗下各自有統編、地址的公司，只分一層（見 records.js 的 parentCheck）
+  customers: {
+    title: '客戶',
+    unit: '個客戶',
+    noList: true,
+    target: { name: 'name', sub: r => [r.taxId && `統編 ${r.taxId}`, r.parent && `母公司 ${r.parent}`].filter(Boolean).join(' · '),
+      removeHint: '先把用到它的位置改掉' },
+    unique: [['name']],
+    uniqueMsg: dup => `已經有「${dup.name}」了`,
+    describe: r => r.name,
+    fields: [
+      { key: 'name',        label: '名稱',       type: 'text', full: true },
+      { key: 'taxId',       label: '統一編號',   type: 'tel', optional: true },
+      { key: 'sales',       label: '主要業務員', type: 'ref', ref: 'people', optional: true, noAdd: true, hint: '新增位置時業務員先帶他',
+        only: () => p => !!p.sales, onlyNote: () => '沒有勾「業務員」，先到人員勾', check: v => Records.salesCheck(v, 'customers') },
+      { key: 'parent',      label: '母公司',     type: 'ref', ref: 'customers', optional: true, full: true,
+        only: v => Records.parentChoices(v), onlyNote: () => '已經有母公司的不能選（只分一層）', check: v => Records.parentCheck(v) },
+      { key: 'billAddress', label: '帳單地址',   type: 'text', optional: true, full: true, hint: '帳單寄母公司的，填母公司的地址' },
+      { key: 'shipAddress', label: '送貨地址',   type: 'text', optional: true, full: true },
+      { key: 'contact',     label: '聯絡人',     type: 'text', optional: true },
+      { key: 'phone',       label: '電話',       type: 'tel', optional: true },
+      { key: 'fax',         label: '傳真',       type: 'tel', optional: true },
+      noteField(),
     ],
   },
 

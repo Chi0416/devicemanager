@@ -1,11 +1,11 @@
-// 詳情頁：設備詳情（Detail）、位置詳情（Place）共用 createDetail
+// 詳情頁：設備詳情（Detail）、位置詳情（Place）、客戶詳情（Customer）共用 createDetail
 //   上面：資訊卡（設備下面接最新回報、耗材，位置下面接用量）；下面：一張表一列，寫最新的狀況和筆數
 //     點一列打開那張表的頁面（只列這台設備、這個位置的紀錄，右上角新增）；右邊的「＋」直接新增
 //     那一頁平常是卡片列表（list.js）；列上有 view 時用它自己的畫法（位置的異動：一台待過一段一張卡片）
 //   右上角「編輯」打開那一筆的表單；那一筆被刪掉時這一頁跟著關
 //   設備：點設備卡片打開（見 app.js）；標題、資訊卡寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
 //     在這裡新增紀錄時自動帶入這台設備；合約是它現在所在位置的，新增時帶入這個位置
-//   位置：位置頁點一張卡片打開（見 places.js）；標題寫位置名稱；資訊卡上點現在放著的機器打開設備詳情
+//   位置：位置頁點一張卡片打開（見 places.js）；標題寫位置名稱；資訊卡上點客戶打開客戶詳情、點現在放著的機器打開設備詳情
 //     異動：這裡放過哪些機器，一台待過一段一張卡片（那一列寫最近一次進出、右邊寫幾段）；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
 //     新增抄表、保養、翻新時，這裡只放著一台的話帶入那一台；卡片標題右邊灰字寫哪一台，只放過一台的不寫
 function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = () => {} }) {
@@ -322,11 +322,21 @@ const Place = (() => {
           ${p.disabled ? '<span class="badge gray">停用</span>' : ''}
         </span>
         ${!p.stock && p.sales ? `<span class="card-sub">業務員：${U.esc(p.sales)}</span>` : ''}
+        ${p.address ? `<span class="card-sub">地址：${U.esc(p.address)}</span>` : ''}
         ${olds.length ? `<span class="card-sub">以前叫：${U.esc(olds.join('、'))}</span>` : ''}
         ${p.note ? `<span class="card-sub">${U.esc(Records.firstLine(p.note))}</span>` : ''}
+        ${customerLink(p)}
         ${on.length ? links : '<span class="card-note">現在沒有機器</span>'}
       </div>
       ${p.stock ? '' : usageHTML(p)}`;
+  }
+
+  // 客戶：點了打開客戶詳情；客戶清單裡找不到（試算表裡打的）的只寫名字
+  function customerLink(p) {
+    if (p.stock || !String(p.customer ?? '').trim()) return '';
+    const c = Records.customerOf(p);
+    return c ? `<button type="button" class="detail-link" data-customer="${U.esc(c.id)}"><small>客戶</small><span>${U.esc(c.name)}</span><span class="go" aria-hidden="true">›</span></button>`
+      : `<span class="card-sub">客戶：${U.esc(p.customer)}</span>`;
   }
 
   // 用量：最近 12 個月的長條圖（下面黑白、上面彩色，一季抄的同一季三個月一樣高，見 records.js 的 monthlyUsage）
@@ -445,6 +455,8 @@ const Place = (() => {
     onInfoClick(e) {
       const link = e.target.closest('[data-device]');
       if (link) Detail.open(link.dataset.device);
+      const cust = e.target.closest('[data-customer]');
+      if (cust) Customer.open(cust.dataset.customer);
       // 用量的長條：點一條，下面寫那個月的張數
       const col = e.target.closest('[data-um]');
       if (col) {
@@ -463,6 +475,99 @@ const Place = (() => {
         records: at('maintenance'), preset: theOne, aside: machine },
       { key: 'refurbs', label: '翻新', summary: p => DetailRows.work(at('refurbs')(p), 'refurbs', r => Records.firstLine(r.content), Records.refurbNote),
         records: at('refurbs'), preset: theOne, aside: machine },
+    ],
+  });
+})();
+
+// ---------- 客戶詳情 ----------
+//   位置頁點客戶卡片、清單裡點一個客戶、位置詳情點客戶打開；標題寫客戶名稱
+//   資訊卡：統編、主要業務員、電話、傳真、聯絡人、帳單地址、送貨地址、備註；有母公司的點了打開母公司
+//   旗下公司（母公司才有）：一間一列，寫幾個位置，點了打開那間
+//   位置：一個位置一列，名稱下面寫現在放的機器（停用的灰字），點了打開位置詳情；母公司自己沒有位置的不寫
+//   下面一列合約：這些位置的合約（一份寫好幾個位置的只算一份）
+const Customer = (() => {
+  const placesOf = c => Records.customerPlaces(c);
+  const link = (attr, id, label, text) =>
+    `<button type="button" class="detail-link" data-${attr}="${U.esc(id)}"><small>${label}</small><span>${U.esc(text)}</span><span class="go" aria-hidden="true">›</span></button>`;
+  // 一列：名稱（藍字），下面一行小字；點了打開位置詳情或那間公司
+  const rowHTML = (attr, id, name, sub, off = false) => `
+    <button type="button" class="cust-row${off ? ' off' : ''}" data-${attr}="${U.esc(id)}">
+      <span class="cust-main"><b>${U.esc(name)}</b>${sub ? `<small>${U.esc(sub)}</small>` : ''}</span><span class="go" aria-hidden="true">›</span>
+    </button>`;
+
+  function infoHTML(c) {
+    const cell = ([label, v, wide]) => `<span class="cell${wide ? ' wide' : ''}"><small>${label}</small><span>${U.esc(v) || '—'}</span></span>`;
+    const cells = [['統一編號', c.taxId], ['主要業務員', c.sales], ['電話', c.phone], ['傳真', c.fax], ['聯絡人', c.contact, true],
+      ['帳單地址', c.billAddress, true], ['送貨地址', c.shipAddress, true]].map(cell).join('');
+    const parent = Records.customer(c.parent);
+    return `
+      <div class="detail-card">
+        <span class="card-top"><span class="card-title">${U.esc(c.name)}</span></span>
+        <span class="card-grid">${cells}</span>
+        ${c.note ? `<span class="card-sub">${U.esc(Records.firstLine(c.note))}</span>` : ''}
+        ${parent ? link('customer', parent.id, '母公司', parent.name) : c.parent ? `<span class="card-sub">母公司：${U.esc(c.parent)}</span>` : ''}
+      </div>
+      ${kidsHTML(c)}
+      ${placesHTML(c)}`;
+  }
+
+  function kidsHTML(c) {
+    const kids = Records.childrenOf(c);
+    if (!kids.length) return '';
+    return `
+      <div class="detail-card cust-card">
+        <span class="uc-head"><b>旗下公司</b><span>${kids.length} 間</span></span>
+        ${kids.map(k => rowHTML('customer', k.id, k.name, placesOf(k).length ? `${placesOf(k).length} 個位置` : '還沒有位置')).join('')}
+      </div>`;
+  }
+
+  // 停用的排在後面；母公司自己沒有位置的不寫
+  function placesHTML(c) {
+    const list = [...placesOf(c)].sort((a, b) => !!a.disabled - !!b.disabled);
+    if (!list.length && Records.childrenOf(c).length) return '';
+    const on = list.filter(p => !p.disabled);
+    const n = on.reduce((sum, p) => sum + Records.machinesAt(p.code).length, 0);
+    const sub = p => {
+      if (p.disabled) return '停用';
+      const ms = Records.machinesAt(p.code);
+      return ms.length > 1 ? `${ms.length} 台` : ms.length ? Records.label(ms[0]) : '空著';
+    };
+    return `
+      <div class="detail-card cust-card">
+        <span class="uc-head"><b>位置</b><span>${list.length ? `${on.length} 個・${n} 台機器` : ''}</span></span>
+        ${list.length ? list.map(p => rowHTML('place', p.id, p.name || p.code, sub(p), p.disabled)).join('')
+          : '<span class="card-note">還沒有位置：在位置的表單選這個客戶</span>'}
+      </div>`;
+  }
+
+  // 這些位置的合約，由舊到新；一份寫好幾個位置的只列一次
+  function contracts(c) {
+    const seen = new Set();
+    return placesOf(c).flatMap(p => Records.contractsAt(p.code)).filter(r => !seen.has(r.id) && seen.add(r.id))
+      .sort((a, b) => String(a.signDate ?? '').localeCompare(String(b.signDate ?? '')) || String(a.id).localeCompare(String(b.id)));
+  }
+  // 合約那一列：目前的合約有幾份，到期、快到期的有幾份
+  function contractRow(c) {
+    const now = [...new Set(placesOf(c).filter(p => !p.disabled).map(p => Records.currentContract(p.code)).filter(Boolean))];
+    if (!now.length) return { main: contracts(c).length ? '沒有目前的合約' : '還沒有合約' };
+    const due = now.filter(r => Records.endText(r)?.warn).length;
+    return { main: `目前 ${now.length} 份`, sub: due ? `${due} 份到期或快到期` : '', warn: !!due };
+  }
+
+  return createDetail({
+    table: 'customers',
+    dlg: document.getElementById('customer-sheet'),
+    sub: document.getElementById('customer-sub-sheet'),
+    title: c => c.name || '客戶',
+    infoHTML,
+    onInfoClick(e) {
+      const place = e.target.closest('[data-place]');
+      if (place) Place.open(place.dataset.place);
+      const cust = e.target.closest('[data-customer]');
+      if (cust) Customer.open(cust.dataset.customer);
+    },
+    rows: [
+      { key: 'contracts', label: '合約', summary: contractRow, records: contracts, preset: () => ({}) },
     ],
   });
 })();

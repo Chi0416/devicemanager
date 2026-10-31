@@ -410,6 +410,70 @@ test('業務員：人員勾業務員、預設全部權限、要填 Email；位�
   assert.deepEqual(plain(Refs.usesOf('people', a).map(u => u.key)), ['sales']);
 });
 
+// 客戶：鼎泰國際有 3F、4F（停用）兩個位置；宏遠集團是宏遠建設的母公司（自己沒有位置）
+function withCustomers() {
+  const a = app();
+  a.add('people', { name: '阿明', sales: true });
+  a.add('people', { name: '小華' });
+  const dt = a.add('customers', { name: '鼎泰國際', taxId: '01234567', sales: '阿明', phone: '02-2345-6789' });
+  const hy = a.add('customers', { name: '宏遠集團', billAddress: '台北市信義區松仁路 100 號' });
+  const hc = a.add('customers', { name: '宏遠建設', parent: '宏遠集團', billAddress: '台北市信義區松仁路 100 號' });
+  a.add('locations', { code: WH, name: '公司倉庫', stock: true });
+  const f3 = a.add('locations', { code: 'L0002', name: '鼎泰國際 3F', customer: '鼎泰國際', sales: '阿明' });
+  a.add('locations', { code: 'L0003', name: '鼎泰國際 4F', customer: ' 鼎泰國際 ', disabled: true });
+  a.add('locations', { code: 'L0004', name: '宏遠建設 總務部', customer: '宏遠建設' });
+  return { ...a, dt, hy, hc, f3 };
+}
+
+test('客戶：位置的客戶存名稱；客戶的位置（倉庫不算）、旗下公司；位置搜尋找得到客戶名稱；改名時位置、旗下公司跟著改', () => {
+  const { Store, Refs, Records, dt, hy, hc, f3 } = withCustomers();
+  assert.equal(Records.customerOf(f3).id, dt.id);
+  assert.equal(Records.customerOf({ stock: true, customer: '鼎泰國際' }), null); // 倉庫不算客戶的位置
+  assert.deepEqual(plain(Records.customerPlaces(dt).map(p => p.name)), ['鼎泰國際 3F', '鼎泰國際 4F']);
+  assert.deepEqual(plain(Records.childrenOf(hy).map(c => c.name)), ['宏遠建設']);
+  assert.deepEqual(plain(Records.customerPlaces(hy)), []);
+  assert.ok(Records.placeText('L0002').includes('鼎泰國際'));
+  assert.ok(Records.customerText(dt).includes('01234567'));
+  // 用到的位置、旗下公司：不能刪
+  assert.match(Refs.removeBlock('customers', dt), /還有 2 個位置用到「鼎泰國際」，不能刪除/);
+  assert.match(Refs.removeBlock('customers', hy), /還有 1 個客戶用到「宏遠集團」/);
+  // 改名：位置的客戶、旗下公司的母公司一起改
+  Store.update('customers', hy.id, { name: '宏遠控股' });
+  Refs.renameRefs('customers', hy, Store.get('customers', hy.id));
+  assert.equal(Store.get('customers', hc.id).parent, '宏遠控股');
+  Store.update('customers', dt.id, { name: '鼎泰' });
+  Refs.renameRefs('customers', dt, Store.get('customers', dt.id));
+  assert.equal(Store.get('locations', f3.id).customer, '鼎泰');
+});
+
+test('客戶的主要業務員：只列勾了業務員的人；位置選了客戶時業務員先帶他，倉庫不帶', () => {
+  const { Refs, Records, field, dt } = withCustomers();
+  const f = field('customers', 'sales');
+  assert.deepEqual(plain(Refs.items(f, { values: {} }).map(r => r.name)), ['阿明']);
+  assert.equal(f.noAdd, true);
+  assert.equal(Records.salesCheck({ sales: '小華' }, 'customers'), '「小華」沒有勾業務員，先到人員勾');
+  assert.equal(Records.salesCheck({ id: dt.id, sales: '阿明' }, 'customers'), '');
+  const calc = field('locations', 'sales').calc;
+  assert.equal(calc({ customer: '鼎泰國際' }), '阿明');
+  assert.equal(calc({ customer: '鼎泰國際', stock: 'true' }), '');
+  assert.equal(calc({ customer: '宏遠建設' }), '');
+  assert.equal(field('locations', 'customer').showIf({ stock: 'true' }), false);
+});
+
+test('母公司只分一層：選單不列自己、已經有母公司的；底下有公司的不能再有母公司', () => {
+  const { Refs, Records, field, dt, hy, hc } = withCustomers();
+  const f = field('customers', 'parent');
+  assert.deepEqual(plain(Refs.items(f, { values: { id: dt.id, name: '鼎泰國際' } }).map(r => r.name)), ['宏遠集團']);
+  assert.equal(Records.parentCheck({ id: dt.id, name: '鼎泰國際', parent: '宏遠集團' }), '');
+  assert.equal(Records.parentCheck({ id: dt.id, name: '鼎泰國際', parent: '' }), '');
+  assert.equal(Records.parentCheck({ id: dt.id, name: '鼎泰國際', parent: '鼎泰國際' }), '不能選自己');
+  assert.equal(Records.parentCheck({ id: hy.id, name: '宏遠集團', parent: '鼎泰國際' }), '底下有 1 間公司，不能再有母公司');
+  assert.equal(Records.parentCheck({ id: dt.id, name: '鼎泰國際', parent: '宏遠建設' }), '「宏遠建設」也有母公司，選最上面的「宏遠集團」');
+  assert.equal(Records.parentCheck({ id: null, name: '新公司', parent: '宏遠集團' }), '');
+  assert.equal(Refs.sub('customers', hc), '母公司 宏遠集團');
+  assert.equal(Refs.sub('customers', dt), '統編 01234567');
+});
+
 test('「儲存，再新增一筆」：異動、合約、抄表、翻新沒有（一次一筆）；設備連續新增時，位置是倉庫才留著', () => {
   const { SCHEMAS, field } = withDevices();
   assert.deepEqual(plain(Object.keys(SCHEMAS).filter(k => SCHEMAS[k].once)), ['moves', 'contracts', 'readings', 'refurbs']);

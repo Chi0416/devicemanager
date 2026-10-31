@@ -173,9 +173,9 @@ test('不在清單裡的值：每個範圍一組（保管人、工程師都是�
   assert.equal(Refs.listOfScope('locations:').key, 'locations');
 });
 
-test('設定裡的清單：狀態、類別、位置、品牌、機型、保養項目、選配件、人員、廠商；停用的排在後面', () => {
+test('設定裡的清單：狀態、類別、位置、客戶、品牌、機型、保養項目、選配件、人員、廠商；停用的排在後面', () => {
   const { Refs } = withData();
-  assert.deepEqual(plain(Refs.lists().map(l => l.title)), ['狀態', '類別', '位置', '品牌', '機型', '保養項目', '選配件', '人員', '廠商']);
+  assert.deepEqual(plain(Refs.lists().map(l => l.title)), ['狀態', '類別', '位置', '客戶', '品牌', '機型', '保養項目', '選配件', '人員', '廠商']);
   assert.deepEqual(plain(Refs.lists().filter(l => l.sortable).map(l => l.title)), ['狀態', '類別', '機型', '保養項目', '選配件']);
   const loc = Refs.lists().find(l => l.key === 'locations');
   assert.deepEqual(names(Refs.listItems(loc)), ['2F 辦公室', '3F 會議室', '舊倉庫']);

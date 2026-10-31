@@ -101,10 +101,10 @@ const Records = (() => {
   const place = code => (key(code) ? cached('places', () => byCode(Store.list('locations'))).get(key(code)) || null : null);
   // 位置編號 → 名稱；找不到時照原本的字（看得出是哪個編號對不上），業務員模式寫「其他位置」
   const placeName = code => place(code)?.name || (salesMode() && key(code) ? '其他位置' : String(code ?? '').trim());
-  // 搜尋用：名稱和以前的名字
+  // 搜尋用：名稱、以前的名字、客戶
   const placeText = code => {
     const p = place(code);
-    return p ? [p.name, p.oldNames].filter(Boolean).join(' ') : String(code ?? '');
+    return p ? [p.name, p.oldNames, !p.stock && p.customer].filter(Boolean).join(' ') : String(code ?? '');
   };
   // 現在放在這個位置的設備
   const machinesAt = code => [...(devicesAt().get(key(code)) || NONE)];
@@ -448,13 +448,47 @@ const Records = (() => {
     return on.length ? `這裡還放著 ${on.length > 1 ? `${on.length} 台` : label(on[0])}，先撤機` : '';
   }
 
-  // 位置的業務員：選的人沒有勾業務員（後來取消了、試算表裡打的）；倉庫不用看，本來就是這個人的不擋
-  function salesCheck(values) {
+  // 位置的業務員、客戶的主要業務員：選的人沒有勾業務員（後來取消了、試算表裡打的）；倉庫不用看，本來就是這個人的不擋
+  function salesCheck(values, table = 'locations') {
     const n = key(values.sales);
     if (!n || values.stock === 'true') return '';
-    if (values.id && key(Store.get('locations', values.id)?.sales) === n) return '';
+    if (values.id && key(Store.get(table, values.id)?.sales) === n) return '';
     const p = Store.list('people').find(x => key(x.name) === n);
     return p && !p.sales ? `「${p.name}」沒有勾業務員，先到人員勾` : '';
+  }
+
+  // ---------- 客戶 ----------
+  const byName = (a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-Hant', { numeric: true });
+  // 客戶名稱 → 客戶（名稱不能重複，同名的取第一個）
+  const customer = name => (key(name) ? cached('customers', () => {
+    const m = new Map();
+    Store.list('customers').forEach(c => { if (key(c.name) && !m.has(key(c.name))) m.set(key(c.name), c); });
+    return m;
+  }).get(key(name)) || null : null);
+  // 位置的客戶（倉庫不算）
+  const customerOf = p => (p && !p.stock ? customer(p.customer) : null);
+  // 客戶的位置（倉庫不算，停用的也算），照名稱
+  const customerPlaces = c => (c ? cached('customerPlaces', () => groupBy(Store.list('locations').filter(p => !p.stock), 'customer', byName))
+    .get(key(c.name)) || NONE : NONE);
+  // 旗下的公司（母公司是它的），照名稱
+  const childrenOf = c => (c ? cached('children', () => groupBy(Store.list('customers'), 'parent', byName)).get(key(c.name)) || NONE : NONE);
+  // 位置表單：選了客戶時業務員先帶客戶的主要業務員
+  const customerSales = name => customer(name)?.sales || '';
+  // 搜尋用：名稱、統編、母公司、聯絡人、電話、傳真；地址常寫樓層，不拿來比（打 3F 時鼎泰國際 4F、5F 會跟著出來）
+  const customerText = c => [c.name, c.taxId, c.parent, c.contact, c.phone, c.fax].filter(Boolean).join(' ');
+
+  // 母公司只分一層：自己、已經有母公司的不能選
+  const parentChoices = values => r => r.id !== values.id && !key(r.parent);
+  // 存檔時：底下有公司的不能再有母公司；選的母公司自己也有母公司時，請他選最上面的
+  function parentCheck(values) {
+    const n = key(values.parent);
+    if (!n) return '';
+    const self = values.id ? Store.get('customers', values.id)?.name : values.name;
+    if (n === key(values.name) || n === key(self)) return '不能選自己';
+    const kids = Store.list('customers').filter(c => c.id !== values.id && key(self) && key(c.parent) === key(self));
+    if (kids.length) return `底下有 ${kids.length} 間公司，不能再有母公司`;
+    const p = customer(values.parent);
+    return p && key(p.parent) ? `「${p.name}」也有母公司，選最上面的「${p.parent}」` : '';
   }
 
   // ---------- 合約 ----------
@@ -1295,6 +1329,7 @@ const Records = (() => {
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
     moveDateNote, moveToNote, isStock, disableCheck, salesCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
+    customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,

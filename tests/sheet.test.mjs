@@ -40,8 +40,16 @@ const sample = () => ({
   ],
   // 位置：編號系統給的，設備、異動、合約存編號；以前的名字可以好幾行
   locations: [
-    { id: 'l1', code: 'L0001', name: '3F 會議室', oldNames: '3F 小會議室（到 2026/01/01）', stock: false, sales: '王小明', disabled: false, note: '' },
-    { id: 'l2', code: 'L0002', name: '舊倉庫', oldNames: '', stock: true, sales: '', disabled: true, note: '' },
+    { id: 'l1', code: 'L0001', name: '3F 會議室', oldNames: '3F 小會議室（到 2026/01/01）', stock: false, customer: '大華公司', sales: '王小明',
+      address: '台北市中正區重慶南路一段 1 號', disabled: false, note: '' },
+    { id: 'l2', code: 'L0002', name: '舊倉庫', oldNames: '', stock: true, customer: '', sales: '', address: '', disabled: true, note: '' },
+  ],
+  // 客戶：統編 0 開頭（純文字）；母公司寫名稱
+  customers: [
+    { id: 'cu1', name: '大華集團', taxId: '01234567', sales: '', parent: '', billAddress: '台北市信義區松仁路 100 號', shipAddress: '',
+      contact: '', phone: '', fax: '', note: '' },
+    { id: 'cu2', name: '大華公司', taxId: '87654321', sales: '王小明', parent: '大華集團', billAddress: '台北市信義區松仁路 100 號',
+      shipAddress: '台北市中正區重慶南路一段 1 號', contact: '林小姐', phone: '02-2311-0000', fax: '02-2311-0001', note: '帳單寄母公司' },
   ],
   people: [
     person('p1', { name: '王小明', code: 'E001', jobTitle: '資訊組長', dept: '資訊組', email: 'a@gmail.com', sales: true, perms: '記抄表、做異動', joinDate: '2020-02-01' }),
@@ -301,7 +309,7 @@ test('建立試算表：分頁、格式、下拉選單、保護', () => {
   const body = plain(Sheet.createBody('設備管理'));
   assert.equal(body.properties.title, '設備管理');
   assert.deepEqual(body.sheets.map(s => s.properties.title),
-    ['設備', '位置', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', '_meta']);
+    ['設備', '位置', '客戶', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', '_meta']);
   assert.equal(body.properties.locale, 'zh_TW');
   assert.equal(body.sheets.at(-1).properties.hidden, true);
 
@@ -334,7 +342,7 @@ test('建立試算表：分頁、格式、下拉選單、保護', () => {
   const opt = Sheet.TAB.options.sheetId;
   const box = reqs.find(r => r.setDataValidation?.range.sheetId === opt && r.setDataValidation.range.startColumnIndex === 3);
   assert.equal(box.setDataValidation.rule.condition.type, 'BOOLEAN');
-  assert.equal(reqs.filter(r => r.addProtectedRange).length, 26); // 13 個分頁 × 標題列與 id 欄
+  assert.equal(reqs.filter(r => r.addProtectedRange).length, 28); // 14 個分頁 × 標題列與 id 欄
   // 左右切換的欄位（異動的類型）有下拉選單
   assert.equal(listOf(listsOf(Sheet.TAB.moves.sheetId), 2), '安裝,撤機,移機,其他');
   assert.ok(reqs.filter(r => r.addProtectedRange).every(r => r.addProtectedRange.protectedRange.warningOnly));
@@ -363,9 +371,11 @@ test('紀錄：設備欄寫設備編號（純文字）；保養一筆一個項�
   assert.deepEqual(v['合約'][0], ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期', '抄表週期', 'id']);
   assert.equal(v['合約'][1][0], 'L0001、L0002'); // 位置存編號，好幾個用「、」分開
   assert.deepEqual(v['合約修改紀錄'][0], ['合約', '日期', '欄位', '改之前', '改之後', 'id']);
-  assert.deepEqual(v['位置'][0], ['編號', '名稱', '以前的名字', '倉庫', '業務員', '停用', '備註', 'id']);
-  assert.deepEqual(v['位置'][1][4], '王小明'); // 業務員寫名字
-  assert.deepEqual(v['位置'][2].slice(0, 6), ['L0002', '舊倉庫', '', true, '', true]);
+  assert.deepEqual(v['位置'][0], ['編號', '名稱', '以前的名字', '倉庫', '客戶', '業務員', '地址', '停用', '備註', 'id']);
+  assert.deepEqual(v['位置'][1].slice(4, 6), ['大華公司', '王小明']); // 客戶、業務員寫名字
+  assert.deepEqual(v['位置'][2].slice(0, 8), ['L0002', '舊倉庫', '', true, '', '', '', true]);
+  assert.deepEqual(v['客戶'][0], ['名稱', '統一編號', '主要業務員', '母公司', '帳單地址', '送貨地址', '聯絡人', '電話', '傳真', '備註', 'id']);
+  assert.deepEqual(v['客戶'][2].slice(0, 4), ['大華公司', '87654321', '王小明', '大華集團']);
   assert.deepEqual(v['抄表'][0], ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', '輸入的人', '業務員回報', 'id']);
   assert.deepEqual(v['抄表'][1].slice(6, 8), ['阿明', '阿明：張數打錯']);
   assert.equal(v['抄表'][1][2], '2026/02'); // 結算月份存成文字
