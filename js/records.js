@@ -1203,7 +1203,8 @@ const Records = (() => {
     return g ? `空白時照型號算：${g}` : '空白時放在「其他」';
   }
   // 總覽的機型依世代分組：[{ gen, count, rows: modelCounts 的列 }]
-  //   世代：機型清單裡填的，沒填的照型號猜，都沒有的（還有沒填機型的）放「其他」，排最後；其他組照機型清單的順序
+  //   世代：機型清單裡選的，沒選的照型號猜，都沒有的（還有沒填機型的）放「其他」，排最後
+  //   組的順序照世代清單；不在世代清單裡的排在後面（照機型清單的順序）
   const OTHER_GEN = '其他';
   function modelGroups(status = '') {
     const norm = v => key(v).replace(/\s+/g, '');
@@ -1216,7 +1217,9 @@ const Records = (() => {
       g.count += r.count;
       g.rows.push(r);
     });
-    return [...groups.values()].sort((a, b) => (a.gen === OTHER_GEN) - (b.gen === OTHER_GEN));
+    const order = new Map(Refs.listItems({ table: 'options', list: '世代' }).map((o, i) => [norm(o.name), i]));
+    const rank = g => (g.gen === OTHER_GEN ? order.size + 1 : order.get(norm(g.gen)) ?? order.size);
+    return [...groups.values()].sort((a, b) => rank(a) - rank(b));
   }
 
   // ---------- 對不上的設備、位置 ----------

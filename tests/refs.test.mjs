@@ -173,10 +173,10 @@ test('不在清單裡的值：每個範圍一組（保管人、工程師都是�
   assert.equal(Refs.listOfScope('locations:').key, 'locations');
 });
 
-test('設定裡的清單：狀態、類別、位置、客戶、品牌、機型、保養項目、選配件、人員、廠商；停用的排在後面', () => {
+test('設定裡的清單：狀態、類別、位置、客戶、品牌、機型、世代、保養項目、選配件、人員、廠商；停用的排在後面', () => {
   const { Refs } = withData();
-  assert.deepEqual(plain(Refs.lists().map(l => l.title)), ['狀態', '類別', '位置', '客戶', '品牌', '機型', '保養項目', '選配件', '人員', '廠商']);
-  assert.deepEqual(plain(Refs.lists().filter(l => l.sortable).map(l => l.title)), ['狀態', '類別', '機型', '保養項目', '選配件']);
+  assert.deepEqual(plain(Refs.lists().map(l => l.title)), ['狀態', '類別', '位置', '客戶', '品牌', '機型', '世代', '保養項目', '選配件', '人員', '廠商']);
+  assert.deepEqual(plain(Refs.lists().filter(l => l.sortable).map(l => l.title)), ['狀態', '類別', '機型', '世代', '保養項目', '選配件']);
   const loc = Refs.lists().find(l => l.key === 'locations');
   assert.deepEqual(names(Refs.listItems(loc)), ['2F 辦公室', '3F 會議室', '舊倉庫']);
   const people = Refs.lists().find(l => l.key === 'people');
@@ -333,7 +333,7 @@ test('設備：主機板號碼有填的話不能重複，搜尋找得到', () =>
   assert.ok(s.search.includes('board'));
 });
 
-test('排序：↑ ↓ 移一格，沒停用的重新編成 1、2、3…，停用的排在後面；新加的排在最後', () => {
+test('排序：拖到第幾個，沒停用的重新編成 1、2、3…，停用的排在後面；新加的排在最後', () => {
   const { Store, Refs, field } = app();
   const l = Refs.lists().find(x => x.key === 'options:機型');
   ['IMC4500', 'IMC6000', 'IMC5500'].forEach(name => Refs.quickAdd(field('devices', 'model'), name));
@@ -341,11 +341,11 @@ test('排序：↑ ↓ 移一格，沒停用的重新編成 1、2、3…，停�
   // 還沒排過：依名字
   assert.deepEqual(names(Refs.listItems(l)), ['IMC4500', 'IMC5500', 'IMC6000', 'MP3555']);
   const id = name => Store.list('options').find(o => o.name === name).id;
-  assert.equal(Refs.move(l, id('IMC6000'), -1), true);
-  assert.equal(Refs.move(l, id('IMC6000'), -1), true);
-  assert.equal(Refs.move(l, id('IMC6000'), -1), false); // 已經第一個
+  assert.equal(Refs.moveTo(l, id('IMC6000'), 0), true); // 最後一個拖到最上面
+  assert.equal(Refs.moveTo(l, id('IMC6000'), 0), false); // 已經第一個
+  assert.equal(Refs.moveTo(l, id('IMC6000'), 3), false); // 停用的不能排在它前面
   assert.deepEqual(names(Refs.listItems(l)), ['IMC6000', 'IMC4500', 'IMC5500', 'MP3555']);
-  assert.equal(Refs.move(l, id('IMC5500'), -1), true);
+  assert.equal(Refs.moveTo(l, id('IMC5500'), 1), true);
   assert.deepEqual(names(Refs.items(field('devices', 'model'))), ['IMC6000', 'IMC5500', 'IMC4500']);
   assert.deepEqual(plain(Store.list('options').filter(o => o.list === '機型').map(o => [o.name, o.order])),
     [['IMC4500', 3], ['IMC6000', 1], ['IMC5500', 2], ['MP3555', 4]]);

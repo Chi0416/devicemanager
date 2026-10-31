@@ -1015,31 +1015,62 @@ test('總覽：各機型有幾台，先篩狀態；機型的大小寫、空格�
   assert.deepEqual(plain(Records.modelCounts('報廢')), []);
 });
 
-test('機型的世代：照型號猜（IM C、C xx04…、黑白 MP），清單裡填的優先；總覽依世代分組、寫小計，猜不到的放「其他」排最後', () => {
-  const { Records, add, field } = withDevices();
+test('機型的世代：照型號猜（IM C、C xx04…、黑白 MP），機型選的優先；總覽依世代分組、寫小計、照世代清單的順序，猜不到的放「其他」排最後', () => {
+  const { Store, Refs, Records, add, field } = withDevices();
   const guess = Records.guessGen;
   assert.deepEqual(['IMC6000', 'IM C4500', 'IMC300', 'C6004EX', 'MP C3504', 'C3503', 'C2503', 'MPC4501', 'C5501', 'C3300', 'C5000', 'MP5055', 'MP4000B', '借機']
     .map(guess), ['IM C', 'IM C', 'IM C', 'C xx04', 'C xx04', 'C xx03', 'C xx03', 'C xx01', 'C xx01', 'C xx00', 'C xx00', '黑白 MP', '黑白 MP', '']);
-  // 機型表單：世代只有機型有；空白時寫會怎麼算
+  // 機型表單：世代只有機型有，從世代清單選；空白時寫會怎麼算
   const gen = field('options', 'gen');
   assert.equal(gen.showIf({ list: '機型' }), true);
   assert.equal(gen.showIf({ list: '品牌' }), false);
+  assert.deepEqual([gen.type, gen.ref, gen.list], ['ref', 'options', '世代']);
+  assert.deepEqual(plain(Refs.items(gen).map(o => o.name)), ['IM C', 'C xx04', 'C xx03', 'C xx01', 'C xx00', '黑白 MP']); // 預設的世代
   assert.equal(Records.genNote({ name: 'IMC6000', gen: '' }), '空白時照型號算：IM C');
   assert.equal(Records.genNote({ name: '借機', gen: '' }), '空白時放在「其他」');
   assert.equal(Records.genNote({ name: '借機', gen: '其他' }), '');
-  // 分組：照機型清單的順序；清單裡填了世代的照填的
+  // 分組：照世代清單的順序；機型選了世代的照選的
   ['IMC6000', 'C4501', '借機', 'C3504', 'IMC4500'].forEach((name, i) => add('options', { list: '機型', name, order: i + 1 }));
   add('options', { list: '機型', name: 'C3503', order: 6, gen: 'C xx04' }); // 自己歸到 xx04
   const dev = (code, model) => add('devices', { code, name: code, status: '出租中', model });
   dev('26-0001', 'IMC6000'); dev('26-0002', 'IMC6000'); dev('26-0003', 'C4501'); dev('26-0004', '借機');
   dev('26-0005', 'C3504'); dev('26-0006', 'IMC4500'); dev('26-0007', 'C3503');
-  const groups = Records.modelGroups('出租中');
-  assert.deepEqual(plain(groups.map(g => [g.gen, g.count, g.rows.map(r => r.model || '未填')])), [
+  const groups = () => plain(Records.modelGroups('出租中').map(g => [g.gen, g.count, g.rows.map(r => r.model || '未填')]));
+  assert.deepEqual(groups(), [
     ['IM C', 3, ['IMC6000', 'IMC4500']],
-    ['C xx01', 1, ['C4501']],
     ['C xx04', 2, ['C3504', 'C3503']],
+    ['C xx01', 1, ['C4501']],
     ['其他', 2, ['借機', '未填']], // withDevices 的 24-0001 出租中、沒填機型
   ]);
+  // 世代清單把 C xx01 拖到最上面：總覽跟著排；不在世代清單裡的排在清單的後面、「其他」前面
+  const l = Refs.lists().find(x => x.key === 'options:世代');
+  Refs.moveTo(l, Store.list('options').find(o => o.list === '世代' && o.name === 'C xx01').id, 0);
+  Store.update('options', Store.list('options').find(o => o.name === 'C3503').id, { gen: '舊機' });
+  assert.deepEqual(groups().map(g => g[0]), ['C xx01', 'IM C', 'C xx04', '舊機', '其他']);
+});
+
+test('世代清單：沒有預設世代的試算表（舊的），機型用到的世代（照型號猜的也算）列成不在清單裡，一鍵加進來；改名時照型號猜的機型也一起改', () => {
+  const { Store, Refs, add } = withDevices();
+  Store.list('options').filter(o => o.list === '世代').forEach(o => Store.remove('options', o.id));
+  add('options', { list: '機型', name: 'IMC6000', order: 1 });
+  add('options', { list: '機型', name: 'IMC4500', order: 2 });
+  add('options', { list: '機型', name: 'C3503', order: 3, gen: 'C xx04' });
+  add('options', { list: '機型', name: '借機', order: 4 });
+  add('options', { list: '品牌', name: 'Ricoh' }); // 品牌沒有世代
+  const miss = plain(Refs.missing().find(m => m.key === 'options:世代'));
+  assert.deepEqual(miss.values, ['C xx04', 'IM C']);
+  assert.equal(Refs.importMissing('options:世代'), 2);
+  assert.equal(Refs.missing().find(m => m.key === 'options:世代'), undefined);
+  const im = Store.list('options').find(o => o.list === '世代' && o.name === 'IM C');
+  assert.equal(Refs.usesText('options', im), '2 種機型'); // 照型號猜的也算
+  assert.match(Refs.removeBlock('options', im), /還有 2 種機型用到「IM C」/);
+  // 改名：照型號猜的兩種機型寫上新的名字，不會又變成不在清單裡
+  const before = { ...im };
+  Store.update('options', im.id, { name: 'IM C 系列' });
+  assert.equal(Refs.renameRefs('options', before, Store.get('options', im.id)).length, 2);
+  assert.deepEqual(plain(Store.list('options').filter(o => o.list === '機型').map(o => [o.name, o.gen ?? ''])),
+    [['IMC6000', 'IM C 系列'], ['IMC4500', 'IM C 系列'], ['C3503', 'C xx04'], ['借機', '']]);
+  assert.equal(Refs.missing().find(m => m.key === 'options:世代'), undefined);
 });
 
 test('位置的用量：以一期算（兩次抄表之間），每月抄、一季抄都比每月平均；換機那個月兩台加起來；第一次抄表不算', () => {

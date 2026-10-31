@@ -935,7 +935,7 @@ test('試算表上看不懂的那一筆，在 App 裡改好之後，同一次同
 });
 
 // ---------- 清單（選項、人員、廠商） ----------
-test('連結：只有預設的項目（類別、保養項目、選配件）時不算這台裝置的資料，不詢問；預設的項目也存進試算表', async () => {
+test('連結：只有預設的項目（類別、世代、保養項目、選配件）時不算這台裝置的資料，不詢問；預設的項目也存進試算表', async () => {
   const fake = new FakeGoogle();
   const d = device(fake, { confirmAnswer: false });
   await d.Sync.startLink();
@@ -943,7 +943,7 @@ test('連結：只有預設的項目（類別、保養項目、選配件）時�
   assert.equal(d.Sync.state().linked, true);
   const id = d.Sync.state().url.split('/').pop();
   assert.deepEqual(fake.values(id, '選項')[0], ['清單', '名稱', '順序', '停用', '世代', '壽命（張）', '算哪種張數', 'id']);
-  assert.equal(fake.values(id, '選項').length, 16); // 類別 3、保養項目 8、選配件 4
+  assert.equal(fake.values(id, '選項').length, 22); // 類別 3、世代 6、保養項目 8、選配件 4
   assert.deepEqual(fake.values(id, '選項')[1].slice(0, 4), ['類別', '事務機', 1, false]);
 });
 

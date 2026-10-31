@@ -33,6 +33,11 @@ const Refs = (() => {
   const active = (t, r) => (targetOf(t).active ? targetOf(t).active(r) : true);
   // 欄位裡存的值：可以選好幾個的拆開（「L0001、L0002」→ ['L0001', 'L0002']），其他是一個
   const valuesOf = (f, v) => (f.many ? multi(v) : String(v ?? '').trim() ? [String(v).trim()] : []);
+  // 這一筆用到的值：空白時欄位有 fallback 的用它算的（機型的世代照型號猜）
+  const usedValues = (f, r) => {
+    const v = valuesOf(f, r[f.key]);
+    return v.length || !f.fallback ? v : valuesOf(f, f.fallback(r));
+  };
 
   // 排序：有 order 的（狀態）依順序，數字小的在前、沒填的在後；其他依畫面上寫的字（位置依名稱）
   function compare(t) {
@@ -95,7 +100,7 @@ const Refs = (() => {
     return refsTo(t)
       .filter(({ field }) => inScope(field, rec))
       .flatMap(({ table, field }) => Store.list(table)
-        .filter(r => valuesOf(field, r[field.key]).some(v => norm(v) === n))
+        .filter(r => usedValues(field, r).some(v => norm(v) === n))
         .map(r => ({ table, id: r.id, key: field.key })));
   }
 
@@ -141,7 +146,7 @@ const Refs = (() => {
       const key = scopeKey(field);
       if (!scopes.has(key)) scopes.set(key, { key, ref: field.ref, name: scopeName(field), field, values: new Set() });
       Store.list(table).forEach(r => {
-        valuesOf(field, r[field.key]).forEach(v => { if (!find(field, v)) scopes.get(key).values.add(v); });
+        usedValues(field, r).forEach(v => { if (!find(field, v)) scopes.get(key).values.add(v); });
       });
     });
     return [...scopes.values()].filter(s => s.values.size).map(s => ({ ...s, values: [...s.values].sort(byName) }));
@@ -156,7 +161,7 @@ const Refs = (() => {
   }
 
   // 設定裡的「清單」：每一份清單一列（狀態一列，選項依清單分，位置、客戶、人員、廠商各一列）
-  //   sortable：可以在清單頁用 ↑ ↓ 排順序（狀態、SORTED_LISTS 裡的選項）
+  //   sortable：可以在清單頁拖拉排順序（狀態、SORTED_LISTS 裡的選項）
   function lists() {
     const options = OPTION_LISTS.map(list => ({ key: `options:${list}`, table: 'options', list, title: list, sortable: SORTED_LISTS.includes(list) }));
     return [
@@ -179,16 +184,15 @@ const Refs = (() => {
       .sort((a, b) => (active(l.table, b) - active(l.table, a)) || cmp(a, b));
   }
 
-  // 排序：把這份清單裡的一項往前（dir 是 -1）或往後（+1）移一格，沒停用的重新編成 1、2、3…（停用的排在後面）
+  // 排序：把這份清單裡的一項移到沒停用的第 to 個（從 0 算），沒停用的重新編成 1、2、3…（停用的排在後面）
   //   只改順序有變的；回傳有沒有移動
-  function move(l, id, dir) {
+  function moveTo(l, id, to) {
     const key = targetOf(l.table).order;
     const all = listItems(l);
     const on = all.filter(r => active(l.table, r));
     const i = on.findIndex(r => r.id === id);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= on.length) return false;
-    [on[i], on[j]] = [on[j], on[i]];
+    if (i < 0 || to === i || to < 0 || to >= on.length) return false;
+    on.splice(to, 0, ...on.splice(i, 1));
     [...on, ...all.filter(r => !active(l.table, r))].forEach((r, k) => {
       if (r[key] !== k + 1) Store.update(l.table, r.id, { [key]: k + 1 });
     });
@@ -200,6 +204,6 @@ const Refs = (() => {
 
   return {
     isTarget, targetOf, norm, multi, inScope, items, find, nameOf, labelOf, valuesOf, active, sub, tone, blankRecord, quickAdd,
-    refsTo, usesOf, usesText, removeBlock, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, move, listOfScope,
+    refsTo, usesOf, usesText, removeBlock, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, moveTo, listOfScope,
   };
 })();

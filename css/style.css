@@ -909,26 +909,30 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .lists-missing p { margin: 0; }
 .lists-missing .wide-btn { height: 40px; margin-top: 10px; }
 .lists-body .empty { padding: 40px 16px; }
-/* 可以排序的清單：右上的「排序」；排序中每一項旁邊有 ↑ ↓ */
+/* 可以排序的清單：右上的「排序」；排序中按住每一項右邊的 ≡ 拖拉（見 lists.js 的 dragStart） */
 .lists-tools { display: flex; justify-content: flex-end; margin: -6px 0 6px; }
 .lists-tools .text-btn { min-height: 34px; padding: 4px 8px; font-size: 15px; color: var(--accent-text); }
 .lists-sort-hint { margin: 0 2px 12px; }
-.list-items.sorting li { gap: 8px; padding: 6px 10px 6px 16px; }
+.list-items.sorting li { position: relative; gap: 8px; padding: 6px 4px 6px 16px; background: var(--surface); transition: transform .15s ease; }
+.list-items.sorting li:first-child { border-radius: 14px 14px 0 0; }
+.list-items.sorting li:last-child { border-radius: 0 0 14px 14px; }
+.list-items.sorting li.dragging { z-index: 1; border-radius: 10px; transition: none; box-shadow: 0 6px 20px rgba(0, 0, 0, .18); }
 .sort-name { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-.sort-btn {
+.drag-handle {
   flex: none;
+  display: grid;
+  place-items: center;
   width: 44px;
   height: 38px;
-  border: .5px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text-2);
-  font: inherit;
-  font-size: 18px;
-  cursor: pointer;
+  font-size: 22px;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
-.sort-btn:disabled { opacity: .3; cursor: default; }
-.sort-btn:not(:disabled):active { background: var(--chip-bg); }
+.dragging .drag-handle { cursor: grabbing; color: var(--text-2); }
 .list-items.sorting li.moved { animation: flash 1.2s ease-out; }
 /* 一份清單：像一頁一樣高，項目少時也不會只剩一小塊 */
 #lists-sheet .sheet-body { min-height: min(560px, 75vh); }

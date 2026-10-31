@@ -190,7 +190,7 @@
 
   // 清單頁分區：設備照新增設備時表單的順序；沒列在這裡的清單排在「其他」
   const LIST_GROUPS = [
-    ['設備', ['options:類別', 'options:品牌', 'options:機型', 'statuses', 'options:選配件']],
+    ['設備', ['options:類別', 'options:品牌', 'options:機型', 'options:世代', 'statuses', 'options:選配件']],
     ['保養', ['options:保養項目']],
     ['人員和廠商', ['people', 'vendors']],
   ];

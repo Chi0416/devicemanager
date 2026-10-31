@@ -109,16 +109,17 @@ const DEFAULT_STATUSES = [
 ];
 
 // 只有名字的清單，都放在「選項」表，用「清單」欄分（位置以前也在這裡，2026-10-11 搬到自己的「位置」表）
-const OPTION_LISTS = ['類別', '品牌', '機型', '保養項目', '選配件'];
-// 機型的世代（快選按鈕）：總覽依世代分組；空白時照型號猜（見 records.js 的 guessGen）
-const GENERATIONS = ['IM C', 'C xx04', 'C xx03', 'C xx01', 'C xx00', '黑白 MP', '其他'];
-// 可以自己排順序的清單（設定 → 清單 →「排序」，↑ ↓ 移動）；其他的依名字排（品牌）
-const SORTED_LISTS = ['類別', '機型', '保養項目', '選配件'];
+//   世代：機型的世代從這裡選，總覽依世代分組、照這份清單的順序；機型沒選時照型號猜（見 records.js 的 guessGen）
+const OPTION_LISTS = ['類別', '品牌', '機型', '世代', '保養項目', '選配件'];
+// 可以自己排順序的清單（設定 → 清單 →「排序」，按住 ≡ 拖拉）；其他的依名字排（品牌）
+const SORTED_LISTS = ['類別', '機型', '世代', '保養項目', '選配件'];
 // 機型存大寫（imc6000 → IMC6000）；其他清單照打的存（品牌 Ricoh）
 const cleanOption = (v, values) => (values.list === '機型' ? U.toHalf(v).toUpperCase() : v);
 // 預設項目（沒改過時不算這台裝置的資料），照寫的順序排；id 的開頭：類別是 seed-1…，其他加上清單的代號
 const DEFAULT_OPTIONS = [
   { list: '類別', id: '', names: ['事務機', '打卡鐘', '碎紙機'] },
+  // 世代的名字和照型號猜的一樣（見 records.js 的 guessGen）；猜不到的放「其他」，不用列
+  { list: '世代', id: 'gen', names: ['IM C', 'C xx04', 'C xx03', 'C xx01', 'C xx00', '黑白 MP'] },
   // 感光鼓、加熱組預設壽命 10 萬張（提前回收保養，不等故障）；碳粉空白，用這個客戶的平均
   { list: '保養項目', id: 'mt', names: ['碳粉 K', '碳粉 C', '碳粉 M', '碳粉 Y', '感光鼓', '加熱組', '廢粉盒', '清潔保養'],
     extra: { 感光鼓: { life: 100000 }, 加熱組: { life: 100000 } } },
@@ -565,7 +566,7 @@ const SCHEMAS = {
     seed: () => DEFAULT_STATUSES.map((s, i) => ({ id: `seed-s${i + 1}`, name: s.name, color: s.color, order: i + 1, quiet: !!s.quiet, disabled: false })),
     fields: [
       { key: 'name',     label: '名稱',     type: 'text' },
-      // 順序在設定的清單用 ↑ ↓ 排（存 1、2、3…），表單上不顯示
+      // 順序在設定的清單拖拉排（存 1、2、3…），表單上不顯示
       { key: 'order',    label: '順序',     type: 'number', optional: true, hidden: true },
       { key: 'color',    label: '顏色',     type: 'text', full: true, default: '藍', suggest: COLORS.map(c => c.value),
         toggle: COLORS.map(c => ({ value: c.value, label: c.value, tone: c.tone, match: new RegExp(`^${c.value}$`) })) },
@@ -575,9 +576,10 @@ const SCHEMAS = {
   },
 
   // 只有名字的清單（類別、品牌、機型、保養項目、選配件）
-  //   順序：可以排序的清單在清單頁用 ↑ ↓ 排（存 1、2、3…），表單上不顯示；沒有順序的排在後面、依名字排
+  //   順序：可以排序的清單在清單頁拖拉排（存 1、2、3…），表單上不顯示；沒有順序的排在後面、依名字排
   options: {
     title: '選項',
+    unit: '種機型', // 只有機型的世代會用到選項（世代清單寫「3 種機型」）
     formTitle: r => r?.list || '選項', // 「編輯保養項目」「新增機型」
     noList: true,
     formOrder: ['list', 'name', 'gen', 'life', 'pages'],
@@ -594,9 +596,11 @@ const SCHEMAS = {
       { key: 'name',     label: '名稱', type: 'text', full: true, clean: cleanOption },
       { key: 'order',    label: '順序', type: 'number', optional: true, hidden: true },
       { key: 'disabled', label: '停用', type: 'flag', optional: true, hint: '不會出現在選單裡，已經用到的設備照常顯示', showIf: v => !!v.id },
-      // 只有機型有：總覽依世代分組，汰舊換新時看得出舊的還有幾台；空白時照型號猜，猜不到的放「其他」
+      // 只有機型有：從世代清單選，總覽依世代分組，汰舊換新時看得出舊的還有幾台；空白時照型號猜，猜不到的放「其他」
+      //   fallback：空白時照型號猜的也算用到（世代清單的「幾種機型」、不在清單裡、改名時一起改）
       //   試算表上排在最後（後來加的欄），表單上在名稱下面（formOrder）
-      { key: 'gen',      label: '世代', type: 'text', optional: true, full: true, suggest: GENERATIONS,
+      { key: 'gen',      label: '世代', type: 'ref', ref: 'options', list: '世代', optional: true, full: true,
+        fallback: r => (r.list === '機型' ? Records.guessGen(r.name) : ''),
         showIf: v => v.list === '機型', note: v => Records.genNote(v) },
       // 只有保養項目有：壽命幾張（有設定用設定的，空白時用這個客戶的平均）、算哪種張數（空白時照名稱，碳粉 C、M、Y 只算彩色）
       { key: 'life',     label: '壽命（張）', type: 'number', optional: true,
