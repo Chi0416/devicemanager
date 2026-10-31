@@ -7,25 +7,26 @@ import vm from 'node:vm';
 
 const ctx = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../apps-script/meter.gs', import.meta.url), 'utf8'), ctx, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_ } = vm.runInContext('({ salesPerson_, salesRows_ })', ctx);
+const { salesPerson_, salesRows_, salesScope_, salesCheck_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesCheck_ })', ctx);
 const plain = v => JSON.parse(JSON.stringify(v));
 
 const PEOPLE = [
-  ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '業務員', '權限', '入職日', '離職日', '備註', 'id'],
-  ['阿明', '', '', '', '', ' A@Gmail.com ', true, '記抄表', '', '', '', 'p1'],
-  ['小華', '', '', '', '', 'x@gmail.com', false, '', '', '', '', 'p2'],
-  ['老王', '', '', '', '', 'w@gmail.com', true, '', '', 100, '', 'p3'],
-  ['未來', '', '', '', '', 'f@gmail.com', 'v', '', '', 300, '', 'p4'],
+  ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '業務員', '權限', '看全部', '入職日', '離職日', '備註', 'id'],
+  ['阿明', '', '', '', '', ' A@Gmail.com ', true, '記抄表', false, '', '', '', 'p1'],
+  ['小華', '', '', '', '', 'x@gmail.com', false, '', false, '', '', '', 'p2'],
+  ['老王', '', '', '', '', 'w@gmail.com', true, '', false, '', 100, '', 'p3'],
+  ['未來', '', '', '', '', 'f@gmail.com', 'v', '記抄表、記保養', true, '', 300, '', 'p4'],
 ];
 
-test('業務員是誰：Email 一樣（不分大小寫）、勾了業務員、還沒離職；不是的回空字串', () => {
-  assert.equal(salesPerson_(PEOPLE, 'a@gmail.com', 200), '阿明');
-  assert.equal(salesPerson_(PEOPLE, 'x@gmail.com', 200), ''); // 沒勾業務員
-  assert.equal(salesPerson_(PEOPLE, 'w@gmail.com', 200), ''); // 離職日過了
-  assert.equal(salesPerson_(PEOPLE, 'w@gmail.com', 100), ''); // 離職那天就不行
-  assert.equal(salesPerson_(PEOPLE, 'f@gmail.com', 200), '未來'); // 手打的 v 也算勾了；離職日還沒到
-  assert.equal(salesPerson_(PEOPLE, 'nobody@gmail.com', 200), '');
-  assert.equal(salesPerson_([], 'a@gmail.com', 200), '');
+test('業務員是誰：Email 一樣（不分大小寫）、勾了業務員、還沒離職；帶權限、看全部；不是的回 null', () => {
+  assert.deepEqual(plain(salesPerson_(PEOPLE, 'a@gmail.com', 200)), { name: '阿明', perms: ['記抄表'], all: false });
+  assert.equal(salesPerson_(PEOPLE, 'x@gmail.com', 200), null); // 沒勾業務員
+  assert.equal(salesPerson_(PEOPLE, 'w@gmail.com', 200), null); // 離職日過了
+  assert.equal(salesPerson_(PEOPLE, 'w@gmail.com', 100), null); // 離職那天就不行
+  // 手打的 v 也算勾了；離職日還沒到；勾了看全部
+  assert.deepEqual(plain(salesPerson_(PEOPLE, 'f@gmail.com', 200)), { name: '未來', perms: ['記抄表', '記保養'], all: true });
+  assert.equal(salesPerson_(PEOPLE, 'nobody@gmail.com', 200), null);
+  assert.equal(salesPerson_([], 'a@gmail.com', 200), null);
 });
 
 // 阿明負責大華（L0001）、舊客戶（L0004，停用了）；小華負責長榮（L0002）；L0003 是倉庫
@@ -85,7 +86,7 @@ const VALUES = {
 const ids = (out, tab) => plain(out[tab].slice(1).map(r => r.at(-1)));
 
 test('業務員看得到的列：他的位置、現在在那裡的機器的全部紀錄、以前放過的機器在他那裡那段；別的位置、倉庫不給', () => {
-  const out = salesRows_(VALUES, '阿明');
+  const out = salesRows_(VALUES, { name: '阿明', perms: [], all: false });
   assert.deepEqual(ids(out, '位置'), ['l1', 'l4']); // 倉庫勾了業務員也不給
   assert.deepEqual(ids(out, '設備'), ['d1', 'd2', 'd4']);
   // 26-0001 搬來之前的也給；26-0002 只給 100～200（搬走那天有時間的也算）；26-0004 只給 50～80
@@ -104,7 +105,33 @@ test('業務員看得到的列：他的位置、現在在那裡的機器的全�
 });
 
 test('沒有負責任何位置的業務員：只拿到清單，沒有位置、機器、紀錄', () => {
-  const out = salesRows_(VALUES, '沒人');
+  const out = salesRows_(VALUES, { name: '沒人', perms: [], all: false });
   ['位置', '設備', '異動', '抄表', '合約'].forEach(t => assert.equal(out[t].length, 1, t)); // 只有標題列
   assert.equal(out.選項.length, 2);
+});
+
+test('看全部：全部的位置、機器、紀錄都給（包括倉庫），人員一樣只給姓名', () => {
+  const out = salesRows_(VALUES, { name: '未來', perms: [], all: true });
+  assert.deepEqual(ids(out, '位置'), ['l1', 'l2', 'l3', 'l4']);
+  assert.deepEqual(ids(out, '設備'), ['d1', 'd2', 'd3', 'd4']);
+  assert.equal(out.抄表.length, VALUES.抄表.length);
+  assert.deepEqual(plain(out.人員[0]), ['姓名', 'id']);
+});
+
+test('業務員新增抄表、保養前的檢查：要有權限、這台現在放在他的位置（看全部的：有這台就好）；其他分頁不行', () => {
+  const head = ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註', 'id'];
+  const item = (tab, device, id = 'n1') => ({ tab, head, row: [device, 300, '', 1, '', '', id] });
+  const amin = { name: '阿明', perms: ['記抄表'], all: false };
+  const mine = salesScope_(VALUES, amin).now;
+  assert.deepEqual([...mine], ['26-0001']);
+  assert.deepEqual(plain(salesCheck_(amin, mine, item('抄表', '26-0001'))), { id: 'n1' });
+  assert.equal(salesCheck_(amin, mine, item('抄表', '26-0002')).error, '這台不在你負責的位置'); // 以前放過、已經搬走的不行
+  assert.equal(salesCheck_(amin, mine, item('保養', '26-0001')).error, '沒有「記保養」的權限，請找管理員');
+  assert.equal(salesCheck_(amin, mine, item('異動', '26-0001')).error, '業務員只能新增抄表、保養');
+  assert.equal(salesCheck_(amin, mine, item('抄表', '26-0001', '')).error, '資料不完整');
+  assert.equal(salesCheck_(amin, mine, {}).error, '業務員只能新增抄表、保養');
+  const boss = { name: '未來', perms: ['記抄表', '記保養'], all: true };
+  const all = salesScope_(VALUES, boss).now;
+  assert.equal(all.size, 4);
+  assert.deepEqual(plain(salesCheck_(boss, all, item('保養', '26-0003'))), { id: 'n1' });
 });

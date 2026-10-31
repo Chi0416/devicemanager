@@ -10,7 +10,7 @@
 //   不能改的舊值（lock，有異動的設備的位置）：只顯示，下面寫原因
 //   以這筆為底新增（schema 的 copy，合約的「重新簽約」）：編輯時才有；改過還沒存時不能按
 //   同一個位置的另一種按鈕（schema 的 action，人員的「複製邀請連結」）：編輯時、show(這一筆) 為 true 才有，按了交給 app.js（init 的 action）
-//   業務員模式（見 sync.js）只能看：不打開表單
+//   業務員模式（見 sync.js）：只能新增他有權限的（抄表、保養），不能修改、刪除；清單的下拉選單不能「＋ 新增」
 //   修改紀錄（schema 的 history，合約）：編輯時列在下面
 //   刪除：按第一次在按鈕下面寫會刪掉什麼，再按一次才刪；不用瀏覽器的確認視窗（有些環境不會跳出來，按了就像沒反應）
 //     設備有紀錄的：寫出有幾筆、建議改成報廢，真的要刪就連同紀錄一起刪（schema 的 target.cascade）
@@ -66,7 +66,7 @@ const Form = (() => {
   //   在設備詳情裡新增紀錄時，設備先帶好（「儲存，再新增一筆」也照樣帶）
   // message：打開時寫在最上面的一行（安裝、撤機後接著抄表時說要填什麼）
   function open(tableKey, id, preset = {}, { message = '' } = {}) {
-    if (typeof Sync !== 'undefined' && Sync.isSales()) return;
+    if (typeof Sync !== 'undefined' && Sync.isSales() && (id || !Sync.salesCan(tableKey))) return;
     const schema = SCHEMAS[tableKey];
     const rec = id ? Store.get(tableKey, id) : null;
     if (id && !rec) return;
@@ -291,7 +291,7 @@ const Form = (() => {
   //   點一下列出整份清單（停用的不列），打字時篩選；找不到時最下面是「＋ 新增」（紀錄的設備欄沒有）
   //   下拉選單蓋在下面的欄位上，表單不會跟著變長變短
   const listName = f => (f.list ? `${f.list}清單` : SCHEMAS[f.ref].title);
-  const canAdd = f => !f.noAdd && !Refs.targetOf(f.ref).noAdd;
+  const canAdd = f => !f.noAdd && !Refs.targetOf(f.ref).noAdd && !(typeof Sync !== 'undefined' && Sync.isSales());
 
   //   顯示的字和存的值不一樣時（設備：顯示位置、存編號），另外一格給人看、打字搜尋，存的值放在藏起來的 inputs[i]
   const labelOf = f => Refs.targetOf(f.ref).label || null;

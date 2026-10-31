@@ -14,7 +14,7 @@
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
 //   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「最新回報」，不算帳（見 doPost），要帶密語
-//   業務員的 App 也 POST 到同一個網址拿資料（見 salesData_）：帶 Google 登入的權杖，不用密語，只拿得到他負責的客戶
+//   業務員的 App 也 POST 到同一個網址拿資料（見 salesData_）、新增抄表和保養（見 salesAdd_）：帶 Google 登入的權杖，不用密語，只碰得到他負責的客戶
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
@@ -22,7 +22,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const NEED = ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註'];
 
 // 第一次執行這個：授權、設定每小時跑一次 checkMail，並馬上看一次信箱（重複執行不會多出觸發條件）
+//   Google 只問這次執行用到的權限：業務員拿資料要問 Google 是誰（連到外部服務），這裡先用一下，執行 install 時一起問
 function install() {
+  UrlFetchApp.getRequest('https://www.google.com');
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'checkMail')
     .forEach(t => ScriptApp.deleteTrigger(t));
@@ -81,6 +83,7 @@ function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
     if (body.action === 'data') return json_(salesData_(body.token));
+    if (body.action === 'add') return json_(salesAdd_(body.token, body.items));
     const key = PropertiesService.getScriptProperties().getProperty('key');
     if (!key) return json_({ error: '還沒有密語：試算表上方「自動抄表」→「密語」' });
     if (body.key !== key) return json_({ error: '密語不對' });
@@ -317,11 +320,12 @@ function serialMap_(sheet) {
 }
 
 // ---------- 業務員：向總部拿資料（App 的業務員模式） ----------
-//   { action: 'data', token: Google 登入給 App 的存取權杖 } → { name: 人員的姓名, email, admin: 總部的帳號, values: { 分頁名稱: [標題列, ...列] } }
+//   { action: 'data', token: Google 登入給 App 的存取權杖 } → { name: 人員的姓名, perms: 權限, all: 看全部, email, admin: 總部的帳號, values: { 分頁名稱: [標題列, ...列] } }
 //   權杖先問 Google 是不是設備管理這個 App 拿到的、是誰（雲端硬碟的 about，App 本來就有這個權限），再對「人員」：Email 一樣、勾了業務員、沒離職
 //   只回他看得到的列（見 salesRows_）；日期換成試算表的序號，App 用讀試算表的同一套讀法（sheet.js 的 fromValues）
 //   出錯回 { error }；登入過期的另外有 login: true（App 請他重新登入），不是業務員的有 denied: true（App 清掉手機上的資料）
 //   第一次加這段要重新授權（會用到 UrlFetchApp）：上方選 install 按「執行」，照畫面允許，再到「管理部署作業」換新版本
+//   不用 Session 拿總部的帳號：那要另外一個權限（userinfo.email），授權時不一定問得到，拿不到會讓整個失敗
 const CLIENT_ID = '460486615404-n7j6akqvhec4at7dt0f4937posghfr4p.apps.googleusercontent.com'; // App 的 OAuth 用戶端 ID（js/config.js）
 const SALES_TABS = ['位置', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST];
 
@@ -329,15 +333,93 @@ function salesData_(token) {
   const email = whoIs_(token);
   if (!email) return { error: '登入已過期，請重新登入', login: true };
   const ss = SpreadsheetApp.getActive();
+  const values = readTabs_(ss, SALES_TABS);
+  const person = salesPerson_(values['人員'], email, today_(ss));
+  if (!person) return { error: `${email} 不是業務員，請找管理員`, denied: true };
+  return { ...person, email, admin: owner_(ss), values: salesRows_(values, person) };
+}
+
+// 業務員新增抄表、保養：{ action: 'add', token, items: [{ tab: '抄表' 或 '保養', head: App 用的標題列, row: 照 head 排的那一列（日期是序號） }] }
+//   一筆一筆檢查：有沒有這個權限（記抄表、記保養）、這台是不是現在放在他的位置（看全部的：設備分頁有這台就可以）
+//   通過才加在那個分頁最下面（照試算表現在的標題排）；同一個 id 已經有了就不再加（沒網路重送時不會多一筆）
+//   回 { results: [{ id, ok: true } 或 { id, error: 原因 }] }；不能改、不能刪（業務員只能新增）
+const SALES_ADD = { 抄表: '記抄表', 保養: '記保養' };
+function salesAdd_(token, items) {
+  const email = whoIs_(token);
+  if (!email) return { error: '登入已過期，請重新登入', login: true };
+  const ss = SpreadsheetApp.getActive();
+  const values = readTabs_(ss, ['人員', '位置', '設備']);
+  const person = salesPerson_(values['人員'], email, today_(ss));
+  if (!person) return { error: `${email} 不是業務員，請找管理員`, denied: true };
+  const devices = salesScope_(values, person).now;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return { results: (Array.isArray(items) ? items : []).map(item => {
+      const checked = salesCheck_(person, devices, item);
+      return checked.error ? checked : appendSales_(ss, item, checked.id);
+    }) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// 這一筆可不可以加：回 { id } 或 { id, error }
+function salesCheck_(person, devices, { tab, head, row } = {}) {
+  const at = h => (Array.isArray(head) ? head.indexOf(h) : -1);
+  const cells = Array.isArray(row) ? row : [];
+  const id = String(cells[at('id')] ?? '').trim();
+  const need = SALES_ADD[tab];
+  if (!need) return { id, error: '業務員只能新增抄表、保養' };
+  if (!person.perms.includes(need)) return { id, error: `沒有「${need}」的權限，請找管理員` };
+  const device = codeKey_(cells[at('設備')]);
+  if (!id || !device) return { id, error: '資料不完整' };
+  if (!devices.has(device)) return { id, error: '這台不在你負責的位置' };
+  return { id };
+}
+
+// 加在分頁最下面：照試算表現在的標題排；文字欄設成純文字（2026/10 不會變成日期）、日期欄設成日期
+function appendSales_(ss, { tab, head, row }, id) {
+  const sheet = ss.getSheetByName(tab);
+  if (!sheet) return { id, error: `總部的試算表找不到「${tab}」分頁` };
+  const cols = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const idCol = cols.indexOf('id');
+  if (idCol < 0) return { id, error: `「${tab}」分頁找不到 id 欄` };
+  const last = sheet.getLastRow();
+  if (last >= 2 && sheet.getRange(2, idCol + 1, last - 1, 1).getValues().some(r => String(r[0]).trim() === id)) return { id, ok: true };
+  const out = cols.map(h => {
+    const v = row[head.indexOf(h)];
+    return v === undefined || v === null || head.indexOf(h) < 0 ? '' : v;
+  });
+  const dateHead = tab === '抄表' ? '抄表日期' : '日期';
+  const formats = out.map((v, i) => (cols[i] === dateHead ? 'yyyy/mm/dd' : typeof v === 'number' ? '#,##0' : '@'));
+  if (last + 1 > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), 1);
+  const range = sheet.getRange(last + 1, 1, 1, cols.length);
+  range.setNumberFormats([formats]);
+  range.setValues([out]);
+  return { id, ok: true };
+}
+
+// 讀幾個分頁：{ 分頁名稱: [標題列, ...列] }，日期換成序號；沒有的分頁不列
+function readTabs_(ss, names) {
   const tz = ss.getSpreadsheetTimeZone();
   const values = {};
-  SALES_TABS.forEach(name => {
-    const sheet = ss.getSheetByName(name);
-    if (sheet) values[name] = sheet.getDataRange().getValues().map(row => row.map(v => cell_(v, tz)));
+  names.forEach(n => {
+    const sheet = ss.getSheetByName(n);
+    if (sheet) values[n] = sheet.getDataRange().getValues().map(row => row.map(v => cell_(v, tz)));
   });
-  const name = salesPerson_(values['人員'], email, cell_(new Date(), tz));
-  if (!name) return { error: `${email} 不是業務員，請找管理員`, denied: true };
-  return { name, email, admin: Session.getEffectiveUser().getEmail(), values: salesRows_(values, name) };
+  return values;
+}
+
+const today_ = ss => cell_(new Date(), ss.getSpreadsheetTimeZone());
+
+// 總部的帳號（試算表的擁有者），業務員的設定裡寫；拿不到時空白，不影響拿資料
+function owner_(ss) {
+  try {
+    return ss.getOwner().getEmail();
+  } catch (_) {
+    return '';
+  }
 }
 
 // 權杖是誰的；不是這個 App 拿到的、過期的回空字串
@@ -364,16 +446,18 @@ function cell_(v, tz) {
 const yes_ = v => v === true || /^(是|true|v|✓|✔|y|yes|1)$/i.test(String(v ?? '').trim());
 const codeKey_ = v => String(v ?? '').trim().toUpperCase();
 
-// 人員：Email 一樣（不分大小寫）、勾了業務員、沒填離職日或還沒到那天；回傳姓名，不是業務員時回空字串
-//   today 是今天的序號
+// 人員：Email 一樣（不分大小寫）、勾了業務員、沒填離職日或還沒到那天
+//   回傳 { name: 姓名, perms: 權限（['記抄表', '記保養']）, all: 勾了看全部 }；不是業務員時回傳 null；today 是今天的序號
 function salesPerson_(rows, email, today) {
-  if (!rows || !rows.length) return '';
+  if (!rows || !rows.length) return null;
   const col = h => rows[0].indexOf(h);
   const mail = String(email).trim().toLowerCase();
   const left = v => typeof v === 'number' && Math.floor(v) <= Math.floor(today);
   const hit = rows.slice(1).find(r => String(r[col('Email')] ?? '').trim().toLowerCase() === mail
     && yes_(r[col('業務員')]) && !left(r[col('離職日')]) && String(r[col('姓名')] ?? '').trim());
-  return hit ? String(hit[col('姓名')]).trim() : '';
+  if (!hit) return null;
+  const perms = String(hit[col('權限')] ?? '').split(/[、,，;；\n]+/).map(x => x.trim()).filter(Boolean);
+  return { name: String(hit[col('姓名')]).trim(), perms, all: yes_(hit[col('看全部')]) };
 }
 
 // 業務員看得到的列：values 是 { 分頁名稱: [標題列, ...列] }（日期是序號），回傳同樣的樣子
@@ -383,18 +467,23 @@ function salesPerson_(rows, email, today) {
 //   合約：綁了他的位置的；合約修改紀錄跟著合約；最新回報：現在放在他位置的機器
 //   狀態、選項、廠商：全部；人員：只給姓名
 //   別的位置、倉庫都不給（App 寫「其他位置」）
-function salesRows_(values, name) {
+//   勾了看全部的：全部都給（人員一樣只給姓名）
+function salesRows_(values, person) {
   const tab = n => values[n] || [];
   const head = n => tab(n)[0] || [];
   const rows = n => tab(n).slice(1);
   const col = (n, h) => head(n).indexOf(h);
   const pick = (n, keep) => (tab(n).length ? [head(n), ...rows(n).filter(keep)] : []);
+  const nameCol = col('人員', '姓名');
+  const idCol = col('人員', 'id');
+  const people = tab('人員').length ? [['姓名', 'id'], ...rows('人員').map(r => [r[nameCol], r[idCol]])] : [];
+  if (person.all) {
+    const out = {};
+    Object.keys(values).forEach(n => { out[n] = tab(n); });
+    return { ...out, 人員: people };
+  }
 
-  const mine = new Set(rows('位置')
-    .filter(r => String(r[col('位置', '業務員')] ?? '').trim() === name && !yes_(r[col('位置', '倉庫')]))
-    .map(r => codeKey_(r[col('位置', '編號')])).filter(Boolean));
-  const now = new Set(rows('設備').filter(r => mine.has(codeKey_(r[col('設備', '位置')])))
-    .map(r => codeKey_(r[col('設備', '編號')])).filter(Boolean));
+  const { mine, now } = salesScope_(values, person);
 
   // 異動依日期排（同一天照列的順序）：搬進他的位置那天開始，到這台下一筆異動那天為止
   const stays = {};
@@ -424,8 +513,6 @@ function salesRows_(values, name) {
   const places = r => String(r[col('合約', '位置')] ?? '').split(/[、,，;；\n]+/).map(codeKey_).filter(Boolean);
   const contracts = pick('合約', r => places(r).some(p => mine.has(p)));
   const contractIds = new Set(contracts.slice(1).map(r => String(r[col('合約', 'id')] ?? '').trim()));
-  const nameCol = col('人員', '姓名');
-  const idCol = col('人員', 'id');
 
   const out = {
     位置: pick('位置', r => mine.has(codeKey_(r[col('位置', '編號')]))),
@@ -435,9 +522,24 @@ function salesRows_(values, name) {
     狀態: tab('狀態'),
     選項: tab('選項'),
     廠商: tab('廠商'),
-    人員: tab('人員').length ? [['姓名', 'id'], ...rows('人員').map(r => [r[nameCol], r[idCol]])] : [],
+    人員: people,
   };
   Object.keys(DATE).forEach(n => { out[n] = pick(n, r => seen(n, r)); });
   if (tab(LATEST).length) out[LATEST] = pick(LATEST, r => now.has(codeKey_(r[col(LATEST, '設備')])));
   return out;
+}
+
+// 他的位置（mine：位置的「業務員」是他、不是倉庫）、現在放在那裡的機器（now）：位置編號、設備編號都是大寫
+//   勾了看全部的：mine 是空的，now 是設備分頁的每一台
+function salesScope_(values, person) {
+  const tab = n => values[n] || [];
+  const col = (n, h) => (tab(n)[0] || []).indexOf(h);
+  const rows = n => tab(n).slice(1);
+  if (person.all) return { mine: new Set(), now: new Set(rows('設備').map(r => codeKey_(r[col('設備', '編號')])).filter(Boolean)) };
+  const mine = new Set(rows('位置')
+    .filter(r => String(r[col('位置', '業務員')] ?? '').trim() === person.name && !yes_(r[col('位置', '倉庫')]))
+    .map(r => codeKey_(r[col('位置', '編號')])).filter(Boolean));
+  const now = new Set(rows('設備').filter(r => mine.has(codeKey_(r[col('設備', '位置')])))
+    .map(r => codeKey_(r[col('設備', '編號')])).filter(Boolean));
+  return { mine, now };
 }

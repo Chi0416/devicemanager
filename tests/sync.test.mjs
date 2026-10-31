@@ -77,9 +77,10 @@ class FakeGoogle {
 
     if (u.hostname === 'script.google.com') {
       // 業務員拿資料（見 apps-script/meter.gs 的 salesData_）：sales 是模擬的程式
-      if (method === 'POST' && body?.action === 'data') {
-        if (!this.sales) return notFound();
-        const r = this.sales(body);
+      if (method === 'POST' && (body?.action === 'data' || body?.action === 'add')) {
+        const handler = body.action === 'data' ? this.sales : this.salesAdd;
+        if (!handler) return notFound();
+        const r = handler(body);
         return { status: 200, ok: true, json: async () => r };
       }
       if (!this.meter) return notFound();
@@ -1081,14 +1082,14 @@ test('在試算表裡勾「停用」、新增人員（沒有 id），同步後 A
   const { fake, d, id } = await linked();
   const row = fake.values(id, '選項').findIndex(r => r[1] === '碎紙機') + 1;
   fake.setCell(id, '選項', row, 3, true);
-  fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '', '', '2020/2/1', '', '備註']);
+  fake.appendRow(id, '人員', ['王小明', 'e001', '資訊組長', '', '', '', '', '', '', '2020/2/1', '', '備註']);
   await d.Sync.syncNow();
   assert.equal(d.Store.list('options').find(o => o.name === '碎紙機').disabled, true);
   const p = d.Store.list('people')[0];
   assert.equal(p.name, '王小明');
   assert.equal(p.joinDate, '2020-02-01');
   assert.equal(p.note, '備註');
-  assert.equal(fake.values(id, '人員')[1][11], p.id);
+  assert.equal(fake.values(id, '人員')[1][12], p.id);
   assert.deepEqual(plain(d.Sync.state().problems), []);
 });
 
@@ -1225,15 +1226,32 @@ test('兩台裝置各新增一台、拿到同一個編號：換號的那台在�
 // 模擬總部的程式：用 meter.gs 的 salesPerson_、salesRows_ 從總部的試算表挑列；fake.salesEmail 是業務員登入的帳號
 const meter = vm.createContext({});
 vm.runInContext(readFileSync(new URL('apps-script/meter.gs', ROOT), 'utf8'), meter, { filename: 'meter.gs' });
-const { salesPerson_, salesRows_ } = vm.runInContext('({ salesPerson_, salesRows_ })', meter);
+const { salesPerson_, salesRows_, salesScope_, salesCheck_ } = vm.runInContext('({ salesPerson_, salesRows_, salesScope_, salesCheck_ })', meter);
 const HQ = 'https://script.google.com/macros/s/hq/exec';
+//   新增（salesAdd）：一樣用 meter.gs 的檢查，通過的照試算表的標題列加在最下面
 function salesServer(fake, id) {
-  fake.sales = () => {
+  const who = () => {
     const values = Object.fromEntries(fake.files[id].sheets.map(s => [s.title, FakeGoogle.read(s.grid)]));
     const today = Sheet0.toSerial(new Date().toISOString().slice(0, 10));
-    const name = salesPerson_(values['人員'], fake.salesEmail, today);
-    if (!name) return { error: `${fake.salesEmail} 不是業務員，請找管理員`, denied: true };
-    return { name, email: fake.salesEmail, admin: 'hq@example.com', values: salesRows_(values, name) };
+    return { values, person: salesPerson_(values['人員'], fake.salesEmail, today) };
+  };
+  const denied = () => ({ error: `${fake.salesEmail} 不是業務員，請找管理員`, denied: true });
+  fake.sales = () => {
+    const { values, person } = who();
+    if (!person) return denied();
+    return { ...person, email: fake.salesEmail, admin: 'hq@example.com', values: salesRows_(values, person) };
+  };
+  fake.salesAdd = body => {
+    const { values, person } = who();
+    if (!person) return denied();
+    const now = salesScope_(values, person).now;
+    return { results: body.items.map(item => {
+      const c = salesCheck_(person, now, item);
+      if (c.error) return c;
+      const grid = fake.sheet(id, item.tab).grid;
+      grid.push(grid[0].map(h => (item.head.indexOf(h) < 0 ? undefined : item.row[item.head.indexOf(h)])));
+      return { id: c.id, ok: true };
+    }) };
   };
 }
 const Sheet0 = device(new FakeGoogle()).Sheet;
@@ -1275,14 +1293,11 @@ test('業務員：打開邀請連結登入，向總部的程式拿他負責的�
   assert.equal(s.Records.placeName('L0002'), '其他位置');
   assert.deepEqual(plain(s.Store.list('people').map(p => p.name)), ['阿明', '小華']);
   assert.equal(s.Store.list('people')[0].email, undefined); // 人員只有名字
-  // 只打總部的程式，不碰試算表、雲端硬碟
-  assert.deepEqual(fake.calls.slice(calls), ['POST /macros/s/hq/exec']);
-  // 在這台改了也不會送出
-  s.Store.add('readings', { device: '26-0001', date: '2026-10-31', bw: 999 });
-  await s.Sync.syncNow();
-  assert.ok(!fake.calls.slice(calls).some(c => c.includes('/v4/') || c.includes('/drive/')));
-  assert.equal(s.Sync.state().pending, 0);
-  assert.equal(s.Store.list('readings').length, 1); // 更新時整份換成總部給的，這台加的不見
+  // 只打總部的程式（先叫它讀信、再拿資料），不碰試算表、雲端硬碟
+  assert.deepEqual(fake.calls.slice(calls), ['GET /macros/s/hq/exec', 'POST /macros/s/hq/exec']);
+  assert.equal(s.Sync.salesCan('readings'), true); // 阿明有記抄表
+  assert.equal(s.Sync.salesCan('maintenance'), false);
+  assert.equal(s.Records.canAdd('moves'), false);
   // 業務員沒有登出（要用「離開」）
   await s.Sync.logout();
   assert.equal(s.loggedOut.count, 0);
@@ -1324,4 +1339,60 @@ test('管理員登出時可以換掉確認的文字（換成業務員時用）',
   await d.Sync.logout('確定換成業務員？');
   assert.equal(d.asked.messages.at(-1), '確定換成業務員？');
   assert.equal(d.loggedOut.count, 1);
+});
+
+test('業務員新增抄表：送給總部的程式寫進試算表（照試算表的標題排），再拿回來；沒有權限、不是他的機器的寫在提醒，拿回來時就不見了', async () => {
+  const { fake, id } = await hq();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  const add = (t, rec) => s.Store.add(t, { ...s.Refs.blankRecord(t), ...rec });
+  add('readings', { device: '26-0001', date: '2026-10-31', month: '2026-10', bw: 150 });
+  assert.equal(s.Sync.state().pending, 1);
+  await s.Sync.syncNow();
+  const rows = fake.values(id, '抄表');
+  const last = rows.at(-1);
+  assert.equal(last[rows[0].indexOf('設備')], '26-0001');
+  assert.equal(last[rows[0].indexOf('黑白張數')], 150);
+  assert.equal(last[rows[0].indexOf('結算月份')], '2026/10');
+  assert.equal(s.Sync.state().pending, 0);
+  assert.deepEqual(plain(s.Store.list('readings').map(r => r.bw)).sort(), [100, 150]);
+  // 沒有記保養的權限、別人的機器：沒寫進總部，提醒寫原因，拿回來時不見了
+  add('maintenance', { device: '26-0001', date: '2026-10-31', item: '碳粉' });
+  add('readings', { device: '26-0002', date: '2026-10-31', bw: 5 });
+  await s.Sync.syncNow();
+  const note = s.inbox.find(m => m.title === '有 2 筆沒有送出');
+  assert.ok(note, plain(s.notes).join('|'));
+  assert.match(note.body, /沒有「記保養」的權限/);
+  assert.match(note.body, /這台不在你負責的位置/);
+  assert.equal(s.Store.list('maintenance').length, 0);
+  assert.deepEqual(plain(s.Store.list('readings').map(r => r.bw)).sort(), [100, 150]);
+  assert.equal(fake.values(id, '抄表').length, rows.length);
+  // 沒網路時先存著，連上再送
+  fake.offline = true;
+  add('readings', { device: '26-0001', date: '2026-11-01', bw: 160 });
+  await s.Sync.syncNow();
+  assert.equal(s.Sync.state().pending, 1);
+  assert.ok(s.Store.list('readings').some(r => r.bw === 160));
+  fake.offline = false;
+  await s.Sync.syncNow();
+  assert.equal(s.Sync.state().pending, 0);
+  assert.equal(fake.values(id, '抄表').at(-1)[rows[0].indexOf('黑白張數')], 160);
+});
+
+test('業務員勾了看全部：拿到所有位置和機器，別人的機器也可以記抄表', async () => {
+  const { fake, d, id } = await hq();
+  const amin = d.Store.list('people').find(p => p.name === '阿明');
+  d.Store.update('people', amin.id, { all: true });
+  await d.Sync.syncNow();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  assert.equal(s.Sync.state().salesAll, true);
+  assert.deepEqual(plain(s.Store.list('locations').map(p => p.name)).sort(), ['3F 會議室', '大華貿易', '長榮航運']);
+  assert.equal(s.Records.shownDevices().length, 3);
+  s.Store.add('readings', { ...s.Refs.blankRecord('readings'), device: '26-0002', date: '2026-10-31', bw: 300 });
+  await s.Sync.syncNow();
+  assert.equal(s.inbox.filter(m => /沒有送出/.test(m.title)).length, 0);
+  assert.equal(fake.values(id, '抄表').at(-1)[0], '26-0002');
 });

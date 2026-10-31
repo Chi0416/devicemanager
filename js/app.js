@@ -108,7 +108,8 @@
     subtabsEl.hidden = group.pages.length < 2;
     subtabsEl.innerHTML = group.pages.length < 2 ? '' : group.pages.map(([k, label]) =>
       `<button type="button" role="tab" data-page="${k}" aria-selected="${k === key}">${label}</button>`).join('');
-    const add = ADD[key];
+    // 業務員只能新增抄表、保養（照權限，見 records.js 的 canAdd）
+    const add = ADD[key] && Records.canAdd(ADD[key][0]) ? ADD[key] : null;
     addBtn.disabled = !add;
     if (add) {
       addWhat.textContent = add[1];
@@ -322,6 +323,7 @@
         <ul class="member-list cloud-info">
           <li><span class="member-info"><small>姓名</small><b>${U.esc(st.salesName || '—')}</b></span></li>
           <li><span class="member-info"><small>帳號</small><b>${U.esc(st.email || '還沒登入')}</b></span></li>
+          <li><span class="member-info"><small>可以做</small><b>${U.esc(salesCanText(st) ? `新增${salesCanText(st)}` : '只能看')}${st.salesAll ? '・看全部' : ''}</b></span></li>
           <li><span class="member-info"><small>總部</small><b>${U.esc(st.admin || '—')}</b></span></li>
           <li><span class="member-info"><small>上次更新</small><b>${st.lastSyncAt ? U.fmtDateTime(st.lastSyncAt) : '—'}</b></span></li>
           <li><span class="member-info"><small>狀態</small><b class="${st.error ? 'warn' : ''}">${U.esc(salesStatusText(st))}</b></span></li>
@@ -329,7 +331,7 @@
         <button type="button" class="wide-btn primary" data-act="sync" ${st.running ? 'disabled' : ''}>${st.running ? '更新中…' : '更新'}</button>
         ${redirectNote}
         <button type="button" class="text-btn danger cloud-logout" data-act="leave">離開</button>
-        <p class="note muted cloud-logout-note">只看得到你負責的客戶，不能新增、修改。離開會清掉這台的資料，總部的資料不會動。</p>`;
+        <p class="note muted cloud-logout-note">${st.salesAll ? '看得到全部的客戶' : '只看得到你負責的客戶'}；新增的會送到總部，送出後不能改、不能刪。離開會清掉這台的資料，總部的資料不會動。</p>`;
       return;
     }
     if (!st.configured && !st.linked) {
@@ -363,9 +365,11 @@
   function salesStatusText(st) {
     if (st.running) return '更新中…';
     if (st.denied) return st.error || '你現在不是業務員，請找管理員';
-    if (st.offline) return '目前沒有網路，看的是上次拿到的資料';
+    if (st.offline) return st.pending ? `目前沒有網路，${st.pending} 筆會在連上網路後送出` : '目前沒有網路，看的是上次拿到的資料';
     if (st.error) return `更新失敗：${st.error}`;
+    if (st.needLogin && st.pending) return `有 ${st.pending} 筆還沒送出，按「更新」重新登入`;
     if (st.needLogin) return st.lastSyncAt ? '登入已過期，按「更新」重新登入' : '還沒登入，按「更新」登入';
+    if (st.pending) return `有 ${st.pending} 筆等待送出`;
     return '已是最新';
   }
 
@@ -377,7 +381,9 @@
     else if (act === 'redirect') Sync.loginByRedirect();
     else if (act === 'logout') Sync.logout();
     else if (act === 'leave') {
-      if (confirm('離開後，這台的資料會清掉，總部的資料不會動。之後要再看，請管理員重新傳邀請連結。\n\n確定離開？')) Sync.leave();
+      const n = Sync.state().pending;
+      const lost = n ? `還有 ${n} 筆新增的沒有送出，離開就沒了。\n` : '';
+      if (confirm(`${lost}離開後，這台的資料會清掉，總部的資料不會動。之後要再看，請管理員重新傳邀請連結。\n\n確定離開？`)) Sync.leave();
     }
     else if (act === 'inbox') {
       menu.close();
@@ -577,8 +583,8 @@
       btn = '重試';
       syncAction = Sync.syncNow;
     } else if (st.pending && st.needLogin) {
-      text = `有 ${st.pending} 筆還沒同步`;
-      btn = '同步';
+      text = `有 ${st.pending} 筆還沒${st.sales ? '送出' : '同步'}`;
+      btn = st.sales ? '更新' : '同步';
       syncAction = Sync.syncNow;
     } else if (st.needLogin && (!st.lastSyncAt || Date.now() - Date.parse(st.lastSyncAt) > STALE)) {
       // 登入過期就不會自動同步：試算表或其他裝置改過的資料，要按「同步」才看得到
@@ -627,19 +633,26 @@
     }
     try { sessionStorage.setItem(JOIN_KEY, url); } catch (_) {}
   })();
-  //   業務員模式：最上面寫是誰，新增、編輯的按鈕藏起來（style.css 的 .sales）；換了模式時全部重畫（設備頁、總覽只算他的）
-  let salesShown = Sync.isSales();
-  document.body.classList.toggle('sales', salesShown);
+  //   業務員模式：最上面寫是誰、可以做什麼，編輯的按鈕藏起來（style.css 的 .sales），新增只有抄表、保養（照權限）
+  //   換了模式、權限、看全部時全部重畫（設備頁、總覽只算他的，新增按鈕跟著權限）
+  const salesCanText = st => [st.salesPerms.includes('記抄表') && '抄表', st.salesPerms.includes('記保養') && '保養'].filter(Boolean).join('、');
+  let salesKey = null;
+  document.body.classList.toggle('sales', Sync.isSales());
   function showSales(st) {
     const line = $('sales-line');
     line.hidden = !st.sales;
-    line.textContent = st.sales ? `業務員${st.salesName ? `：${st.salesName}` : ''}・只能看，不能改` : '';
-    if (st.sales === salesShown) return;
-    salesShown = st.sales;
+    const can = salesCanText(st);
+    line.textContent = st.sales ? [`業務員${st.salesName ? `：${st.salesName}` : ''}`, st.salesAll && '看全部', can ? `可以新增${can}` : '只能看'].filter(Boolean).join('・') : '';
+    const k = [st.sales, st.salesAll, st.salesPerms.join()].join('|');
+    const first = salesKey === null;
+    if (k === salesKey) return;
+    salesKey = k;
+    if (first) return; // 打開 App 時已經照存著的狀態畫好了
     document.body.classList.toggle('sales', st.sales);
     refreshAll();
     Lists.refresh();
     checkLists();
+    showTab(current);
   }
 
   // ---------- 啟動 ----------

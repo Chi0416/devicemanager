@@ -40,7 +40,7 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
           <span class="member-info"><b class="${s.warn ? 'warn' : ''}">${U.esc(s.main)}</b>${s.sub ? `<small>${U.esc(s.sub)}</small>` : ''}</span>
           <span class="uses">${n || ''}</span><span class="go" aria-hidden="true">›</span>
         </button>
-        <button type="button" class="row-add" data-add="${row.key}" aria-label="新增${what}">＋</button>
+        ${Records.canAdd(row.key) ? `<button type="button" class="row-add" data-add="${row.key}" aria-label="新增${what}">＋</button>` : ''}
       </li>`;
   }
 
@@ -74,6 +74,8 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
   // 一張表的頁面：這一筆的紀錄
   function openTable(key) {
     open = key;
+    // 業務員只能新增抄表、保養（見 records.js 的 canAdd）
+    sub.querySelector('[data-act="add"]').style.visibility = Records.canAdd(key) ? '' : 'hidden';
     Object.entries(lists).forEach(([k, l]) => { l.el.hidden = k !== key; });
     lists[key].reset();
     render();
@@ -188,7 +190,7 @@ const Detail = (() => {
     }).join('');
     const days = Records.reportDays(t);
     const when = !t ? '還沒有回報' : days === null ? '—' : Records.reportWhen(t);
-    const read = Number.isInteger(t?.bw) && t.date
+    const read = Number.isInteger(t?.bw) && t.date && Records.canAdd('readings')
       ? `<button type="button" class="detail-link" data-read="${U.esc(d.id)}"><small>抄表</small><span>帶入這次的日期和張數</span><span class="go" aria-hidden="true">›</span></button>` : '';
     return `
       <div class="detail-card toner-card">

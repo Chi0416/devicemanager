@@ -130,8 +130,8 @@ const COUNTRIES = [{ value: '美', tone: '' }, { value: '日', tone: '' }]; // �
 const PAGE_KINDS = [{ value: '全部', tone: '' }, { value: '彩色', tone: '' }]; // 保養項目算哪種張數（全部＝黑白加彩色）
 // 合約的抄表週期（總覽的「該抄表了」照它算，空白當每月，見 records.js 的 readingsDue）
 const READ_CYCLES = ['每月', '雙月', '每季', '半年', '每年'].map(value => ({ value, tone: '' }));
-// 業務員的權限（人員勾了業務員才有；新的業務員預設全部打開，見 PLAN.md 的業務員）
-const SALES_PERMS = ['記抄表', '記保養', '做異動', '改設備'];
+// 業務員的權限（人員勾了業務員才有；新的業務員預設全部打開，見 PLAN.md 的業務員）：只能新增，不能改、不能刪
+const SALES_PERMS = ['記抄表', '記保養'];
 
 // 設備的編號：年份兩位數＋流水號四位數（26-0001），年份照購買日期，沒填購買日期用今年
 //   同一年的取最大的號碼往下編；舊的、自己打的編號（NB-001）不影響
@@ -250,7 +250,9 @@ const SCHEMAS = {
       ? `這個主機板號碼已經用在 ${Records.label(dup)}`
       : `編號 ${dup.code} 已經用過了（${Records.label(dup)}）`),
     // 紀錄的「設備」欄從這裡選：顯示位置、存編號（沒填位置的顯示機型＋名稱）；刪除設備時連同它的紀錄一起刪（見 form.js）
-    target: { name: 'code', label: r => Records.placeName(r.location) || Records.label(r), sub: r => Records.fullLabel(r), noAdd: true, cascade: true },
+    // 業務員模式：選單只列放在他位置的（以前放過、已經搬走的不列，見 records.js 的 isShown）
+    target: { name: 'code', label: r => Records.placeName(r.location) || Records.label(r), sub: r => Records.fullLabel(r), noAdd: true, cascade: true,
+      active: r => Records.isShown(r) },
     empty: '還沒有設備<br>點右上角「＋ 新增」開始記錄',
     fields: [
       // 年份照購買日期（沒填用今年），給了就不會變；表單上不顯示
@@ -567,8 +569,10 @@ const SCHEMAS = {
       { key: 'email',     label: 'Email',    type: 'email', optional: true, hint: '業務員用這個 Gmail 登入',
         check: v => (v.sales === 'true' && !String(v.email ?? '').trim() ? '業務員要填 Email' : '') },
       { key: 'sales',     label: '業務員',   type: 'flag', optional: true, hint: '負責的客戶在位置上選' },
-      { key: 'perms',     label: '權限',     type: 'multi', choices: SALES_PERMS, optional: true, full: true,
+      { key: 'perms',     label: '權限',     type: 'multi', choices: SALES_PERMS, optional: true, full: true, hint: '只能新增，不能改、不能刪',
         showIf: v => v.sales === 'true', calc: v => (v.sales === 'true' ? SALES_PERMS.join('、') : '') },
+      { key: 'all',       label: '看全部',   type: 'flag', optional: true, hint: '看得到所有的客戶，不只自己負責的（主管用）',
+        showIf: v => v.sales === 'true' },
       { key: 'joinDate',  label: '入職日',   type: 'date', optional: true },
       { key: 'leaveDate', label: '離職日',   type: 'date', optional: true, hint: '這天以後不會出現在選單裡' },
       { key: 'note',      label: '備註',     type: 'text', optional: true, full: true, multiline: true },

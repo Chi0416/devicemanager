@@ -14,7 +14,8 @@
 //         登入過期時，修改資料的那一下順便跳出 Google 視窗（沒有網路時不跳）；沒成功就顯示「同步」按鈕讓使用者按
 //   登出：先同步一次，確定試算表已經有這台裝置的全部資料，才清掉這台裝置上的資料（換帳號時不會混在一起）
 //   業務員（打開邀請連結登入的）：不碰試算表，向總部試算表上的程式拿他負責的客戶（見 apps-script/meter.gs 的 salesData_），
-//         整份換掉這台的；只能看，不寫回；時機和同步一樣（打開 App、切回來、按「更新」）
+//         時機和同步一樣（打開 App、切回來、按「更新」，打開和按「更新」時先叫總部讀信）；
+//         只能新增抄表、保養（照權限）：先送新增的（見 salesAdd_），再拿資料，以總部的為主、疊上還沒送出的
 const Sync = (() => {
   const CLOUD_KEY = `${Store.PREFIX}cloud`;
   const MARK = 'devicemanager'; // 試算表上的標記（雲端硬碟的 appProperties），用來找回這份試算表
@@ -32,7 +33,8 @@ const Sync = (() => {
   const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
   // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, senderMail, toner } ----------
-  //   業務員：{ sales: true, hq: 總部試算表上的程式的網址, email, name: 人員表上的姓名, admin: 總部的帳號, denied: 不是業務員了, lastSyncAt, toner }
+  //   業務員：{ sales: true, hq: 總部試算表上的程式的網址, email, name: 人員表上的姓名, perms: 權限, all: 看全部, admin: 總部的帳號,
+  //           denied: 不是業務員了, heads: { 抄表, 保養 } 總部試算表的標題列（新增時照它排）, lastSyncAt, toner }
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
   //   senderMail：機器寄信用的 Gmail（機器設定那頁填的），和讀信網址一樣存在 _meta
   //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；同步前叫它讀信時也直接回傳）
@@ -79,6 +81,8 @@ const Sync = (() => {
       lastSyncAt: cloud?.lastSyncAt || null,
       sales: !!cloud?.sales,
       salesName: cloud?.name || '',
+      salesAll: !!cloud?.all,
+      salesPerms: cloud?.perms || [],
       admin: cloud?.admin || '',
       denied: !!cloud?.denied,
       running,
@@ -90,12 +94,18 @@ const Sync = (() => {
       okAt,
       loggingOut,
       needLogin: !!cloud && !Google.hasToken(),
-      pending: cloud?.sales ? 0 : Store.pendingCount(), // 業務員只能看，沒有要送的
+      pending: cloud?.sales ? salesItems(Store.pendingSnapshot()).length : Store.pendingCount(), // 業務員只算要送的抄表、保養
     };
   }
 
   const emit = () => hooks.onStatus(state());
   const isSales = () => !!cloud?.sales;
+  const salesAll = () => !!cloud?.sales && !!cloud.all;
+  // 業務員可以新增的表：抄表要「記抄表」、保養要「記保養」（只能新增，不能改、不能刪）
+  const SALES_ADD = { readings: '記抄表', maintenance: '記保養' };
+  const salesCan = t => !!cloud?.sales && !cloud.denied && (cloud.perms || []).includes(SALES_ADD[t]);
+  const salesItems = snap => snap.items.filter(i => SALES_ADD[i.table] && !i.del && Store.get(i.table, i.id));
+  const OLD_SCRIPT = '總部試算表上的程式是舊版，請找管理員更新';
 
   // ---------- 找到、建立試算表 ----------
   async function findSpreadsheet() {
@@ -466,9 +476,10 @@ const Sync = (() => {
 
   // ---------- 讀信（自動抄表） ----------
   // 叫試算表上的程式讀一次信（讀信網址，見 apps-script/meter.gs 的 doGet），回 { count, fixed, at }；讀信失敗回 { failed: true }
-  async function readMail() {
+  //   url：業務員叫的是總部的網址（同一支程式）
+  async function readMail(url = cloud.meterUrl) {
     try {
-      const res = await fetch(cloud.meterUrl, { signal: AbortSignal.timeout(30000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
       const r = await res.json();
       if (r.at) cloud.meterReadAt = r.at;
       return r;
@@ -499,6 +510,8 @@ const Sync = (() => {
     emit();
     try {
       if (cloud.sales) {
+        if (mail) await readMail(cloud.hq);
+        await pushSales(Store.pendingSnapshot());
         await pullSales(manual);
         return;
       }
@@ -556,8 +569,38 @@ const Sync = (() => {
     }
   }
 
-  // ---------- 業務員：向總部拿資料 ----------
-  //   整份換掉這台的（只能看，沒有要送的）；不是業務員了（取消勾選、填了離職日）：清掉這台的資料，請他找管理員
+  // ---------- 業務員：送出新增的、向總部拿資料 ----------
+  // 新增的抄表、保養（還沒送出的）：照總部試算表的標題列排好送過去，程式檢查過才寫進試算表（見 apps-script/meter.gs 的 salesAdd_）
+  //   送完就從待送清單拿掉；沒過的（權限取消了、機器搬走了）在提醒寫原因，接著拿資料時這幾筆就不見了
+  //   其他的修改（業務員不能改、不能刪，表單也打不開）不送，一起拿掉
+  async function pushSales(snap) {
+    const items = salesItems(snap);
+    if (items.length) {
+      const heads = cloud.heads || {};
+      const r = await Google.script(cloud.hq, {
+        action: 'add',
+        items: items.map(({ table, id }) => {
+          const tab = titleOf(table);
+          const head = heads[tab] || Sheet.TAB[table].headers;
+          return { tab, head, row: Sheet.encodeRow(table, Store.get(table, id), head) };
+        }),
+      });
+      if (r.denied) return; // 拿資料時會清掉、請他找管理員
+      if (r.error) throw new Error(/密語/.test(r.error) ? OLD_SCRIPT : r.error);
+      const bad = (r.results || []).filter(x => x.error);
+      if (bad.length) {
+        const lines = bad.map(x => {
+          const it = items.find(i => i.id === x.id);
+          const rec = it && Store.get(it.table, it.id);
+          return `${rec ? describe(it.table, rec) : x.id}：${x.error}`;
+        });
+        hooks.notify({ title: `有 ${bad.length} 筆沒有送出`, body: `${lines.slice(0, LIST_MAX).join('\n')}\n這幾筆沒有寫進總部，有問題請找管理員。` });
+      }
+    }
+    Store.clearPending(snap);
+  }
+
+  // 拿資料：以總部的為主、疊上還沒送出的；不是業務員了（取消勾選、填了離職日）：清掉這台的資料，請他找管理員
   //   總部的程式是舊版時，不認得「拿資料」，當成抄表程式回「密語不對」
   async function pullSales(manual) {
     const first = !cloud.lastSyncAt;
@@ -570,10 +613,13 @@ const Sync = (() => {
       error = r.error;
       return;
     }
-    if (r.error) throw new Error(/密語/.test(r.error) ? '總部試算表上的程式是舊版，請找管理員更新' : r.error);
+    if (r.error) throw new Error(/密語/.test(r.error) ? OLD_SCRIPT : r.error);
     const parsed = Sheet.fromValues(r.values || {});
-    Store.loadRemote(parsed.data);
-    Object.assign(cloud, { denied: false, name: r.name, email: r.email, admin: r.admin, toner: parsed.toner, lastSyncAt: new Date().toISOString() });
+    Store.mergeRemote(parsed.data);
+    const heads = Object.fromEntries(['抄表', '保養'].map(t => [t, r.values?.[t]?.[0]]).filter(([, h]) => h));
+    Object.assign(cloud, {
+      denied: false, name: r.name, email: r.email, perms: r.perms || [], all: !!r.all, admin: r.admin, heads, toner: parsed.toner, lastSyncAt: new Date().toISOString(),
+    });
     saveCloud();
     okAt = Date.now();
     hooks.onData();
@@ -816,7 +862,7 @@ const Sync = (() => {
   // 資料改了：登入有效就等幾秒後一起送出；過期了，趁這次點擊（儲存、刪除）跳出 Google 視窗
   //   每次打開 App 只自動跳一次，被關掉或失敗就改顯示「同步」按鈕，不一直打擾；沒有網路時不跳
   function changed() {
-    if (!cloud || cloud.sales) return;
+    if (!cloud) return;
     if (Google.hasToken()) {
       emit();
       schedule();
@@ -856,5 +902,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, isSales, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
+  return { init, state, isSales, salesAll, salesCan, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
 })();

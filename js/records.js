@@ -73,8 +73,11 @@ const Records = (() => {
   const device = code => (key(code) ? cached('devices', () => byCode(Store.list('devices'))).get(key(code)) || null : null);
   // 業務員模式（見 sync.js）：只拿到他負責的位置；以前放過、已經搬走的機器也拿到（紀錄才寫得出是哪一台），
   //   設備頁、總覽、提醒只算放在他位置的（shownDevices）；別的位置寫「其他位置」
+  //   勾了看全部的業務員全部都算；新增按鈕照他的權限（canAdd，只有抄表、保養）
   const salesMode = () => typeof Sync !== 'undefined' && Sync.isSales();
-  const shownDevices = () => (salesMode() ? Store.list('devices').filter(d => place(d.location)) : Store.list('devices'));
+  const isShown = d => !salesMode() || Sync.salesAll() || !!place(d.location);
+  const shownDevices = () => (salesMode() ? Store.list('devices').filter(isShown) : Store.list('devices'));
+  const canAdd = t => !salesMode() || Sync.salesCan(t);
   // 這台設備的紀錄（還沒有編號的設備沒有紀錄）
   const of = (table, code) => [...rowsOf(table, code)];
   const latest = (table, code, k) => of(table, code).sort(byDate(k)).at(-1) || null;
@@ -1285,7 +1288,7 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
-    shownDevices, TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
+    shownDevices, isShown, canAdd, TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly,
   };
 })();

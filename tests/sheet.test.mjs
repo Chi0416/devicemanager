@@ -22,7 +22,7 @@ const device = (id, over = {}) => ({
 });
 
 const person = (id, over = {}) => ({
-  id, name: '', code: '', jobTitle: '', dept: '', phone: '', email: '', sales: false, perms: '', joinDate: null, leaveDate: null, note: '', ...over,
+  id, name: '', code: '', jobTitle: '', dept: '', phone: '', email: '', sales: false, perms: '', all: false, joinDate: null, leaveDate: null, note: '', ...over,
 });
 // 紀錄：設備欄寫設備編號
 const work = (id, over = {}) => ({ id, device: '', date: null, bw: null, color: null, note: '', ...over });
@@ -208,7 +208,7 @@ test('勾選的欄位：寫成 true／false（核取方塊）；手打的「是�
 
 test('人員沒有用途欄、廠商沒有類型欄（舊的欄 App 不讀）', () => {
   const v = plain(Sheet.toValues(sample()));
-  assert.deepEqual(v['人員'][0], ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '業務員', '權限', '入職日', '離職日', '備註', 'id']);
+  assert.deepEqual(v['人員'][0], ['姓名', '員工編號', '職稱', '部門', '電話', 'Email', '業務員', '權限', '看全部', '入職日', '離職日', '備註', 'id']);
   assert.equal(v['人員'][1][1], 'E001');
   assert.deepEqual(v['人員'][1].slice(6, 8), [true, '記抄表、做異動']); // 業務員是核取方塊，權限寫成「、」分開的文字
   assert.deepEqual(v['廠商'][0], ['名稱', '聯絡人', '電話', '地址', '停用', '備註', 'id']);

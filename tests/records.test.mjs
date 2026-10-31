@@ -378,7 +378,9 @@ test('業務員：人員勾業務員、預設全部權限、要填 Email；位�
   const { Store, Refs, Records, field, add } = app();
   // 人員：勾了業務員才有權限，權限預設全部打開；業務員一定要填 Email
   assert.equal(field('people', 'perms').showIf({ sales: '' }), false);
-  assert.equal(field('people', 'perms').calc({ sales: 'true' }), '記抄表、記保養、做異動、改設備');
+  assert.equal(field('people', 'perms').calc({ sales: 'true' }), '記抄表、記保養');
+  assert.equal(field('people', 'all').showIf({ sales: 'true' }), true); // 看全部：勾了業務員才有
+  assert.equal(field('people', 'all').showIf({ sales: '' }), false);
   assert.equal(field('people', 'perms').calc({ sales: '' }), '');
   const email = field('people', 'email').check;
   assert.equal(email({ sales: 'true', email: ' ' }), '業務員要填 Email');
