@@ -478,6 +478,11 @@
       Inbox.open();
     }
   });
+  // 貼上邀請連結時先算是不是我們的總部（見 checkHq）
+  cloudEl.addEventListener('input', e => {
+    const url = e.target.id === 'join-link' && inviteFrom(e.target.value);
+    if (url) checkHq(url);
+  });
 
   // ---------- 總部程式、自動抄表 ----------
   //   總部程式：試算表上的小程式（apps-script/meter.gs）部署成網頁應用程式；自動抄表讀信、抄表程式回報、業務員拿資料都用它的網址
@@ -571,6 +576,10 @@
     const url = $('meter-url').value.trim();
     if (url && !METER_URL.test(url)) {
       toast('網址不對：要是 https://script.google.com/… 開頭、/exec 結尾', 'error');
+      return;
+    }
+    if (url && !(await checkHq(url))) {
+      toast('這不是 App 記的總部網址：新建的部署網址會變，請到「管理部署作業」編輯原本那個、換新版本', 'error');
       return;
     }
     try {
@@ -745,6 +754,12 @@
   }
   //   業務員打開邀請連結：網址記在這個分頁（重新載入、登出後還在），網址列拿掉；上方提示列請他登入（見 renderSyncBar）
   const joinUrl = () => { try { return sessionStorage.getItem(JOIN_KEY) || ''; } catch (_) { return ''; } };
+  // 是不是我們的總部（見 google.js 的 trusted）：要算一下，算過的記著
+  //   貼上邀請連結時就先算好：按「用邀請連結登入」的當下才能直接打開登入視窗
+  const hqChecked = new Map();
+  const checkHq = url => (hqChecked.has(url) ? Promise.resolve(hqChecked.get(url))
+    : Google.trusted(url).then(ok => { hqChecked.set(url, ok); return ok; }));
+  const NOT_HQ = '這個邀請連結不是我們的總部，請找管理員重新複製';
   const dropJoin = () => { try { sessionStorage.removeItem(JOIN_KEY); } catch (_) {} };
   (() => {
     const params = new URLSearchParams(location.search);
@@ -757,7 +772,11 @@
       toast('邀請連結不完整，請管理員重新複製', 'error');
       return;
     }
-    try { sessionStorage.setItem(JOIN_KEY, url); } catch (_) {}
+    checkHq(url).then(ok => {
+      if (!ok) return toast(NOT_HQ, 'error');
+      try { sessionStorage.setItem(JOIN_KEY, url); } catch (_) {}
+      renderSyncBar(Sync.state());
+    });
   })();
   //   設定裡貼上邀請連結（整個連結，或只有總部網址）：和打開邀請連結一樣記下來，按的當下接著做提示列的按鈕（登入，或先問要不要換）
   function inviteFrom(text) {
@@ -772,6 +791,8 @@
       toast('邀請連結不完整，請管理員重新複製', 'error');
       return;
     }
+    if (!hqChecked.has(url)) return void checkHq(url).then(joinByPaste); // 還沒算好（貼完馬上按）：算好再接著做
+    if (!hqChecked.get(url)) return void toast(NOT_HQ, 'error');
     try { sessionStorage.setItem(JOIN_KEY, url); } catch (_) {}
     renderSyncBar(Sync.state());
     if (syncAction) syncAction();

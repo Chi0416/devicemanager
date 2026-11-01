@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 
 // ---------- 模擬的 Google API ----------
 class FakeGoogle {
@@ -190,7 +191,8 @@ const TOKEN_KEY = 'devmgr.google.token';
 
 // 每個測試一個全新的裝置：localStorage、權杖、Google 都是新的
 //   configured：config.js 有沒有設定 OAuth 用戶端 ID（測試裡預設有）
-function device(fake, { storage = {}, token = true, confirmAnswer = true, clock = null, configured = true } = {}) {
+//   hq：config.js 的總部指紋（測試裡預設沒有，哪個總部都收）
+function device(fake, { storage = {}, token = true, confirmAnswer = true, clock = null, configured = true, hq = '' } = {}) {
   const ls = { ...storage };
   const toasts = [];
   const notes = []; // 送進提醒的標題
@@ -215,6 +217,8 @@ function device(fake, { storage = {}, token = true, confirmAnswer = true, clock 
     clearTimeout: () => {},
     fetch: fake.fetch,
     AbortSignal,
+    crypto,
+    TextEncoder,
     navigator: nav,
     URLSearchParams,
     location: { origin: 'http://localhost:8770', pathname: '/', search: '', hash: '', assign() {} },
@@ -242,9 +246,9 @@ function device(fake, { storage = {}, token = true, confirmAnswer = true, clock 
   if (token) ls[TOKEN_KEY] = JSON.stringify({ accessToken: 'fake', expiresAt: (clock?.now ?? Date.now()) + 3600e3 });
   for (const f of FILES) {
     vm.runInContext(readFileSync(new URL(`js/${f}.js`, ROOT), 'utf8'), ctx, { filename: `${f}.js` });
-    if (f === 'config') vm.runInContext(`CONFIG.googleClientId = '${configured ? 'test-client' : ''}'`, ctx);
+    if (f === 'config') vm.runInContext(`CONFIG.googleClientId = '${configured ? 'test-client' : ''}'; CONFIG.hq = '${hq}'`, ctx);
   }
-  const app = vm.runInContext('({ Store, Sync, Sheet, Refs, Records })', ctx);
+  const app = vm.runInContext('({ Store, Sync, Sheet, Refs, Records, Google })', ctx);
   app.Sync.init({
     toast: (msg, kind) => toasts.push(kind ? `${kind}:${msg}` : msg),
     // 以哪邊為主的小視窗：answer 是 true 選第一個、false 是不選（先不連結）、字串是選那一個
@@ -1567,6 +1571,23 @@ test('業務員換到另一個總部（打開不同的邀請連結）：這台�
   fake.offline = false;
   await s.Sync.join(HQ2);
   assert.equal(s.Store.list('readings').filter(r => r.bw === 160).length, 1);
+});
+
+test('總部指紋：登入權杖只送到 config.js 記的總部；假的邀請連結（別人自己建的程式）收不到權杖', async () => {
+  const { fake } = await hq();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false, hq: createHash('sha256').update('hq').digest('hex') });
+  const FAKE = 'https://script.google.com/macros/s/fake/exec';
+  assert.equal(await s.Google.trusted(HQ), true);
+  assert.equal(await s.Google.trusted('https://script.google.com/a/macros/example.com/s/hq/exec'), true); // 公司帳號的網址也認得
+  assert.equal(await s.Google.trusted(FAKE), false);
+  assert.equal(await s.Google.trusted(''), false);
+  await s.Sync.join(HQ);
+  assert.equal(s.Sync.state().salesName, '阿明');
+  const calls = fake.calls.length;
+  await s.Sync.join(FAKE);
+  assert.ok(!fake.calls.slice(calls).includes('POST /macros/s/fake/exec'), fake.calls.slice(calls).join('|')); // 帶權杖的都沒送
+  assert.match(s.Sync.state().error, /不是我們的總部/);
 });
 
 test('業務員更新時讀信和拿資料同時做；打開 App（自動）時 10 分鐘內讀過信就不讀，按「更新」照讀', async () => {

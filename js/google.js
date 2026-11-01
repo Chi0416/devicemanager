@@ -167,6 +167,7 @@ const Google = (() => {
   //   不加標題（是 text/plain），瀏覽器不用先問能不能跨網域；程式說登入過期時清掉權杖，要使用者重新登入
   async function script(url, data) {
     if (!hasToken()) throw new GoogleError('需要重新連線 Google', 'need_login');
+    if (!(await trusted(url))) throw new GoogleError('這不是我們的總部，請找管理員重新複製邀請連結', 'not_hq');
     let res;
     try {
       res = await fetch(url, { method: 'POST', body: JSON.stringify({ ...data, token: token.accessToken }) });
@@ -198,5 +199,14 @@ const Google = (() => {
     });
   }
 
-  return { SHEETS, DRIVE, ready, configured, hasToken, requestToken, redirectLogin, consumeRedirect, api, script, signOut };
+  // 總部程式網址是不是 config.js 記的總部：網址 /s/ 後面那一串的 SHA-256 一樣才是；config.js 沒記時都算
+  async function trusted(url) {
+    if (!CONFIG.hq) return true;
+    const id = String(url ?? '').match(/\/s\/([\w-]+)\/exec$/)?.[1];
+    if (!id) return false;
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(id));
+    return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('') === CONFIG.hq;
+  }
+
+  return { SHEETS, DRIVE, ready, configured, hasToken, requestToken, redirectLogin, consumeRedirect, api, script, trusted, signOut };
 })();
