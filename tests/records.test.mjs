@@ -1559,6 +1559,41 @@ test('最新回報：設備卡片序號那一行的右邊寫多久以前（今�
   assert.equal(Records.reportNote(d).text, '今天 08:30');
 });
 
+test('待確認抄表：抄表裡沒有這台、同一天的才列，新的在上面，序號還沒登記的也列；有待確認的不列在該抄表了；確認時結算月份帶上個月、測試的空白', () => {
+  const { Records, Store, add } = app({ today: '2026-11-15' });
+  add('locations', { code: 'L0001', name: '大華貿易' });
+  add('locations', { code: 'L0002', name: '安心診所' });
+  add('devices', { code: '26-0001', name: '#1001', serial: 'A1', status: '出租中', location: 'L0001' });
+  add('devices', { code: '26-0002', name: '#1002', serial: 'B2', status: '出租中', location: 'L0002' });
+  add('moves', { device: '26-0001', date: '2026-08-01', type: '安裝', from: '', to: 'L0001' });
+  add('readings', { device: '26-0001', date: '2026-09-01', month: '2026-08', bw: 100 });
+  const due = () => plain(Records.readingsDue().map(x => x.device.code));
+  assert.deepEqual(due(), ['26-0001']); // 還沒有待確認：9 月該抄沒抄
+
+  const list = [
+    { serial: 'a1', device: '', date: '2026-11-01', time: '09:50', bw: 600, color: 20, source: '張數信' },
+    { serial: 'B2', device: '26-0002', date: '2026-11-03', time: '08:30', bw: 50, color: null, source: '客戶提交' },
+    { serial: 'Z9', device: '', date: '2026-11-02', time: '10:00', bw: 7, color: null, source: '張數信（測試）' },
+    { serial: 'Q1', device: '', date: '', time: '', bw: null, color: null, source: '張數信' }, // 看不懂的不列
+  ];
+  Store.replaceAll(Store.parseImport({ ...Store.exportPayload(), toConfirm: list })); // 沒連結 Google 時用匯入的
+  const rows = () => plain(Records.confirmsDue().map(x => [x.device?.code ?? null, x.confirm.serial, x.place?.name ?? null]));
+  assert.deepEqual(rows(), [['26-0002', 'B2', '安心診所'], [null, 'Z9', null], ['26-0001', 'a1', '大華貿易']]);
+  assert.equal(Records.confirmWhen(list[1]), '客戶提交・2026/11/03 08:30');
+  assert.deepEqual(due(), []); // 有張數等確認：列在待確認抄表
+
+  const d1 = Store.list('devices')[0];
+  assert.deepEqual(plain(Records.confirmValues(d1, list[0])), { device: '26-0001', date: '2026-11-01', month: '2026-10', bw: 600, color: 20, note: '張數信 09:50' });
+  assert.equal(Records.confirmValues(d1, { ...list[2], date: '2026-11-02' }).month, ''); // 測試的當起點
+  assert.equal(Records.confirmValues(d1, { ...list[0], date: '2027-01-01' }).month, '2026-12');
+  assert.equal(Records.confirmValues(d1, list[1]).color, '');
+
+  // 確認了（抄表裡有這台、同一天的，張數改過也算）：不再列
+  add('readings', { device: '26-0001', date: '2026-11-01', month: '2026-10', bw: 601 });
+  assert.deepEqual(rows().map(r => r[1]), ['B2', 'Z9']);
+  assert.equal(Records.toConfirm(d1), null);
+});
+
 test('業務員新增抄表、保養時，張數比這台上一次少就存不了（管理員照樣只提醒）；打開舊的那筆不擋', () => {
   for (const sales of [false, true]) {
     const { add, field } = app({ sales });

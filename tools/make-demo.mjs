@@ -275,6 +275,13 @@ data.toner = TONER.map(([device, ago, time, K, Y, M, C]) => {
   return { serial: d.serial, device, date: addDays(NOW, -ago), time, bw, color, K, Y, M, C };
 });
 
+// 待確認抄表：兩台有張數信、一台客戶按了提交，日期照產生那天往回推；張數接著最新回報再多一點
+const CONFIRM = [['26-0001', 0, '09:50', '張數信'], ['25-0001', 1, '09:51', '張數信'], ['24-0002', 0, '10:15', '客戶提交']];
+data.toConfirm = CONFIRM.map(([device, ago, time, source]) => {
+  const t = data.toner.find(x => x.device === device);
+  return { serial: t.serial, device, date: addDays(NOW, -ago), time, bw: t.bw + 30, color: t.color === null ? null : t.color + 5, source };
+});
+
 // 合約修改紀錄：第一份合約的抄表日期打錯過
 const first = data.contracts[0];
 data.contractLog.push(rec('contractLog', { contract: first.id, date: addDays(first.signDate, 3), field: '抄表日期', before: '每月 52 日', after: first.readDay }));

@@ -487,7 +487,7 @@
   // ---------- 總部程式、自動抄表 ----------
   //   總部程式：試算表上的小程式（apps-script/meter.gs）部署成網頁應用程式；自動抄表讀信、抄表程式回報、業務員拿資料都用它的網址
   //   每個人貼在自己的試算表上：App 只能碰自己建立的檔案，沒辦法替使用者裝；按鈕直接複製程式，不會貼到舊版
-  //   自動抄表：機器把張數寄到 Gmail，總部程式寫進「抄表」；客戶電腦上的抄表程式每天或每週回報，寫進「最新回報」
+  //   自動抄表：機器把張數寄到 Gmail，總部程式寫進「待確認抄表」（App 確認了才寫進抄表）；客戶電腦上的抄表程式每天或每週回報，寫進「最新回報」
   //   「說明」打開 index.html 的 #meter-help：兩種送法、抄表程式怎麼用、出問題時
   const hqEl = $('hq');
   const meterEl = $('meter');
@@ -549,7 +549,7 @@
       return;
     }
     meterEl.innerHTML = `
-      <p class="note muted cloud-intro">機器自己寄信，總部程式寫進「抄表」；客戶電腦上的抄表程式每天或每週回報，寫進「最新回報」。</p>
+      <p class="note muted cloud-intro">機器自己寄信、客戶按「提交計數器」的，總部程式放進「待確認抄表」，確認了才寫進抄表；抄表程式每天或每週回報，寫進「最新回報」。</p>
       ${st.meterUrl ? '' : '<p class="note warn-text">先到設定的「總部程式」設定好，才收得到。</p>'}
       <ul class="member-list lists-menu">
         ${menuRow('data-act="machine"', { title: '機器設定', note: st.senderMail ? `寄信用 Gmail：${st.senderMail}` : '還沒填寄信用 Gmail（程式只讀它寄來的信）', warn: !st.senderMail })}

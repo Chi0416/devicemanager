@@ -67,6 +67,20 @@ function createOverview({ onPick, onPlaces }) {
       open: x => Detail.open(x.device.id),
     },
     {
+      // 張數信、客戶提交的張數還沒寫進抄表（見 records.js 的 confirmsDue）；點了打開設備詳情確認，序號還沒登記的去新增設備
+      key: 'confirms', title: '待確認抄表', icon: 'meter', tone: 'warn',
+      list: () => Records.confirmsDue(),
+      summary: list => {
+        const by = new Map();
+        list.forEach(x => by.set(x.confirm.source, (by.get(x.confirm.source) || 0) + 1));
+        return [...by].map(([k, v]) => `${k} ${v}`).join('・');
+      },
+      row: x => (x.device
+        ? { title: [x.place?.name, Records.label(x.device)].filter(Boolean).join(' · '), sub: Records.confirmWhen(x.confirm) }
+        : { title: `序號 ${x.confirm.serial}`, sub: `${Records.confirmWhen(x.confirm)}・對不到設備，點了登記` }),
+      open: x => (x.device ? Detail.open(x.device.id) : Form.open('devices', null, { serial: x.confirm.serial })),
+    },
+    {
       key: 'readings', title: '該抄表了', icon: 'meter', tone: 'warn',
       list: () => Records.readingsDue(),
       summary: () => '照合約的抄表週期，過了 10 天還沒抄',

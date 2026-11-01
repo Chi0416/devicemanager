@@ -18,6 +18,7 @@ const Sheet = (() => {
   const METER_AT_KEY = 'meterReadAt'; // _meta 第 3 列：試算表上的程式上次看完信箱的時間（ISO 文字，程式寫的，見 apps-script/meter.gs）
   const SENDER_KEY = 'senderMail'; // _meta 第 4 列：機器寄信用的 Gmail（機器設定那頁填的，見 sync.js 的 setSenderMail）
   const TONER = '最新回報'; // 試算表上的程式寫的分頁（張數、碳粉）；沒有這個分頁時不讀（見 sync.js 的 pull）
+  const CONFIRM = '待確認抄表'; // 試算表上的程式寫的分頁（張數信、客戶提交的張數，確認了才寫進抄表）；沒有這個分頁時不讀
   const TABLES = Object.keys(SCHEMAS);
   const TAB = Object.fromEntries(TABLES.map((t, i) => [t, {
     title: SCHEMAS[t].title,
@@ -235,13 +236,13 @@ const Sheet = (() => {
     return v > 0 ? v : 1;
   }
 
-  // 「最新回報」分頁：[{ serial, device, date, time, bw, color, K, Y, M, C, ip }]，依標題找欄；沒有這個分頁時是 null
-  //   日期讀成 2026-10-21；時間是文字 08:30（被改成時間格式也讀得懂）；張數 0 以上的整數、碳粉 0～100，空白、看不懂的是 null；沒有序號的列略過
-  function readToner(values) {
+  // 試算表上的程式寫的分頁（最新回報、待確認抄表）：一台一列，依標題找欄；沒有這個分頁時是 null
+  //   [{ serial, device, date, time, bw, color, ...more(這一列的某一欄) }]
+  //   日期讀成 2026-10-21；時間是文字 08:30（被改成時間格式也讀得懂）；張數 0 以上的整數，空白、看不懂的是 null；沒有序號的列略過
+  function readReports(values, more) {
     if (!values) return null;
     const head = (values[0] || []).map(h => String(h ?? '').trim());
     const cell = (cells, label) => (head.includes(label) ? cells[head.indexOf(label)] : '');
-    const level = v => (typeof v === 'number' && v >= 0 && v <= 100 ? v : null);
     const count = v => (Number.isInteger(v) && v >= 0 ? v : null);
     const time = v => {
       if (typeof v !== 'number') return String(v ?? '').trim();
@@ -257,14 +258,25 @@ const Sheet = (() => {
         time: time(cell(cells, '時間')),
         bw: count(cell(cells, '黑白張數')),
         color: count(cell(cells, '彩色張數')),
-        ...Object.fromEntries(['K', 'Y', 'M', 'C'].map(c => [c, level(cell(cells, `碳粉${c}`))])),
-        ip: String(cell(cells, 'IP') ?? '').trim(),
+        ...more(label => cell(cells, label)),
       };
     });
   }
 
-  // byTitle：{ 分頁名稱: values }，由 readRanges() 的範圍讀回，有 _meta、最新回報分頁時也一起讀
-  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, toner }
+  // 「最新回報」分頁：多 K、Y、M、C（碳粉 0～100，讀不到的 null）、ip
+  const readToner = values => readReports(values, get => ({
+    ...Object.fromEntries(['K', 'Y', 'M', 'C'].map(c => {
+      const v = get(`碳粉${c}`);
+      return [c, typeof v === 'number' && v >= 0 && v <= 100 ? v : null];
+    })),
+    ip: String(get('IP') ?? '').trim(),
+  }));
+
+  // 「待確認抄表」分頁：多 source（張數信、客戶提交，測試的後面加（測試））
+  const readConfirm = values => readReports(values, get => ({ source: String(get('來源') ?? '').trim() }));
+
+  // byTitle：{ 分頁名稱: values }，由 readRanges() 的範圍讀回，有 _meta、最新回報、待確認抄表分頁時也一起讀
+  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, toner, toConfirm }
   //   data 和 data.json 同樣的結構
   //   rowOf[分頁][id] 是那一筆在第幾列；headers[分頁] 是標題列（補上 id 欄之後）
   //   broken 是缺分頁或缺欄位的資料表：讀到的資料不完整，同步時不要拿來取代 App 裡的資料
@@ -283,7 +295,8 @@ const Sheet = (() => {
     const meterReadAt = String(metaValue(byTitle[META.title], METER_AT_KEY) ?? '').trim();
     const senderMail = String(metaValue(byTitle[META.title], SENDER_KEY) ?? '').trim();
     const toner = readToner(byTitle[TONER]);
-    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, toner };
+    const toConfirm = readConfirm(byTitle[CONFIRM]);
+    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, toner, toConfirm };
   }
 
   // 一格的值（補上的欄用）
@@ -373,7 +386,7 @@ const Sheet = (() => {
   const readRanges = () => TABLES.map(t => TAB[t].title);
 
   return {
-    VERSION, ID, META, METER_KEY, SENDER_KEY, TONER, TAB,
+    VERSION, ID, META, METER_KEY, SENDER_KEY, TONER, CONFIRM, TAB,
     toSerial, fromSerial, colLetter,
     encodeRow, encodeCell, toValues, fromValues, problemText,
     createBody, setupRequests, addColumnRequests, metaValues, readRanges,

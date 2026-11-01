@@ -1051,6 +1051,36 @@ const Records = (() => {
     return { text: n <= 1 && t.time ? `${agoText(n)} ${t.time}` : agoText(n), tone: reportTone(n) };
   }
 
+  // ---------- 待確認抄表：張數信、客戶在抄表程式按「提交計數器」的張數，行政人員確認了才寫進抄表 ----------
+  //   連結 Google 時是試算表「待確認抄表」分頁讀回來的（試算表上的程式寫的，一台一筆最新的）；沒有時用匯入的 data.json 裡的
+  //   和最新回報一樣先用序號找；抄表裡有這台、同一天的那一筆就算確認過（日期照帶的，張數改過也算）
+  const confirms = () => (typeof Sync !== 'undefined' && Sync.state().toConfirm) || Store.toConfirm() || [];
+  const confirmable = c => !!c?.date && Number.isInteger(c.bw);
+  function toConfirm(d, list = confirms()) {
+    const c = latestReport(d, list);
+    return confirmable(c) && !of('readings', d.code).some(r => r.date === c.date) ? c : null;
+  }
+
+  // 總覽的要處理：[{ id, device, place, confirm }]，新的在上面；序號還沒登記的 device 是 null（點了去登記）
+  function confirmsDue(list = confirms()) {
+    const devices = Store.list('devices');
+    const known = c => devices.some(d => latestReport(d, [c]));
+    return [
+      ...devices.map(d => ({ id: d.id, device: d, place: place(d.location), confirm: toConfirm(d, list) })).filter(x => x.confirm),
+      ...list.filter(c => confirmable(c) && !known(c)).map(c => ({ id: `serial:${c.serial}`, device: null, place: null, confirm: c })),
+    ].sort((a, b) => cmp(`${b.confirm.date} ${b.confirm.time}`, `${a.confirm.date} ${a.confirm.time}`));
+  }
+
+  // 「張數信・2026/11/01 09:50」
+  const confirmWhen = c => [c.source, `${U.fmtDate(c.date)} ${c.time}`.trim()].filter(Boolean).join('・');
+
+  // 確認時帶進抄表表單的：日期、張數；結算月份帶上個月（11/1 的算 10 月的帳），測試的空白（起點，不算帳）；備註寫「張數信 09:50」
+  function confirmValues(d, c) {
+    const [y, m] = c.date.split('-').map(Number);
+    const month = /測試/.test(c.source) ? '' : m === 1 ? `${y - 1}-12` : `${y}-${U.pad2(m - 1)}`;
+    return { device: d.code, date: c.date, month, bw: c.bw, color: c.color ?? '', note: [c.source, c.time].filter(Boolean).join(' ') };
+  }
+
   // ---------- 總覽的要處理：回報停了、該抄表了、狀態和位置對不上 ----------
   // 只看現在放在客戶那裡的機器：不是倉庫、沒停用的位置；報廢這類（狀態勾「不用提醒」）的不算
   function placedDevices() {
@@ -1084,9 +1114,9 @@ const Records = (() => {
 
   // 該抄表了：照合約的抄表週期，該抄的結算月份過完再 10 天還沒有抄表（每月 5 日抄上個月的來得及）
   //   週期：這個位置目前的合約的抄表週期；空白、沒有合約的當每月
-  //   該抄的結算月份：這個位置最後一次算帳的抄表（有結算月份的，哪一台機器抄的都算，自動抄表寫進來的也算）＋週期
+  //   該抄的結算月份：這個位置最後一次算帳的抄表（有結算月份的，哪一台機器抄的都算，確認過的張數信也算）＋週期
   //     現在這台搬進來之後還沒算過帳的（剛裝、剛換機，或很久以前別的客戶留下的）：搬進來那天的起點當那個月算過
-  //   沒有搬進來的異動、也沒抄過的算不出來，不列
+  //   沒有搬進來的異動、也沒抄過的算不出來，不列；有張數等確認的（見 toConfirm）不列，列在「待確認抄表」
   //   [{ id, device, place, cycle, last: 上次結算月份（現在這台還沒算過帳的空白）, due: 該抄的結算月份 }]；越早該抄的越上面
   const READ_GRACE = 10;
   const CYCLE_MONTHS = { 每月: 1, 雙月: 2, 每季: 3, 半年: 6, 每年: 12 };
@@ -1100,7 +1130,9 @@ const Records = (() => {
     });
     const contracts = currentContracts();
     const deadline = `-${String(READ_GRACE).padStart(2, '0')}`;
+    const waiting = confirms();
     return placedDevices().flatMap(x => {
+      if (toConfirm(x.device, waiting)) return []; // 有張數等確認：列在「待確認抄表」
       const pk = key(x.place.code);
       const cycle = cycleOf(contracts.get(pk));
       const arrive = of('moves', x.device.code).filter(m => key(m.to) === pk)
@@ -1361,6 +1393,7 @@ const Records = (() => {
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     shownDevices, isShown, canAdd, TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
+    toConfirm, confirmsDue, confirmWhen, confirmValues,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,
   };
 })();

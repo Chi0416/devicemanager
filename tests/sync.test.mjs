@@ -681,11 +681,12 @@ test('最新回報：試算表上沒有「最新回報」分頁時不讀、也�
   assert.deepEqual(plain(phone.Sync.state().toner), [row]);
 });
 
-// 讀信網址：模擬試算表上的程式讀到一封信，寫一列抄表、在 _meta 第 3 列記時間
+// 讀信網址：模擬試算表上的程式讀到一封信，寫一列待確認抄表（沒有這個分頁時建一個）、在 _meta 第 3 列記時間
 const METER_URL = 'https://script.google.com/macros/s/abc/exec';
 function mailOnce(fake, id, at) {
   fake.meter = () => {
-    fake.appendRow(id, '抄表', ['NB-001', 46315, '2026/09', 1200, '', '自動抄表']);
+    if (!fake.sheet(id, '待確認抄表')) fake.files[id].sheets.push({ sheetId: 600, title: '待確認抄表', grid: [['序號', '設備', '日期', '時間', '黑白張數', '彩色張數', '來源']] });
+    fake.appendRow(id, '待確認抄表', ['A1', '26-0001', 46315, '09:50', 1200, '', '張數信']);
     fake.write(id, "'_meta'!A3", [['meterReadAt', at]]);
     fake.meter = () => { fake.write(id, "'_meta'!A3", [['meterReadAt', at]]); return { count: 0, fixed: 0, at }; };
     return { count: 1, fixed: 0, at };
@@ -693,7 +694,7 @@ function mailOnce(fake, id, at) {
 }
 const settle = async d => { do await new Promise(r => setImmediate(r)); while (d.Sync.state().running); };
 
-test('按「同步」：有讀信網址時先叫程式讀信，讀到的這次同步就拿回來，提示寫進幾筆；上次讀信的時間跟著更新', async () => {
+test('按「同步」：有讀信網址時先叫程式讀信，讀到的這次同步就拿回來（待確認，不是抄表），提示幾封；上次讀信的時間跟著更新', async () => {
   const { fake, d, id } = await linked();
   await d.Sync.setMeterUrl(METER_URL);
   const at = '2026-10-20T06:05:00.000Z';
@@ -703,9 +704,10 @@ test('按「同步」：有讀信網址時先叫程式讀信，讀到的這次�
   const calls = fake.calls.slice(before);
   const mailAt = calls.indexOf('GET /macros/s/abc/exec');
   assert.ok(mailAt >= 0 && mailAt < calls.findIndex(c => c.includes('batchGet')));
-  assert.equal(d.Store.list('readings').length, 1);
+  assert.equal(d.Store.list('readings').length, 0);
+  assert.deepEqual(plain(d.Sync.state().toConfirm), [{ serial: 'A1', device: '26-0001', date: '2026-10-20', time: '09:50', bw: 1200, color: null, source: '張數信' }]);
   assert.equal(d.Sync.state().meterReadAt, at);
-  assert.equal(d.toasts.at(-1), '已同步（寫進 1 筆）');
+  assert.equal(d.toasts.at(-1), '已同步（1 封張數信待確認）');
   await d.Sync.syncNow();
   assert.equal(d.toasts.at(-1), '已同步');
 });

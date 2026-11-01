@@ -11,9 +11,9 @@ const Store = (() => {
   let available = true;
 
   // 全新的資料；有 seed 的表（類別的預設項目）先放好
-  //   toner：匯入的 data.json 裡的最新回報（假資料用；連結 Google 時用試算表「最新回報」分頁的，見 sync.js）
+  //   toner：匯入的 data.json 裡的最新回報（假資料用；連結 Google 時用試算表「最新回報」分頁的，見 sync.js）；toConfirm（待確認抄表）一樣
   function blank() {
-    const d = { version: 1, lastExportAt: null, toner: null };
+    const d = { version: 1, lastExportAt: null, toner: null, toConfirm: null };
     TABLES.forEach(t => { d[t] = SCHEMAS[t].seed ? SCHEMAS[t].seed() : []; });
     return d;
   }
@@ -31,6 +31,7 @@ const Store = (() => {
       });
       if (d.lastExportAt) out.lastExportAt = d.lastExportAt;
       if (Array.isArray(d.toner)) out.toner = d.toner.filter(r => r && typeof r === 'object');
+      if (Array.isArray(d.toConfirm)) out.toConfirm = d.toConfirm.filter(r => r && typeof r === 'object');
     }
     return out;
   }
@@ -142,11 +143,16 @@ const Store = (() => {
       const p = { app: 'devicemanager', version: 1, exportedAt: new Date().toISOString() };
       TABLES.forEach(t => { p[t] = data[t]; });
       if (data.toner) p.toner = data.toner;
+      if (data.toConfirm) p.toConfirm = data.toConfirm;
       return p;
     },
 
     toner() {
       return data.toner;
+    },
+
+    toConfirm() {
+      return data.toConfirm;
     },
 
     lastExportAt() {
@@ -260,6 +266,7 @@ const Store = (() => {
       });
       out.lastExportAt = data.lastExportAt;
       out.toner = data.toner;
+      out.toConfirm = data.toConfirm;
       data = normalize(out);
       version++;
       persist();
@@ -267,9 +274,9 @@ const Store = (() => {
 
     // 改用試算表的資料（連結時選了雲端那一份），這台裝置的修改全部放棄
     loadRemote(remote) {
-      const { lastExportAt, toner } = data;
+      const { lastExportAt, toner, toConfirm } = data;
       data = normalize(remote);
-      Object.assign(data, { lastExportAt, toner });
+      Object.assign(data, { lastExportAt, toner, toConfirm });
       sync = { pending: {}, v: sync.v, full: false };
       version++;
       persist();

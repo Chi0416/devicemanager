@@ -464,3 +464,19 @@ test('「最新回報」分頁（試算表上的程式寫的）：依標題找�
   assert.equal(Sheet.fromValues({}).toner, null);
   assert.equal(Sheet.fromValues({ 碳粉: [['序號'], ['A1']] }).toner, null); // 以前的「碳粉」分頁不讀
 });
+
+test('「待確認抄表」分頁（張數信、客戶提交）：依標題找欄，日期、時間、張數、來源；沒有這個分頁時是 null', () => {
+  const r = Sheet.fromValues({
+    待確認抄表: [
+      ['序號', '設備', '日期', '時間', '黑白張數', '彩色張數', '來源'],
+      ['A1', '26-0001', 46327, '09:50', 600, 20, '張數信'],
+      ['B2', '', 46327, 0.375, 7, '', '客戶提交（測試）'],
+      ['', '', 46327, '', 1, '', '張數信'], // 沒有序號的略過
+    ],
+  });
+  assert.deepEqual(plain(r.toConfirm), [
+    { serial: 'A1', device: '26-0001', date: '2026-11-01', time: '09:50', bw: 600, color: 20, source: '張數信' },
+    { serial: 'B2', device: '', date: '2026-11-01', time: '09:00', bw: 7, color: null, source: '客戶提交（測試）' },
+  ]);
+  assert.equal(Sheet.fromValues({}).toConfirm, null);
+});

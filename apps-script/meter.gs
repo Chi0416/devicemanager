@@ -1,5 +1,5 @@
-// 自動抄表：機器每月寄來的張數信（服務模式 SP 5-866），每小時看一次信箱，寫進這份試算表的「抄表」分頁
-//   裝在 App 建立的「設備管理」試算表上（擴充功能 → Apps Script），貼上後執行一次 install；App 同步時讀進來（id 由 App 補上）
+// 自動抄表：機器每月寄來的張數信（服務模式 SP 5-866），每小時看一次信箱，寫進這份試算表的「待確認抄表」分頁，在 App 確認了才寫進「抄表」
+//   裝在 App 建立的「設備管理」試算表上（擴充功能 → Apps Script），貼上後執行一次 install；App 同步時讀進來
 //   急著看的時候：試算表上方選單「自動抄表」→「現在讀信」；部署成網頁應用程式的話，App 打開、按「同步」時也會先叫它讀信（見 doGet）
 //   信要寄到登入 App 的那個帳號的 Gmail（SP 5-866-121）：這支程式只讀得到自己帳號的信
 //   信的樣子（主旨「Page Counter : 序號」，用 SP 5-866-112 測試寄的主旨前面有 [TEST]）：
@@ -7,13 +7,13 @@
 //     Date: Tue Oct 20 09:50:53 2026
 //     Total_Color:2862
 //     Total_BW:122957
-//   設備：用序號到「設備」分頁找設備編號；找不到的空白、備註寫序號，之後 App 登記了這個序號，下次讀信時自動補上
-//   照信裡的時間由舊到新寫（Gmail 搜尋是新的在前），試算表上的順序就是機器寄信的順序
-//   結算月份：抄表日期的上一個月（11/1 寄來的算 10 月的帳）；測試寄的空白（App 當作起點，不算帳）
-//   備註「自動抄表 09:50」（測試的「自動抄表（測試）09:50」），時間是信裡寫的機器寄出時間；抄表日期欄只有日期
+//   設備：用序號到「設備」分頁找設備編號；找不到的空白（App 照序號對，登記了這個序號就對得上）
+//   照信裡的時間由舊到新寫（Gmail 搜尋是新的在前），一台只留最新一封；時間是信裡寫的機器寄出時間
+//   App 確認時：結算月份帶抄表日期的上一個月（11/1 寄來的算 10 月的帳），測試寄的空白（起點，不算帳）；備註寫「張數信 09:50」
 //   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
 //   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「最新回報」，不算帳（見 doPost），要帶密語
+//     客戶在視窗按「提交計數器」的（manual）也寫進「待確認抄表」，背景自己回報的不寫
 //   業務員的 App 也 POST 到同一個網址拿資料（見 salesData_）、新增抄表和保養（見 salesAdd_）：帶 Google 登入的權杖，不用密語，只碰得到他負責的客戶
 //   勾了改全部的業務員：讀寫整份試算表都請這裡代做（見 sheetFor_），和管理員一樣
 
@@ -61,15 +61,15 @@ function readNow() {
   SpreadsheetApp.getActive().toast(resultText_(checkMail()));
 }
 
-// 「寫進 2 筆、補上 1 筆的設備」；還沒填寄件人時寫要去哪裡填
+// 「2 封張數信待確認、補上 1 筆的設備」；還沒填寄件人時寫要去哪裡填
 function resultText_({ count, fixed, noSender }) {
   if (noSender) return '沒有讀信：先到 App「設定 → 自動抄表 → 機器設定」填寄信用 Gmail';
-  const parts = [count && `寫進 ${count} 筆`, fixed && `補上 ${fixed} 筆的設備`].filter(Boolean);
+  const parts = [count && `${count} 封張數信待確認`, fixed && `補上 ${fixed} 筆的設備`].filter(Boolean);
   return parts.length ? parts.join('、') : '沒有新的信';
 }
 
 // App 同步前的讀信：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
-//   只回 { count: 寫了幾筆, fixed: 補了幾筆的設備, at: 讀完的時間, noSender: 還沒填寄件人 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
+//   只回 { count: 幾封張數信寫進待確認, fixed: 補了幾筆的設備, at: 讀完的時間, noSender: 還沒填寄件人 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
 function doGet() {
   return json_(checkMail());
 }
@@ -78,9 +78,10 @@ function doGet() {
 //   客戶電腦上背景每天一次、客戶在視窗按「提交計數器」都送這個；密語對不上就不收
 //   寫進「最新回報」分頁：一台一列，只留最新一次（再送的蓋過那一列），試算表不會越來越大；沒有這個分頁時自己建
 //     App 同步時讀這個分頁（設備詳情的最新回報卡），要抄表時從那裡帶入張數
-//   不寫「抄表」、不算帳；不留每天的紀錄（以前的「回報」「碳粉」分頁不再寫，可以刪掉）
+//   客戶按「提交計數器」的（manual: true）另外寫進「待確認抄表」，來源「客戶提交」，在 App 確認了才寫進「抄表」；背景回報的不寫
+//   不寫「抄表」；不留每天的紀錄（以前的「回報」「碳粉」分頁不再寫，可以刪掉）
 //   回 { results: [{ serial, device: 設備編號（對不到時空白） }] }，出錯回 { error }
-//   測試（test: true）照舊只在「抄表」寫一筆起點（結算月份空白，App 不算帳），備註「自動抄表（腳本測試）08:30」，不寫最新回報
+//   測試（test: true）只寫「待確認抄表」，來源「抄表程式（測試）」（確認時結算月份空白，當起點），不寫最新回報
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
@@ -110,12 +111,21 @@ const LATEST = '最新回報';
 const LATEST_HEAD = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C', 'IP'];
 const LATEST_FORMATS = { 序號: '@', 設備: '@', 主機板號碼: '@', 日期: 'yyyy/mm/dd', 時間: '@', IP: '@' };
 
+// 待確認抄表：張數信、客戶按「提交計數器」的張數先放這裡，行政人員在 App 確認了才寫進「抄表」（見 records.js 的 toConfirm）
+//   和最新回報一樣一台一列，只留最新一次；App 只讀不寫，「抄表」有這台、同一天的那一筆就算確認過
+//   來源：張數信、客戶提交；測試的後面加（測試）
+const CONFIRM = '待確認抄表';
+const CONFIRM_HEAD = ['序號', '設備', '日期', '時間', '黑白張數', '彩色張數', '來源'];
+const CONFIRM_FORMATS = { 序號: '@', 設備: '@', 日期: 'yyyy/mm/dd', 時間: '@', 來源: '@' };
+
 function writePosted_(list) {
-  const { ss, readings, col, codeOf } = sheets_();
+  const { ss, codeOf } = sheets_();
   const tz = Session.getScriptTimeZone();
   const now = Utilities.formatDate(new Date(), tz, 'yyyy-M-d-HH:mm').split('-');
   const today = now.slice(0, 3).map(Number);
   let latest = null;
+  let box = null;
+  const confirm = (values, source) => writeLatest_(box = box || tab_(ss, CONFIRM, CONFIRM_HEAD, CONFIRM_FORMATS), [...values, source]);
   return list.map(r => {
     const serial = String(r.serial || '').trim();
     const bw = Number(r.bw);
@@ -125,12 +135,15 @@ function writePosted_(list) {
     const [y, m, day] = d ? d.slice(1).map(Number) : today;
     const code = codeOf[serial.toUpperCase()] || '';
     const time = /^\d{1,2}:\d{2}$/.test(String(r.time || '')) ? String(r.time).padStart(5, '0') : now[3];
+    const counts = [serial, code, serial_(y, m, day), time, bw, color];
     if (r.test === true) {
-      return { serial, device: append_(readings, col, codeOf, { serial, y, m, d: day, bw, color, test: true, note: `自動抄表（腳本測試）${time}` }) };
+      confirm(counts, '抄表程式（測試）');
+      return { serial, device: code };
     }
     latest = latest || tab_(ss, LATEST, LATEST_HEAD, LATEST_FORMATS);
     const t = 'KYMC'.split('').map(c => count_((r.toner || {})[c]));
     writeLatest_(latest, [serial, code, String(r.rnp || ''), serial_(y, m, day), time, bw, color, ...t, String(r.ip || '').trim()]);
+    if (r.manual === true) confirm(counts, '客戶提交');
     return { serial, device: code };
   });
 }
@@ -178,7 +191,7 @@ function writeLatest_({ sheet, col, width }, values) {
   else sheet.appendRow(row);
 }
 
-// 先補上之前對不到的設備，再找最近 7 天的張數信，沒寫過的加在「抄表」最下面；回傳 { count, fixed, at }
+// 先補上「抄表」裡以前對不到的設備，再找最近 7 天的張數信，沒寫過的寫進「待確認抄表」；回傳 { count, fixed, at }
 function checkMail() {
   // 每小時那次和按鈕剛好同時跑時，等前一個跑完，同一封信不會寫兩次
   const lock = LockService.getScriptLock();
@@ -197,21 +210,6 @@ function sheets_() {
   const devices = ss.getSheetByName('設備');
   if (!readings || !devices) throw new Error('找不到「抄表」或「設備」分頁：這支程式要裝在 App 建立的「設備管理」試算表上');
   return { ss, readings, col: columns_(readings), codeOf: serialMap_(devices) };
-}
-
-// 在「抄表」最下面加一列，回傳設備編號；對不到設備的空白、備註寫序號（之後 fillDevices_ 補上）
-function append_(sheet, col, codeOf, { serial, y, m, d, bw, color, test, note }) {
-  const code = codeOf[serial.toUpperCase()] || '';
-  const row = new Array(sheet.getLastColumn()).fill('');
-  row[col['設備']] = code;
-  row[col['抄表日期']] = serial_(y, m, d);
-  row[col['結算月份']] = test ? '' : lastMonth_(y, m);
-  row[col['黑白張數']] = bw;
-  row[col['彩色張數']] = color;
-  row[col['備註']] = [note, code ? '' : `序號 ${serial} 對不到設備`].filter(Boolean).join('；');
-  sheet.appendRow(row);
-  sheet.getRange(sheet.getLastRow(), col['抄表日期'] + 1).setNumberFormat('yyyy/mm/dd');
-  return code;
 }
 
 function readMail_() {
@@ -236,12 +234,13 @@ function readMail_() {
   const at = t => Date.UTC(t[0], t[1] - 1, t[2], t[3], t[4], t[5]);
   mails.sort((a, b) => at(a.when) - at(b.when));
 
+  let box = null;
   for (const { msg, r, when } of mails) {
     const [y, m, d] = when;
     const test = msg.getSubject().includes('[TEST]');
     const hm = `${String(when[3]).padStart(2, '0')}:${String(when[4]).padStart(2, '0')}`; // 信裡的時間（機器寄出的時間）
-    const note = test ? `自動抄表（測試）${hm}` : `自動抄表 ${hm}`;
-    append_(readings, col, codeOf, { serial: r.serial, y, m, d, bw: r.bw, color: r.color, test, note });
+    box = box || tab_(ss, CONFIRM, CONFIRM_HEAD, CONFIRM_FORMATS);
+    writeLatest_(box, [r.serial, codeOf[r.serial.toUpperCase()] || '', serial_(y, m, d), hm, r.bw, r.color, test ? '張數信（測試）' : '張數信']);
     // 每寫一封就記下來：中途出錯時，下次不會重複寫
     done[msg.getId()] = now;
     props.setProperty('done', JSON.stringify(done));
@@ -312,11 +311,6 @@ function serial_(y, m, d) {
   return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5;
 }
 
-// 上一個月，寫成 App 的格式 2026/09
-function lastMonth_(y, m) {
-  return m === 1 ? `${y - 1}/12` : `${y}/${String(m - 1).padStart(2, '0')}`;
-}
-
 // 「抄表」第一列的標題 → 第幾欄（從 0 起算）；缺欄時停下來
 function columns_(sheet) {
   const head = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
@@ -351,7 +345,7 @@ function serialMap_(sheet) {
 //   第一次加這段要重新授權（會用到 UrlFetchApp）：上方選 install 按「執行」，照畫面允許，再到「管理部署作業」換新版本
 //   不用 Session 拿總部的帳號：那要另外一個權限（userinfo.email），授權時不一定問得到，拿不到會讓整個失敗
 const CLIENT_ID = '460486615404-n7j6akqvhec4at7dt0f4937posghfr4p.apps.googleusercontent.com'; // App 的 OAuth 用戶端 ID（js/config.js）
-const SALES_TABS = ['位置', '客戶', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST];
+const SALES_TABS = ['位置', '客戶', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST, CONFIRM];
 
 //   回傳時另外寫 read：{ via: 怎麼讀的（service／api／sheets，見 readTabs_）, ms: { who, read, total } 各花幾毫秒 }，查慢的時候看
 function salesData_(token) {
@@ -617,7 +611,7 @@ function salesPerson_(rows, email, today) {
 //   他的位置：位置的「業務員」是他、不是倉庫（停用的也算）
 //   現在放在他位置的機器：這幾台的全部紀錄（包括搬來之前的）
 //   以前放過、已經搬走的機器：只給放在他位置那段時間的紀錄（搬進來那天到搬走那天，看異動），設備那一列也給（App 才寫得出是哪一台）
-//   合約：綁了他的位置的；合約修改紀錄跟著合約；最新回報：現在放在他位置的機器
+//   合約：綁了他的位置的；合約修改紀錄跟著合約；最新回報、待確認抄表：現在放在他位置的機器
 //   客戶：他的位置的客戶（位置的「客戶」寫客戶名稱，不分大小寫）
 //   狀態、選項、廠商：全部；人員：只給姓名
 //   別的位置、倉庫都不給（App 寫「其他位置」）
@@ -683,7 +677,7 @@ function salesRows_(values, person) {
     人員: people,
   };
   Object.keys(DATE).forEach(n => { out[n] = pick(n, r => seen(n, r)); });
-  if (tab(LATEST).length) out[LATEST] = pick(LATEST, r => now.has(codeKey_(r[col(LATEST, '設備')])));
+  [LATEST, CONFIRM].filter(n => tab(n).length).forEach(n => { out[n] = pick(n, r => now.has(codeKey_(r[col(n, '設備')]))); });
   return out;
 }
 

@@ -32,13 +32,14 @@ const Sync = (() => {
   // 試算表上有幾筆資料（預先放的類別不算：只有那幾筆時，當作雲端還沒有資料）
   const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
-  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, senderMail, toner } ----------
+  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, senderMail, toner, toConfirm } ----------
   //   業務員：{ sales: true, hq: 總部試算表上的程式的網址, email, name: 人員表上的姓名, perms: 權限, all: 看全部, admin: 總部的帳號,
   //           denied: 不是業務員了, heads: { 抄表, 保養 } 總部試算表的標題列（新增時照它排）, lastSyncAt, toner }
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
   //   senderMail：機器寄信用的 Gmail（機器設定那頁填的），和讀信網址一樣存在 _meta
   //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；同步前叫它讀信時也直接回傳）
   //   toner：「最新回報」分頁（抄表程式每台最新一次的張數、碳粉，試算表上的程式寫的），同步時讀回來；沒有這個分頁時是 null
+  //   toConfirm：「待確認抄表」分頁（張數信、客戶提交的張數，一台最新一次），和 toner 一樣讀回來
   let cloud = null;
   try { cloud = JSON.parse(localStorage.getItem(CLOUD_KEY)); } catch (_) {}
 
@@ -79,6 +80,7 @@ const Sync = (() => {
       senderMail: cloud?.senderMail || '',
       meterNoSender: !!cloud?.meterNoSender,
       toner: cloud?.toner || null,
+      toConfirm: cloud?.toConfirm || null,
       lastSyncAt: cloud?.lastSyncAt || null,
       sales: !!cloud?.sales,
       edit: isEditor(),
@@ -229,9 +231,9 @@ const Sync = (() => {
     return meta;
   }
 
-  // 「最新回報」分頁是試算表上的程式建的：有這個分頁才讀（讀不存在的分頁整次會失敗）
+  // 「最新回報」「待確認抄表」分頁是試算表上的程式建的：有這個分頁才讀（讀不存在的分頁整次會失敗）
   async function pull(meta) {
-    const titles = [...Sheet.readRanges(), Sheet.META.title, ...(meta.sheetIds[Sheet.TONER] === undefined ? [] : [Sheet.TONER])];
+    const titles = [...Sheet.readRanges(), Sheet.META.title, ...[Sheet.TONER, Sheet.CONFIRM].filter(t => meta.sheetIds[t] !== undefined)];
     const ranges = titles.map(t => `ranges=${enc(a1(t))}`).join('&');
     const r = await sheetApi(meta.id, `/values:batchGet?${ranges}`
       + '&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER');
@@ -357,6 +359,7 @@ const Sync = (() => {
     cloud.meterReadAt = parsed.meterReadAt;
     cloud.senderMail = parsed.senderMail;
     cloud.toner = parsed.toner;
+    cloud.toConfirm = parsed.toConfirm;
     // 手動輸入、沒有 id 的列：剛給的 id 先寫回試算表，寫好了才放進這台裝置
     //   寫的時候斷線就整次停下來：這台裝置不會留著試算表上沒有的 id（下次讀回來會是另一個 id，改過的話同一筆會變兩筆）
     const ids = [
@@ -513,8 +516,8 @@ const Sync = (() => {
     }
   }
 
-  // 「寫進 2 筆、補上 1 筆的設備」；都沒有時是空字串
-  const mailText = r => [r?.count && `寫進 ${r.count} 筆`, r?.fixed && `補上 ${r.fixed} 筆的設備`].filter(Boolean).join('、');
+  // 「2 封張數信待確認、補上 1 筆的設備」；都沒有時是空字串
+  const mailText = r => [r?.count && `${r.count} 封張數信待確認`, r?.fixed && `補上 ${r.fixed} 筆的設備`].filter(Boolean).join('、');
 
   // ---------- 同步一次 ----------
   // 登入過期時不跳出視窗（要使用者點按鈕），只更新狀態；manual 為 true 時完成後提示
@@ -650,7 +653,7 @@ const Sync = (() => {
     const r = await Google.script(cloud.hq, { action: 'data' });
     if (r.denied) {
       Store.loadRemote({});
-      Object.assign(cloud, { denied: true, toner: null });
+      Object.assign(cloud, { denied: true, toner: null, toConfirm: null });
       saveCloud();
       hooks.onData();
       error = r.error;
@@ -668,7 +671,8 @@ const Sync = (() => {
     Store.mergeRemote(parsed.data);
     const heads = Object.fromEntries(['抄表', '保養'].map(t => [t, r.values?.[t]?.[0]]).filter(([, h]) => h));
     Object.assign(cloud, {
-      denied: false, name: r.name, email: r.email, perms: r.perms || [], all: !!r.all, admin: r.admin, heads, toner: parsed.toner, lastSyncAt: new Date().toISOString(),
+      denied: false, name: r.name, email: r.email, perms: r.perms || [], all: !!r.all, admin: r.admin, heads, toner: parsed.toner, toConfirm: parsed.toConfirm,
+      lastSyncAt: new Date().toISOString(),
     });
     saveCloud();
     okAt = Date.now();
@@ -694,6 +698,7 @@ const Sync = (() => {
       let meterReadAt = '';
       let senderMail = '';
       let toner = null;
+      let toConfirm = null;
       const found = await findSpreadsheet();
       if (found) meta = await info(found);
 
@@ -712,7 +717,7 @@ const Sync = (() => {
       } else {
         await ensureTabs(meta);
         const parsed = Sheet.fromValues(await pull(meta));
-        ({ meterUrl, meterReadAt, senderMail, toner } = parsed);
+        ({ meterUrl, meterReadAt, senderMail, toner, toConfirm } = parsed);
         const remoteCount = countRecords(parsed.data);
         if (!remoteCount) {
           if (!await upload()) return;
@@ -743,7 +748,7 @@ const Sync = (() => {
           }
         }
       }
-      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt, senderMail, toner };
+      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt, senderMail, toner, toConfirm };
       saveCloud();
       hooks.toast('已連結 Google 帳號');
     } catch (e) {

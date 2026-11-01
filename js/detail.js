@@ -168,6 +168,7 @@ const Detail = (() => {
         ${w ? `<span class="card-note${w.warn ? ' warn' : ''}">${U.esc(w.text)}</span>` : ''}
         ${p ? `<button type="button" class="detail-link" data-place="${U.esc(p.id)}"><small>位置</small><span>${U.esc(p.name)}</span><span class="go" aria-hidden="true">›</span></button>` : ''}
       </div>
+      ${confirmHTML(d)}
       ${latestHTML(d)}
       ${consumablesHTML(d)}`;
   }
@@ -201,6 +202,29 @@ const Detail = (() => {
         ${t?.ip ? `<p class="toner-ip">IP ${U.esc(t.ip)}</p>` : ''}
         ${read}
       </div>`;
+  }
+
+  // 待確認抄表：張數信、客戶提交的張數還沒寫進抄表（見 records.js 的 toConfirm）；右上角寫來源、日期時間
+  //   最下面「抄表」打開抄表表單，日期、張數、結算月份（上個月）、備註帶好，按儲存才寫進抄表；業務員看得到、不能確認（改全部的可以）
+  function confirmHTML(d) {
+    const c = Records.toConfirm(d);
+    if (!c) return '';
+    const counts = [['黑白', c.bw], ['彩色', c.color]]
+      .map(([label, v]) => `<span class="cell"><small>${label}</small><span>${v === null ? '—' : U.fmtNum(v)}</span></span>`).join('');
+    const btn = Records.canAdd('readings') && !Sync.isSales()
+      ? `<button type="button" class="detail-link" data-confirm="${U.esc(d.id)}"><small>抄表</small><span>確認張數，寫進抄表</span><span class="go" aria-hidden="true">›</span></button>` : '';
+    return `
+      <div class="detail-card toner-card">
+        <span class="uc-head"><b>待確認抄表</b><span>${U.esc(Records.confirmWhen(c))}</span></span>
+        <span class="card-grid latest-counts">${counts}</span>
+        ${btn}
+      </div>`;
+  }
+
+  function readFromConfirm(d) {
+    const c = Records.toConfirm(d);
+    if (!c) return;
+    Form.open('readings', null, Records.confirmValues(d, c), { message: `已帶入${Records.confirmWhen(c)}，確認後按儲存` });
   }
 
   // 「抄表」：日期、張數用回報的，結算月份空著自己選；日期跟客戶確認過不一樣時再改
@@ -270,6 +294,8 @@ const Detail = (() => {
       if (link) Place.open(link.dataset.place);
       const read = e.target.closest('[data-read]');
       if (read && Store.get('devices', read.dataset.read)) readFromLatest(Store.get('devices', read.dataset.read));
+      const confirm = e.target.closest('[data-confirm]');
+      if (confirm && Store.get('devices', confirm.dataset.confirm)) readFromConfirm(Store.get('devices', confirm.dataset.confirm));
     },
     rows: [
       { key: 'moves', label: '位置', summary: locationRow, records: mine('moves'), preset: moveOf },

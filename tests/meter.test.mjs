@@ -106,6 +106,7 @@ const VALUES = {
   廠商: [['名稱', 'id']],
   人員: PEOPLE,
   最新回報: [['序號', '設備', '日期'], ['A1', '26-0001', 220], ['A3', '26-0003', 220]],
+  待確認抄表: [['序號', '設備', '日期'], ['A1', '26-0001', 221], ['A3', '26-0003', 221]],
 };
 const ids = (out, tab) => plain(out[tab].slice(1).map(r => r.at(-1)));
 
@@ -124,6 +125,7 @@ test('業務員看得到的列：他的位置、現在在那裡的機器的全�
   assert.deepEqual(ids(out, '合約修改紀錄'), ['g1']);
   assert.deepEqual(plain(out.人員), [['姓名', 'id'], ['阿明', 'p1'], ['小華', 'p2'], ['老王', 'p3'], ['未來', 'p4']]);
   assert.deepEqual(plain(out.最新回報), [['序號', '設備', '日期'], ['A1', '26-0001', 220]]);
+  assert.deepEqual(plain(out.待確認抄表), [['序號', '設備', '日期'], ['A1', '26-0001', 221]]);
   assert.equal(out.狀態, VALUES.狀態); // 清單整份給
   // 標題列照原本的，App 用同一套讀法
   assert.deepEqual(plain(out.抄表[0]), VALUES.抄表[0]);
@@ -180,7 +182,7 @@ test('讀信只讀寄信用 Gmail（_meta 的 senderMail，好幾個用逗號分
   assert.equal(senderOf_({ getFrom: () => 'RICOH <Meter.ABC@gmail.com>' }), 'meter.abc@gmail.com');
   assert.equal(senderOf_({ getFrom: () => 'meter.abc@gmail.com' }), 'meter.abc@gmail.com');
   assert.equal(resultText_({ count: 0, fixed: 0, noSender: true }), '沒有讀信：先到 App「設定 → 自動抄表 → 機器設定」填寄信用 Gmail');
-  assert.equal(resultText_({ count: 2, fixed: 0 }), '寫進 2 筆');
+  assert.equal(resultText_({ count: 2, fixed: 0 }), '2 封張數信待確認');
 });
 
 test('一次讀完的分頁（試算表 API 的 batchGet，順序和要的分頁一樣）：沒有資料的分頁是空的', () => {
@@ -210,6 +212,7 @@ function fakeSheet(grid, maxColumns = 26) {
     getLastRow: () => grid.length,
     getMaxColumns: () => sheet.maxColumns,
     getMaxRows: () => 1000,
+    getDataRange: () => ({ getValues: () => grid.map(r => [...r]) }),
     insertColumnsAfter: (after, n) => { sheet.maxColumns += n; },
     setFrozenRows: n => { sheet.frozen = n; },
     appendRow: row => grid.push([...row]),
@@ -260,4 +263,63 @@ test('最新回報分頁：沒有時建一個（標題、格式照名稱）；�
   const moved = tab_(ss, '最新回報', LATEST_HEAD, FORMATS);
   writeLatest_(moved, ['C3', '', '', 46326, '11:00', 1, '', '', '', '', '', '10.0.0.9']);
   assert.deepEqual(sheets.最新回報.grid[1], ['10.0.0.9', 'C3', '', '', 46326, '11:00', 1, '', '', '', '', '']);
+});
+
+// 試算表上的程式要用的 Google 服務：假的試算表（抄表、設備、_meta）、時區、指令碼屬性、Gmail
+function fakeGoogle(mails = []) {
+  const sheets = {
+    抄表: fakeSheet([['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註']]),
+    設備: fakeSheet([['編號', '序號'], ['26-0001', 'A1']]),
+    _meta: { getDataRange: () => ({ getValues: () => [['senderMail', 'meter.abc@gmail.com']] }), getRange: () => ({ setNumberFormat() { return this; }, setValues() { return this; } }) },
+  };
+  const props = {};
+  Object.assign(ctx, {
+    SpreadsheetApp: { getActive: () => ({ getSheetByName: n => sheets[n] || null, insertSheet: n => (sheets[n] = fakeSheet([])) }) },
+    Session: { getScriptTimeZone: () => 'Asia/Taipei' },
+    Utilities: { formatDate: () => '2026-11-1-08:30' },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
+    GmailApp: { search: () => [{ getMessages: () => mails }] },
+  });
+  return { sheets, props, done: () => ['SpreadsheetApp', 'Session', 'Utilities', 'PropertiesService', 'GmailApp'].forEach(k => delete ctx[k]) };
+}
+
+test('抄表程式送來的：都寫最新回報；客戶按提交的（manual）另外寫待確認抄表，背景的不寫；測試的只寫待確認；都不寫抄表', () => {
+  const CONFIRM_HEAD = plain(vm.runInContext('CONFIRM_HEAD', ctx));
+  const g = fakeGoogle();
+  const res = vm.runInContext('writePosted_', ctx)([
+    { serial: 'A1', bw: 100, color: 20, date: '2026-11-01', time: '08:30', toner: {} }, // 背景
+    { serial: 'B2', bw: 50, date: '2026-11-01', time: '09:00', manual: true },         // 客戶按提交（對不到設備）
+    { serial: 'A1', bw: 101, color: 21, date: '2026-11-01', time: '10:00', manual: true }, // 同一台再按一次：蓋過去
+    { serial: 'C3', bw: 7, date: '2026-11-01', time: '11:00', test: true },
+  ]);
+  assert.deepEqual(plain(res), [{ serial: 'A1', device: '26-0001' }, { serial: 'B2', device: '' }, { serial: 'A1', device: '26-0001' }, { serial: 'C3', device: '' }]);
+  assert.deepEqual(plain(g.sheets.最新回報.grid.slice(1).map(r => [r[0], r[5]])), [['A1', 101], ['B2', 50]]);
+  assert.deepEqual(plain(g.sheets.待確認抄表.grid), [
+    CONFIRM_HEAD,
+    ['B2', '', 46327, '09:00', 50, '', '客戶提交'],
+    ['A1', '26-0001', 46327, '10:00', 101, 21, '客戶提交'],
+    ['C3', '', 46327, '11:00', 7, '', '抄表程式（測試）'],
+  ]);
+  assert.equal(g.sheets.抄表.grid.length, 1);
+  g.done();
+});
+
+test('讀信：寄信用 Gmail 寄來的張數信寫進待確認抄表（一台只留最新一封，測試的寫張數信（測試）），別人寄的不讀；不寫抄表、記下讀過的信', () => {
+  const body = (serial, bw, day, hm) => `Serial No.: ${serial}\nDate: Sun Nov  ${day} ${hm}:53 2026\nTotal_Color:20\nTotal_BW:${bw}\n`;
+  const mail = (id, from, subject, text) => ({ getId: () => id, getFrom: () => from, getSubject: () => subject, getPlainBody: () => text });
+  const g = fakeGoogle([
+    mail('m2', 'Meter <meter.abc@gmail.com>', 'Page Counter : A1', body('A1', 600, 2, '09:50')),
+    mail('m1', 'meter.abc@gmail.com', 'Page Counter : A1', body('A1', 500, 1, '09:50')),
+    mail('m3', 'someone@gmail.com', 'Page Counter : A1', body('A1', 1, 2, '10:00')), // 別人寄的假信
+    mail('m4', 'meter.abc@gmail.com', '[TEST] Page Counter : B2', body('B2', 7, 1, '08:00')),
+  ]);
+  const r = vm.runInContext('readMail_', ctx)();
+  assert.equal(r.count, 3);
+  assert.deepEqual(plain(g.sheets.待確認抄表.grid.slice(1)), [
+    ['B2', '', 46327, '08:00', 7, 20, '張數信（測試）'], // 照信裡的時間由舊到新寫
+    ['A1', '26-0001', 46328, '09:50', 600, 20, '張數信'], // 11/1 那封被 11/2 的蓋過
+  ]);
+  assert.equal(g.sheets.抄表.grid.length, 1);
+  assert.deepEqual(Object.keys(JSON.parse(g.props.done)).sort(), ['m1', 'm2', 'm4']);
+  g.done();
 });
