@@ -696,6 +696,33 @@ test('紙本合約：拿走了還沒簽回標「簽約中」、不算目前；�
   assert.deepEqual(plain(heads), ['位置與期間', '內容與收費', '抄表', '文件']);
 });
 
+test('合約頁的方塊：目前（位置都停用了的不算）、簽約中、有機器沒合約（倉庫、停用的不算，還在簽的也算沒合約）', () => {
+  const { Store, Records, add, d1, d2 } = withDevices(); // 今天 2026-10-11
+  const ids = list => plain(list.map(r => r.id));
+  const now = add('contracts', { locations: DH, signDate: '2026-01-01', endDate: '2027-12-31' });
+  const over = add('contracts', { locations: AX, signDate: '2024-01-01', endDate: '2026-01-31' });
+  const gone = add('locations', { code: 'L0011', name: '舊客戶', disabled: true });
+  add('contracts', { locations: gone.code, signDate: '2024-01-01' });
+  assert.deepEqual(ids(Records.contractsNow()), [now.id, over.id]); // 已到期的還是目前的
+  const draft = add('contracts', { locations: AX, signDate: null, outDate: '2026-10-01' });
+  add('contracts', { locations: gone.code, signDate: null, outDate: '2026-10-01' });
+  add('contracts', { locations: AX, signDate: null, outDate: '2026-01-01', earlyEnd: '2026-02-01' });
+  add('contracts', { locations: AX, signDate: '2026-10-01', startDate: '2027-01-01' }); // 還沒開始的不算簽約中
+  assert.deepEqual(ids(Records.contractsSigning()), [draft.id]);
+  // 有機器沒合約：有合約的、倉庫、沒放機器的都不算
+  const names = () => plain(Records.placesNoContract().map(p => p.name));
+  Store.update('devices', d2.id, { location: DH });
+  assert.deepEqual(names(), []);
+  const bare = add('locations', { code: 'L0012', name: '新客戶' });
+  assert.deepEqual(names(), []);
+  Store.update('devices', d1.id, { location: bare.code });
+  assert.deepEqual(names(), ['新客戶']);
+  const signing = add('contracts', { locations: bare.code, signDate: null, outDate: '2026-10-01' });
+  assert.deepEqual(names(), ['新客戶']); // 還在簽：還算沒合約
+  Store.update('contracts', signing.id, { signDate: '2026-10-05' });
+  assert.deepEqual(names(), []);
+});
+
 test('合約：「重新簽約」新增一份，帶入位置、內容、計費方式、抄表日期、抄表週期；改了什麼記在修改紀錄，刪掉合約時一起刪', () => {
   const { Store, Records, SCHEMAS, add } = withDevices();
   const s = SCHEMAS.contracts;

@@ -442,7 +442,7 @@ body:has(dialog[open]) { overflow: hidden; }
 .tabbar-inner { display: flex; max-width: var(--max-w); height: var(--tabbar-h); margin: 0 auto; }
 .tabbar button {
   flex: 1;
-  min-width: 0; /* 6 格在窄手機（320）也放得下：按鈕的預設內距讓每格最少 64，第 6 格會被擠出去 */
+  min-width: 0; /* 7 格在窄手機（320）也放得下：按鈕的預設內距讓每格最少 64，第 7 格會被擠出去 */
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -459,9 +459,9 @@ body:has(dialog[open]) { overflow: hidden; }
 .tabbar button[aria-selected="true"] { color: var(--accent-text); font-weight: 600; }
 /* 選中的分頁：圖示後面墊一塊淡藍色圓角底 */
 .tabbar svg {
-  width: 52px;
+  width: min(52px, 100%);
   height: 30px;
-  padding: 3px 14px;
+  padding: 3px clamp(8px, calc((100% - 24px) / 2), 14px);
   border-radius: 10px;
   fill: none;
   stroke: currentColor;
@@ -968,6 +968,22 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .stat-tile.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
 .stat-tile.on .stat-label { color: var(--accent-text); }
 .stat-tile:active { background: var(--chip-bg); }
+/* 合約頁的方塊（見 contracts.js）：手機一排 3 個，寬的時候一排 6 個；要處理的數字橘字，0 的不能點 */
+.contract-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 12px; }
+.contract-tiles .stat-tile { padding: 9px 10px 8px; }
+.contract-tiles .stat-tile b { font-size: 22px; }
+.contract-tiles .stat-tile.warn b { color: var(--warn); }
+.contract-tiles .stat-tile.on.warn b { color: var(--accent-text); }
+.contract-tiles .stat-tile:disabled { cursor: default; box-shadow: none; }
+.contract-tiles .stat-tile:disabled b { color: var(--muted); }
+.place-list { margin-top: 12px; }
+@media (max-width: 340px) {
+  .contract-tiles .stat-tile { padding: 9px 8px 8px; }
+  .contract-tiles .stat-label { font-size: 12px; }
+}
+@media (min-width: 700px) {
+  .contract-tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
 .overview .section-head { margin: 22px 4px 8px; }
 .section-head.split { display: flex; justify-content: space-between; gap: 12px; }
 .section-head.split span:last-child { font-weight: 500; }

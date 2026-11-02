@@ -423,7 +423,7 @@ const SCHEMAS = {
     describe: r => Records.describe('contracts', r),
     search: ['content', 'billing'],
     searchText: r => Records.contractPlaces(r).map(Records.placeText).join(' '),
-    searchHint: '搜尋位置或合約內容',
+    searchHint: '搜尋位置、內容',
     copy: {
       label: '重新簽約',
       keys: ['locations', 'content', 'billing', 'deposit', 'readDay', 'cycle'],

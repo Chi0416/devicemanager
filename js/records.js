@@ -604,6 +604,14 @@ const Records = (() => {
   const contractsOut = () => Store.list('contracts')
     .filter(r => contractOutText(r)?.warn && placesOf(r).some(p => !place(p)?.disabled))
     .sort(byDate('outDate'));
+  // 合約頁的方塊（見 contracts.js）：現在在跑的合約（位置都停用了的不算）；還在簽的；放著機器卻沒有目前的合約的位置（倉庫、停用的不算）
+  const contractsNow = () => Store.list('contracts')
+    .filter(r => placesOf(r).some(p => !place(p)?.disabled && currentContract(p)?.id === r.id));
+  const contractsSigning = () => Store.list('contracts')
+    .filter(r => !contractStart(r) && !endedEarly(r) && placesOf(r).some(p => !place(p)?.disabled));
+  const placesNoContract = () => Store.list('locations')
+    .filter(p => !p.stock && !p.disabled && machinesAt(p.code).length && !currentContract(p.code))
+    .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-Hant'));
   // 保固 30 天內到期（過了就不列）；報廢這類（狀態勾「不用提醒」）的不算；依到期日排
   function warrantyDue() {
     const quiet = quietSet();
@@ -1446,7 +1454,7 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, contractsOut, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, contractsOut, contractsNow, contractsSigning, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,
     customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, noCustomerPlaces, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     contractStarted, contractDate, contractStatus, startText, contractTaker, contractOutText, pendingContracts, pendingShort,

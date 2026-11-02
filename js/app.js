@@ -1,5 +1,5 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份
-//   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜合約｜異動（所有設備的放在一起看）
+//   底部 7 格：總覽｜客戶｜位置｜設備｜合約｜抄表｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜異動（所有設備的放在一起看）
 (() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
   Records.upgrade();
@@ -24,7 +24,7 @@
   }
 
   // ---------- 頁面 ----------
-  // 各種紀錄的頁：[資料表, 上方切換的名稱, 新增按鈕上寫的]；抄表在底部自己一格，其他在「紀錄」裡
+  // 各種紀錄的頁：[資料表, 上方切換的名稱, 新增按鈕上寫的]；抄表、合約在底部自己一格，其他在「紀錄」裡
   const RECORD_PAGES = [['maintenance', '保養', '保養'], ['refurbs', '翻新', '翻新'], ['readings', '抄表', '抄表'], ['contracts', '合約', '合約'], ['moves', '異動', '異動']];
   const PAGES = {
     overview: { title: '總覽' },
@@ -47,6 +47,12 @@
         lists.locations.show({ filter });
         window.scrollTo(0, 0);
       },
+      // 要處理的合約：到合約頁，只列那一格（見 contracts.js）
+      onContracts(tile) {
+        showTab('contracts');
+        lists.contracts.show({ tile });
+        window.scrollTo(0, 0);
+      },
     }),
     // 客戶：每個客戶一張卡片（見 customers.js），點了打開客戶詳情
     customers: createCustomers(),
@@ -54,8 +60,10 @@
     locations: createPlaces(),
     // 點設備卡片打開詳情（見 detail.js）
     devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id), rows: () => Records.shownDevices() }),
+    // 合約：上面六個方塊，下面清單（見 contracts.js）
+    contracts: createContracts(),
     // 紀錄：卡片最上面那一排寫位置、設備，和設備卡片一樣小標題在上，下面才是內容（依紀錄的種類，見 records.js 的 recordCells）
-    ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, createList(k, SCHEMAS[k], {
+    ...Object.fromEntries(RECORD_PAGES.filter(([k]) => k !== 'contracts').map(([k]) => [k, createList(k, SCHEMAS[k], {
       openForm: id => Form.open(k, id),
       device: r => Records.recordCells(k, r),
     })])),
@@ -93,8 +101,9 @@
     { key: 'customers', label: '客戶', pages: [['customers', '客戶']] },
     { key: 'locations', label: '位置', pages: [['locations', '位置']] },
     { key: 'devices', label: '設備', pages: [['devices', '設備']] },
+    { key: 'contracts', label: '合約', pages: [['contracts', '合約']] },
     { key: 'readings', label: '抄表', pages: [['readings', '抄表']] },
-    { key: 'records', label: '紀錄', pages: RECORD_PAGES.filter(([k]) => k !== 'readings').map(([k, label]) => [k, label]) },
+    { key: 'records', label: '紀錄', pages: RECORD_PAGES.filter(([k]) => k !== 'readings' && k !== 'contracts').map(([k, label]) => [k, label]) },
   ];
   const groupOf = key => GROUPS.find(g => g.key === key || g.pages.some(([k]) => k === key));
   // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽沒有新增按鈕
