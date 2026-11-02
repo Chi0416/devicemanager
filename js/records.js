@@ -84,9 +84,11 @@ const Records = (() => {
   const latest = (table, code, k) => of(table, code).sort(byDate(k)).at(-1) || null;
 
   // 認一台機器：機型＋名稱（IMC4500 #1234）；編號只在系統裡用，畫面上不顯示
-  const label = d => [d?.model, d?.name].filter(Boolean).join(' ') || d?.code || '';
-  // 再加上機器序號（查機器、印紀錄時最常用的）：IMC4500 #1234 · 3101R800451
-  const fullLabel = d => [label(d), d?.serial].filter(Boolean).join(' · ');
+  const label = d => U.joinOnce([d?.model, d?.name], ' ') || d?.code || '';
+  // 機器序號（查機器、印紀錄時最常用的）；名稱打成序號的不再寫一次
+  const serialOf = d => ([d?.model, d?.name].some(v => key(v) && key(v) === key(d?.serial)) ? '' : d?.serial);
+  // 機型＋名稱再加上機器序號：IMC4500 #1234 · 3101R800451
+  const fullLabel = d => [label(d), serialOf(d)].filter(Boolean).join(' · ');
   // 表單上位置欄（設備）下面：這台設備的機型、名稱、序號
   const deviceNote = code => fullLabel(device(code));
 
@@ -594,6 +596,7 @@ const Records = (() => {
   const replacedAll = r => placesOf(r).length > 0 && placesOf(r).every(p => contractsAt(p)
     .some(x => x.id !== r.id && contractStarted(x) && contractStart(x) > contractStart(r)));
   // 舊合約還沒選行政狀態的不算異常（在合約頁的「未填」），只看日期順序；回傳原因，沒問題時回傳空字串
+  //   卡片上寫成「行政狀態：原因」（見 contracts.js），原因不用再寫一次行政狀態
   function contractIssue(r) {
     const s = adminOf(r);
     const start = contractStart(r);
@@ -603,9 +606,9 @@ const Records = (() => {
     if (needsEnd(r)) return '還沒填實際結束日';
     if (running && endedEarly(r)) return '已經結束，狀態還沒改';
     if (s === '生效中' && contractStarted(r) && replacedAll(r)) return '已被新合約取代，狀態還沒改';
-    if (s === '洽談中' && start && start <= U.today()) return '已經開始，狀態還是洽談中';
+    if (s === '洽談中' && start && start <= U.today()) return '已經開始，狀態還沒改';
     if (running && !start) return '沒有開始日、簽約日';
-    if (s === '免簽' && (r.signDate || r.outDate || r.backDate)) return '免簽不應該有簽約資料';
+    if (s === '免簽' && (r.signDate || r.outDate || r.backDate)) return '不應該有簽約資料';
     return '';
   }
 
@@ -1547,7 +1550,7 @@ const Records = (() => {
   }
 
   return {
-    TABLES, DEVICE_TABLES, firstLine, noteLine, workLine, countCheck, device, of, latest, label, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
+    TABLES, DEVICE_TABLES, firstLine, noteLine, workLine, countCheck, device, of, latest, label, serialOf, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,

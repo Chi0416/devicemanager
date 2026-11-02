@@ -70,7 +70,8 @@ const Form = (() => {
   // preset：新增時先帶入的值（{ 欄位: 值 }，例如在位置清單裡新增時，清單先選好位置）
   //   在設備詳情裡新增紀錄時，設備先帶好（「儲存，再新增一筆」也照樣帶）
   // message：打開時寫在最上面的一行（安裝、撤機後接著抄表時說要填什麼）
-  function open(tableKey, id, preset = {}, { message = '' } = {}) {
+  // fixed：帶好不能改的欄位（從設備詳情新增紀錄：記的就是這台，要記別台就退出去）
+  function open(tableKey, id, preset = {}, { message = '', fixed = [] } = {}) {
     const sales = typeof Sync !== 'undefined' && Sync.isSales();
     if (sales && (id ? !Sync.salesSee(tableKey) : !Sync.salesCan(tableKey))) return;
     const schema = SCHEMAS[tableKey];
@@ -80,7 +81,7 @@ const Form = (() => {
     const first = schema.formOrder || [];
     const all = [...schema.fields, ...(schema.extra || [])];
     const fields = [...first.map(k => all.find(f => f.key === k)), ...all.filter(f => !first.includes(f.key))];
-    ctx = { tableKey, schema, id, count: 0, fields, preset, view: sales && !!id };
+    ctx = { tableKey, schema, id, count: 0, fields, preset, fixed, view: sales && !!id };
     // 標題：選項寫它屬於哪一份清單（「編輯保養項目」），其他寫表的名稱
     const name = typeof schema.formTitle === 'function' ? schema.formTitle(rec || preset) : schema.formTitle || schema.title;
     ctx.name = name;
@@ -170,7 +171,7 @@ const Form = (() => {
     combos = fields.map(() => null);
     manys = fields.map(() => null);
     autos = fields.map(() => null);
-    locked = fields.map(f => !!(rec && ((ctx.view && f.key !== 'report') || (f.lock && f.lock(rec)))));
+    locked = fields.map(f => ctx.fixed.includes(f.key) || !!(rec && ((ctx.view && f.key !== 'report') || (f.lock && f.lock(rec)))));
     heads = [];
     inputs = fields.map((f, i) => {
       // 一段的小標題（schema 的 section），佔滿整列
@@ -240,7 +241,7 @@ const Form = (() => {
           wrap.appendChild(chipBoxes[i]);
         }
       }
-      const hintText = locked[i] ? (f.lock ? f.lock(rec) : '') : typeof f.hint === 'function' ? f.hint(rec) : f.hint;
+      const hintText = locked[i] ? (rec && f.lock ? f.lock(rec) : '') : typeof f.hint === 'function' ? f.hint(rec) : f.hint;
       if (hintText) {
         const hint = document.createElement('div');
         hint.className = 'hint';
@@ -664,6 +665,12 @@ const Form = (() => {
       if (f.auto || locked[i] || f.hidden) {
         // 系統產生的新值等其他欄位讀好之後才算（年份照購買日期）；不能改的照原本的；藏起來的照 calc 填的、照原本的（選項的順序）
         rec[f.key] = f.type === 'number' ? U.parseNum(raw) : raw;
+        // 帶好不能改的還是要檢查（異動：報廢的機器不能安裝）
+        if (ctx.fixed.includes(f.key)) {
+          msg = f.check?.(values) || '';
+          setError(i, msg);
+          if (msg && !firstBad) firstBad = autos[i];
+        }
         return;
       }
       if (f.type === 'flag') {
@@ -733,7 +740,14 @@ const Form = (() => {
 
   // again：新增後留在表單，接著填下一筆
   function save(again = false) {
-    combos.forEach((c, i) => { if (c?.open) { c.open = false; renderCombo(i); } });
+    // 打了字馬上按儲存：離開這一格後要等一下才換成打的值（見 buildCombo 的 blur），這裡先換，不然會存到原本的
+    combos.forEach((c, i) => {
+      if (!c) return;
+      resolveText(i);
+      c.open = false;
+      renderCombo(i);
+    });
+    renderNotes();
     const { rec, firstBad } = collect();
     if (firstBad) {
       showBad(firstBad);

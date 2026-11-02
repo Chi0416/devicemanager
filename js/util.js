@@ -89,6 +89,12 @@ const U = {
     return `${d.getFullYear()}/${U.pad2(d.getMonth() + 1)}/${U.pad2(d.getDate())} ${U.pad2(d.getHours())}:${U.pad2(d.getMinutes())}`;
   },
 
+  // 接在一起顯示；不同欄位寫一樣的字只寫一次（職稱、部門都寫業務部）
+  joinOnce(list, sep) {
+    const parts = list.filter(Boolean).map(v => String(v).trim()).filter(Boolean);
+    return parts.filter((v, i) => parts.findIndex(x => x.toLowerCase() === v.toLowerCase()) === i).join(sep);
+  },
+
   esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',

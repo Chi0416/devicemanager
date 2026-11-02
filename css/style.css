@@ -155,39 +155,6 @@ body:has(dialog[open]) { overflow: hidden; }
   font-size: 14px;
 }
 
-/* ---------- 上方切換：底部一格裡有好幾頁時，在標題下面左右切換 ---------- */
-/* 底線樣式：選中的那一頁深色粗字加藍色底線 */
-.subtabs {
-  display: flex;
-  gap: 28px;
-  margin: 6px 0 0;
-  border-bottom: .5px solid var(--border);
-}
-.subtabs button {
-  position: relative;
-  height: 44px;
-  padding: 0 2px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 16px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.subtabs button[aria-selected="true"] { color: var(--text); font-weight: 600; }
-.subtabs button[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -.5px;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-  background: var(--accent);
-}
-.subtabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
-
 /* ---------- 篩選列（捲動時固定在上方） ---------- */
 .filterbar {
   position: sticky;
@@ -475,6 +442,56 @@ body:has(dialog[open]) { overflow: hidden; }
   transition: background-color .15s;
 }
 .tabbar button[aria-selected="true"] svg { background: var(--accent-soft); }
+/* 底部 6 格：更多；電腦版的側欄全部展開，不用更多 */
+.tabbar .side-only, .tabbar .side-settings, .side-sep { display: none; }
+.tabbar .more-tab svg circle { fill: currentColor; stroke: none; }
+.tabbar .more-tab[aria-expanded="true"] { color: var(--accent-text); font-weight: 600; }
+.tabbar .more-tab[aria-expanded="true"] svg { background: var(--accent-soft); }
+body.more-open { overflow: hidden; }
+.more-scrim { position: fixed; inset: 0; z-index: 8; background: rgba(15, 23, 42, .4); }
+.more-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+  z-index: 9;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 18px 12px 14px;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  box-shadow: var(--shadow-lg);
+  animation: sheet-up .22s ease-out;
+}
+.more-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px 4px; }
+.more-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.more-tile svg {
+  width: 54px;
+  height: 54px;
+  padding: 14px;
+  border-radius: 15px;
+  background: var(--chip-bg);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.more-tile[aria-selected="true"] { color: var(--accent-text); font-weight: 600; }
+.more-tile[aria-selected="true"] svg { background: var(--accent-soft); }
 
 /* 新增按鈕：放在頁面標題右邊，不會蓋住資料；寫出會新增什麼 */
 .add-btn {
@@ -1446,7 +1463,12 @@ dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
     font-weight: 700;
     letter-spacing: .01em;
   }
+  .tabbar { display: flex; flex-direction: column; }
   .tabbar-inner { flex-direction: column; gap: 2px; height: auto; max-width: none; margin: 4px 0 0; }
+  .tabbar button.side-only, .tabbar button.side-settings { display: flex; }
+  .tabbar .more-tab, .more-panel, .more-scrim { display: none !important; }
+  .side-sep { display: block; height: .5px; margin: 8px 10px; background: var(--border); }
+  .tabbar .side-settings { margin: auto 0 12px; }
   .tabbar button {
     flex: none;
     flex-direction: row;
@@ -1468,3 +1490,8 @@ dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 @media (min-width: 960px) and (hover: hover) {
   .tabbar button:not([aria-selected="true"]):hover { background: var(--hover); }
 }
+/* 更多打開時只有更多亮著 */
+body.more-open .tabbar button[aria-selected="true"]:not(.more-tab) { color: var(--muted); font-weight: 400; }
+body.more-open .tabbar button[aria-selected="true"]:not(.more-tab) svg { background: none; }
+/* 人員：業務員看不到；要贏過側欄的 display: flex */
+.sales .tabbar button.admin-only { display: none; }

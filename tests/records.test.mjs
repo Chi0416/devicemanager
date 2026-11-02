@@ -808,15 +808,15 @@ test('狀態異常：八種矛盾；舊合約沒選行政狀態的只看日期�
   ['生效中', '免簽', '不扣款'].forEach(s => assert.equal(why({ startDate: '2026-01-01', adminStatus: s, earlyEnd: '2026-02-01' }), '已經結束，狀態還沒改', s));
   assert.equal(why({ ...start, adminStatus: '生效中', earlyEnd: '2026-12-01' }), ''); // 還沒到那天
   // 8 已開始，還寫洽談中
-  assert.equal(why({ startDate: '2026-10-11', adminStatus: '洽談中' }), '已經開始，狀態還是洽談中');
+  assert.equal(why({ startDate: '2026-10-11', adminStatus: '洽談中' }), '已經開始，狀態還沒改');
   assert.equal(why({ startDate: '2026-12-01', adminStatus: '洽談中' }), '');
   assert.equal(why({ adminStatus: '洽談中' }), '');
   // 9 寫生效中，卻沒有日期
   ['生效中', '免簽', '不扣款'].forEach(s => assert.equal(why({ adminStatus: s }), '沒有開始日、簽約日', s));
   assert.equal(why({ startDate: '2027-01-01', adminStatus: '生效中' }), ''); // 續約先簽好、還沒開始是正常的
   // 10 免簽卻有簽約資料
-  assert.equal(why({ ...start, adminStatus: '免簽' }), '免簽不應該有簽約資料');
-  assert.equal(why({ startDate: '2026-01-01', outDate: '2026-01-01', adminStatus: '免簽' }), '免簽不應該有簽約資料');
+  assert.equal(why({ ...start, adminStatus: '免簽' }), '不應該有簽約資料');
+  assert.equal(why({ startDate: '2026-01-01', outDate: '2026-01-01', adminStatus: '免簽' }), '不應該有簽約資料');
   assert.equal(why({ startDate: '2026-01-01', adminStatus: '免簽' }), '');
   // 11 日期順序不對（沒選行政狀態的也看）
   assert.equal(why({ ...start, endDate: '2025-12-31' }), '日期順序不對');
@@ -2062,4 +2062,45 @@ test('表單的順序（formOrder）：寫的欄位都有、不重複；新增�
       assert.equal(field(t, k).showIf({ id: null }), false, `${t}.${k} 新增時`);
       assert.equal(field(t, k).showIf({ id: 'x' }), true, `${t}.${k} 編輯時`);
     });
+});
+
+test('不同欄位寫一樣的字只寫一次：設備名稱、序號', () => {
+  const { Records, Refs, add } = app();
+  // 平常的樣子不變
+  const d = { model: 'IMC6000', name: '#1001', serial: '3235R279595' };
+  assert.equal(Records.label(d), 'IMC6000 #1001');
+  assert.equal(Records.fullLabel(d), 'IMC6000 #1001 · 3235R279595');
+  // 名稱打成機型、序號（大小寫、前後空白不一樣也算）
+  assert.equal(Records.label({ model: 'IMC3500', name: 'IMC3500' }), 'IMC3500');
+  assert.equal(Records.label({ model: 'IMC3500', name: ' imc3500 ' }), 'IMC3500');
+  assert.equal(Records.fullLabel({ model: 'IMC3500', name: '3101R', serial: '3101R' }), 'IMC3500 3101R');
+  assert.equal(Records.fullLabel({ model: 'IMC3500', name: 'IMC3500', serial: '3101R' }), 'IMC3500 · 3101R');
+  // 都沒填時照舊寫編號
+  assert.equal(Records.label({ code: 'D0001' }), 'D0001');
+  assert.equal(Records.fullLabel({ code: 'D0001', serial: '3101R' }), 'D0001 · 3101R');
+  // 選設備的下拉選單：有位置時小字寫機型、名稱、序號；沒位置時機型、名稱已經寫在上面，小字只寫序號
+  add('locations', { code: 'L0001', name: '大華貿易 3F' });
+  const on = add('devices', { code: 'D0001', model: 'IMC6000', name: '#1001', serial: '3235R', location: 'L0001' });
+  const off = add('devices', { code: 'D0002', model: 'IMC3500', name: '#2037', serial: '3101R' });
+  assert.equal(Refs.sub('devices', on), 'IMC6000 #1001 · 3235R');
+  assert.equal(Refs.sub('devices', off), '3101R');
+});
+
+test('不同欄位寫一樣的字只寫一次：人員', () => {
+  const { Refs, SCHEMAS, add } = app();
+  const card = SCHEMAS.people.card.sub;
+  const person = rec => add('people', { name: `人員${Math.random()}`, ...rec });
+  // 清單的小字：勾了業務員又寫職稱業務員
+  assert.equal(Refs.sub('people', person({ jobTitle: '業務員', dept: '業務部', sales: true })), '業務員 · 業務部');
+  assert.equal(Refs.sub('people', person({ jobTitle: '業務', dept: '業務', sales: false })), '業務');
+  assert.equal(Refs.sub('people', person({ jobTitle: '資深業務員', dept: '業務部', sales: true })), '資深業務員 · 業務部 · 業務員');
+  assert.equal(Refs.sub('people', person({ sales: false })), '');
+  // 人員頁的卡片：業務員只寫一次，職稱寫了就不加標籤；職稱沒寫的靠標籤看出來
+  const shown = rec => { const r = person(rec); return [card(r), SCHEMAS.people.card.salesTag(r)]; };
+  assert.deepEqual(shown({ jobTitle: '業務員', dept: '業務部', sales: true }), ['業務員 · 業務部', false]);
+  assert.deepEqual(shown({ jobTitle: '業務員', dept: '業務部', sales: false }), ['業務員 · 業務部', false]);
+  assert.deepEqual(shown({ jobTitle: ' 業務員 ', sales: true }), ['業務員', false]);
+  assert.deepEqual(shown({ jobTitle: '資深業務員', dept: '業務部', sales: true }), ['資深業務員 · 業務部', true]);
+  assert.deepEqual(shown({ dept: '業務部', sales: true }), ['業務部', true]);
+  assert.deepEqual(shown({ jobTitle: '業務', dept: '業務', sales: false }), ['業務', false]);
 });

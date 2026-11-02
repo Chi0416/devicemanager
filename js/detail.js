@@ -1,15 +1,15 @@
 // 詳情頁：設備詳情（Detail）、位置詳情（Place）、客戶詳情（Customer）共用 createDetail
+//   最上面寫設備、位置、客戶（見 index.html），名稱寫在資訊卡上不寫兩次；一張表的頁面才寫名稱（title）
 //   上面：資訊卡（設備下面接最新回報、耗材，位置下面接用量）；下面：一張表一列，寫最新的狀況和筆數
 //     點一列打開那張表的頁面（只列這台設備、這個位置的紀錄，右上角新增）；右邊的「＋」直接新增
 //     那一頁平常是卡片列表（list.js）；列上有 view 時用它自己的畫法（位置的異動：一台待過一段一張卡片）
 //   右上角「編輯」打開那一筆的表單；那一筆被刪掉時這一頁跟著關
-//   設備：點設備卡片打開（見 app.js）；標題、資訊卡寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
-//     在這裡新增紀錄時自動帶入這台設備；合約是它現在所在位置的，新增時帶入這個位置
-//   位置：位置頁點一張卡片打開（見 places.js）；標題寫位置名稱；資訊卡上點客戶打開客戶詳情、點現在放著的機器打開設備詳情
+//   設備：點設備卡片打開（見 app.js）；資訊卡寫機型＋名稱（編號不顯示）；資訊卡上點位置打開位置詳情
+//     在這裡新增紀錄時帶入這台設備，位置欄不能改（要記別台就退出去）；合約是它現在所在位置的，新增時帶入這個位置
+//   位置：位置頁點一張卡片打開（見 places.js）；資訊卡上點客戶打開客戶詳情、點現在放著的機器打開設備詳情
 //     異動：這裡放過哪些機器，一台待過一段一張卡片（那一列寫最近一次進出、右邊寫幾段）；合約：包含這個位置的；抄表、保養、翻新：機器放在這裡的期間做的（照日期從異動算）
 //     新增抄表、保養、翻新時，這裡只放著一台的話帶入那一台；卡片標題右邊灰字寫哪一台，只放過一台的不寫
 function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = () => {} }) {
-  const titleEl = dlg.querySelector('.sheet-title');
   const bodyEl = dlg.querySelector('.sheet-body');
   const infoEl = dlg.querySelector('.detail-info');
   const rowsEl = dlg.querySelector('.detail-rows');
@@ -52,7 +52,6 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
       if (dlg.open) dlg.close();
       return;
     }
-    titleEl.textContent = title(x);
     infoEl.innerHTML = infoHTML(x);
     rowsEl.innerHTML = rows.map(r => rowHTML(r, x)).join('');
     if (open) {
@@ -84,7 +83,7 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
     subBody.scrollTop = 0;
   }
 
-  const add = key => Form.open(key, null, rowOf(key).preset(current()));
+  const add = key => Form.open(key, null, rowOf(key).preset(current()), table === 'devices' ? { fixed: ['device'] } : {});
 
   // 資料改了（新增、修改、刪除、同步）：重畫；剛改的那筆紀錄閃一下
   function changed(key, rec) {
@@ -239,7 +238,7 @@ const Detail = (() => {
   function readFromConfirm(d) {
     const c = Records.toConfirm(d);
     if (!c) return;
-    Form.open('readings', null, Records.confirmValues(d, c), { message: `已帶入${Records.confirmWhen(c)}，確認後按儲存` });
+    Form.open('readings', null, Records.confirmValues(d, c), { message: `已帶入${Records.confirmWhen(c)}，確認後按儲存`, fixed: ['device'] });
   }
 
   // 「抄表」：日期、張數用回報的，結算月份空著自己選；日期跟客戶確認過不一樣時再改
@@ -247,7 +246,7 @@ const Detail = (() => {
     const t = Records.latestReport(d);
     if (!t) return;
     Form.open('readings', null, { device: d.code, date: t.date, bw: t.bw, color: t.color ?? '' },
-      { message: `已帶入最新回報（${Records.reportWhen(t)}），結算月份自己選` });
+      { message: `已帶入最新回報（${Records.reportWhen(t)}），結算月份自己選`, fixed: ['device'] });
   }
 
   // 耗材：這台的碳粉、感光鼓…，從裝進現在這個位置那天算（見 records.js 的 consumablesAt）；在倉庫、一格放好幾台的不算

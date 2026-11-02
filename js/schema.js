@@ -59,7 +59,7 @@
 //                       side(列) sub 那一行的右邊（標籤下面）：{ text, tone } 或 null，tone 是 fresh 綠字／old 橘字
 //                       grid 卡片下方的欄位（沒有時列出其餘全部）
 //   （資料表）status:    沒有 badge 時的標籤：status(列) 回傳 { label, cls } 或 null（目前的合約、已拆除）
-//   （資料表）statusHead: 放在詳情裡時，標籤寫在日期旁邊、有標籤的卡片藍框；紀錄分頁留在卡片上（合約，見 list.js）
+//   （資料表）statusHead: 放在詳情裡時，標籤寫在日期旁邊、有標籤的卡片藍框；紀錄的頁留在卡片上（合約，見 list.js）
 //   （資料表）note:      卡片最下面的一行：note(列) 回傳 { text, warn } 或 null
 //   （資料表）period:    依日期篩選與分組：{ key, unit: 'month' | 'day', label }，新到舊；沒有時依 order 或 sort 排序
 //                       date(列)：日期要算的時候（合約：開始日空白照簽約日），沒有時是 key 那一欄
@@ -73,11 +73,11 @@
 //   （資料表）searchHint: 搜尋框裡的灰字；沒有時寫 search 前兩個欄位
 //   （資料表）unique:    不能和其他筆重複的欄位組合：[[欄位, …], …]；全部空白的不算
 //   （資料表）uniqueMsg: 重複時的提醒：uniqueMsg(已經有的那一筆, 欄位組合) 回傳文字
-//   （資料表）noList:    不是底部分頁的列表（選項、人員、廠商在設定的「清單」裡管理，見 lists.js）
+//   （資料表）noList:    不用 list.js 的列表（選項、廠商在設定的「清單」裡管理，見 lists.js；人員有自己的一頁，見 people.js）
 //   （資料表）target:    被其他表的 ref 欄位引用（見 refs.js）：
 //                       name 名字的欄位；group 分清單的欄位（options 的 list）
 //                       active(列) 會不會出現在下拉選單；sub(列) 下拉選單裡名字後面的小字；off 停用時的標籤
-//                       pickSub(列) 下拉選單裡的小字要和 sub 不一樣時（人員：設定的清單寫職稱、部門、業務員，下拉選單只寫部門）
+//                       pickSub(列) 下拉選單裡的小字要和 sub 不一樣時（人員：清單寫職稱、部門、業務員，下拉選單只寫部門）
 //                       order 排序的欄位（數字小的在前，沒有時依名字排）；tone(列) 標籤的顏色（狀態）
 //                       label(列) 下拉選單和欄位上顯示的字，和存的名字不一樣時（設備：顯示位置、存編號；位置：顯示名稱、存編號）
 //                         有 label 的不列在「不在清單裡」（存的是編號，不能用打的字加進清單），下拉選單依 label 排
@@ -279,7 +279,8 @@ const SCHEMAS = {
       : `編號 ${dup.code} 已經用過了（${Records.label(dup)}）`),
     // 紀錄的「設備」欄從這裡選：顯示位置、存編號（沒填位置的顯示機型＋名稱）；刪除設備時連同它的紀錄一起刪（見 form.js）
     // 業務員模式：選單只列放在他位置的（以前放過、已經搬走的不列，見 records.js 的 isShown）
-    target: { name: 'code', label: r => Records.placeName(r.location) || Records.label(r), sub: r => Records.fullLabel(r), noAdd: true, cascade: true,
+    //   小字寫機型、名稱、序號；沒填位置的機型、名稱已經寫在上面，小字只寫序號
+    target: { name: 'code', label: r => Records.placeName(r.location) || Records.label(r), sub: r => (Records.placeName(r.location) ? Records.fullLabel(r) : Records.serialOf(r)), noAdd: true, cascade: true,
       active: r => Records.isShown(r) },
     empty: '還沒有設備<br>點右上角「＋ 新增」開始記錄',
     // 選配件：一排按鈕，選了什麼就是這台目前裝什麼；存在選配件那張表，設備表沒有這一欄（見 records.js 的 saveDeviceParts）
@@ -592,7 +593,8 @@ const SCHEMAS = {
     note: r => Records.partNote(r),
     describe: r => Records.describe('parts', r),
     fields: [
-      deviceField(),
+      // 沒有日期：位置寫現在在哪裡
+      deviceField({ shown: v => Records.placeName(Records.device(v.device)?.location) }),
       { key: 'name',        label: '名稱',     type: 'ref', ref: 'options', list: '選配件' },
       { key: 'serial',      label: '序號',     type: 'text', optional: true, caps: true, upper: true },
       // 不預設今天：補登以前裝的，會被記成今天才裝
@@ -665,13 +667,15 @@ const SCHEMAS = {
     // 業務員：存好之後表單下面有「複製邀請連結」（見 app.js 的 invite）
     action: { key: 'invite', label: '複製邀請連結', show: r => !!(r?.sales && String(r.email ?? '').trim() && stillHere(r)),
       note: r => `傳給${r.name}，用 ${r.email} 登入；這個 Gmail 要先加進 Google Cloud 的測試使用者` },
-    target: { name: 'name', active: stillHere, sub: r => [r.jobTitle, r.dept, r.sales && '業務員'].filter(Boolean).join(' · '), pickSub: r => r.dept,
+    target: { name: 'name', active: stillHere, sub: r => U.joinOnce([r.jobTitle, r.dept, r.sales && '業務員'], ' · '), pickSub: r => r.dept,
       off: '已離職', removeHint: '不再使用的話，可以填「離職日」' },
     unique: [['code'], ['name']],
     uniqueMsg: (dup, keys) => (keys[0] === 'code'
       ? `員工編號 ${dup.code} 已經用過了（${dup.name}）`
       : `已經有「${dup.name}」了；同名的話可以寫成「${dup.name}（部門）」`),
-    // 表單上：基本資料、業務員（後來加的一組，放在一起）、其他
+    // 人員頁的卡片（見 people.js）：小字寫職稱、部門；勾了業務員有標籤，職稱、部門已經寫業務員的不加，才不會寫兩次
+    card: { sub: r => U.joinOnce([r.jobTitle, r.dept], ' · '), salesTag: r => !!r.sales && ![r.jobTitle, r.dept].some(v => String(v ?? '').trim() === '業務員') },
+    // 表單上：基本資料、登入權限（後來加的一組，放在一起）、其他
     formOrder: ['name', 'code', 'jobTitle', 'dept', 'phone', 'email', 'joinDate', 'leaveDate', 'sales', 'edit', 'perms', 'all', 'note'],
     fields: [
       { key: 'name',      label: '姓名',     type: 'text', section: '基本資料' },
@@ -681,7 +685,7 @@ const SCHEMAS = {
       { key: 'phone',     label: '電話',     type: 'tel', optional: true },
       { key: 'email',     label: 'Email',    type: 'email', optional: true, hint: '業務員用這個 Gmail 登入',
         check: v => (v.sales === 'true' && !String(v.email ?? '').trim() ? '業務員要填 Email' : '') },
-      { key: 'sales',     label: '業務員',   type: 'flag', optional: true, hint: '負責的客戶在位置上選', section: '業務員' },
+      { key: 'sales',     label: '業務員',   type: 'flag', optional: true, hint: '負責的客戶在位置上選', section: '登入權限' },
       { key: 'perms',     label: '權限',     type: 'multi', choices: SALES_PERMS, optional: true, full: true, hint: '只能新增，不能改、不能刪',
         showIf: v => v.sales === 'true' && v.edit !== 'true', calc: v => (v.sales === 'true' ? SALES_PERMS.join('、') : '') },
       { key: 'all',       label: '看全部',   type: 'flag', optional: true, hint: '看得到所有的客戶，不只自己負責的（主管用）',

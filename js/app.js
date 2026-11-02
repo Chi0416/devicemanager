@@ -1,5 +1,6 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份
-//   底部 7 格：總覽｜客戶｜位置｜設備｜合約｜抄表｜紀錄（見 GROUPS）；紀錄裡切換保養｜翻新｜異動（所有設備的放在一起看）
+//   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜更多；更多裡一格一個：合約、保養、翻新、異動、人員、設定（見 IN_MORE）
+//   電腦版的側欄全部展開，不用更多，設定在最下面
 (() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
   Records.upgrade();
@@ -11,6 +12,17 @@
   //   畫出外框（顏色是系統的強調色，例如橘色），看起來像被選中；按 Tab 用鍵盤時照常畫（見 style.css 的 .pointer）
   document.addEventListener('pointerdown', () => document.documentElement.classList.add('pointer'), true);
   document.addEventListener('keydown', e => { if (e.key === 'Tab') document.documentElement.classList.remove('pointer'); }, true);
+
+  // 連點兩下：彈出的頁面剛開、剛關時不接受點擊，第二下才不會點到下面的卡片，或剛打開那一頁裡的按鈕
+  let sheetAt = 0;
+  const sheetMoved = () => { sheetAt = performance.now(); };
+  new MutationObserver(list => { if (list.some(m => m.target.tagName === 'DIALOG')) sheetMoved(); })
+    .observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+  document.addEventListener('click', e => {
+    if (!e.isTrusted || performance.now() - sheetAt >= 350) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
 
   // ---------- 提示訊息（有開啟的 sheet 時顯示在最上面那一層） ----------
   const toastEl = $('toast');
@@ -24,12 +36,13 @@
   }
 
   // ---------- 頁面 ----------
-  // 各種紀錄的頁：[資料表, 上方切換的名稱, 新增按鈕上寫的]；抄表、合約在底部自己一格，其他在「紀錄」裡
-  const RECORD_PAGES = [['maintenance', '保養', '保養'], ['refurbs', '翻新', '翻新'], ['readings', '抄表', '抄表'], ['contracts', '合約', '合約'], ['moves', '異動', '異動']];
+  // 各種紀錄的頁：[資料表, 新增按鈕上寫的]；抄表在底部自己一格，其他在「更多」裡
+  const RECORD_PAGES = [['maintenance', '保養'], ['refurbs', '翻新'], ['readings', '抄表'], ['contracts', '合約'], ['moves', '異動']];
   const PAGES = {
     overview: { title: '總覽' },
     customers: { title: '客戶' },
     locations: { title: '位置' },
+    people: { title: '人員' },
     devices: SCHEMAS.devices,
     ...Object.fromEntries(RECORD_PAGES.map(([k]) => [k, SCHEMAS[k]])),
   };
@@ -58,6 +71,8 @@
     customers: createCustomers(),
     // 位置：每個位置一張卡片（見 places.js），點了打開位置詳情
     locations: createPlaces(),
+    // 人員：每個人一張卡片（見 people.js），點了打開人員表單
+    people: createPeople(),
     // 點設備卡片打開詳情（見 detail.js）
     devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id), rows: () => Records.shownDevices() }),
     // 合約：上面四個方塊，下面行政狀態的篩選和清單（見 contracts.js）
@@ -95,36 +110,38 @@
   Customer.init();
 
   // ---------- 分頁 ----------
-  // 底部的每一格（key）和裡面的頁（pages：[頁面, 上方切換的名稱]）；只有一頁的不顯示上方切換
-  const GROUPS = [
-    { key: 'overview', label: '總覽', pages: [['overview', '總覽']] },
-    { key: 'customers', label: '客戶', pages: [['customers', '客戶']] },
-    { key: 'locations', label: '位置', pages: [['locations', '位置']] },
-    { key: 'devices', label: '設備', pages: [['devices', '設備']] },
-    { key: 'contracts', label: '合約', pages: [['contracts', '合約']] },
-    { key: 'readings', label: '抄表', pages: [['readings', '抄表']] },
-    { key: 'records', label: '紀錄', pages: RECORD_PAGES.filter(([k]) => k !== 'readings' && k !== 'contracts').map(([k, label]) => [k, label]) },
-  ];
-  const groupOf = key => GROUPS.find(g => g.key === key || g.pages.some(([k]) => k === key));
   // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽沒有新增按鈕
-  const ADD = { customers: ['customers', '客戶'], locations: ['locations', '位置'], devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.map(([k, , what]) => [k, [k, what]])) };
-  const tabBtns = [...document.querySelectorAll('.tabbar [data-tab]')];
-  const subtabsEl = $('subtabs');
+  const ADD = { customers: ['customers', '客戶'], locations: ['locations', '位置'], people: ['people', '人員'], devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.map(([k, what]) => [k, [k, what]])) };
+  // 底部、側欄、更多裡的格子
+  const tabBtns = [...document.querySelectorAll('[data-tab]')];
   const addBtn = $('btn-add');
   const addWhat = addBtn.querySelector('.add-what');
 
-  // key：底部的一格或其中一頁；提醒也會直接指定某一頁
-  //   有兩頁以上的格子：標題寫格子的名稱，下面切換是哪一頁
+  // 更多：收在裡面的頁打開時，底部的更多亮著
+  const IN_MORE = ['contracts', 'maintenance', 'refurbs', 'moves', 'people'];
+  const moreBtn = $('btn-more');
+  const morePanel = $('more-panel');
+  const moreScrim = $('more-scrim');
+  function setMore(open) {
+    if (morePanel.hidden !== open) return;
+    sheetMoved();
+    morePanel.hidden = !open;
+    moreScrim.hidden = !open;
+    moreBtn.setAttribute('aria-expanded', String(open));
+    document.body.classList.toggle('more-open', open);
+  }
+  moreBtn.addEventListener('click', () => setMore(morePanel.hidden));
+  moreScrim.addEventListener('click', () => setMore(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !morePanel.hidden) setMore(false); });
+  // 打開時畫面變寬成側欄（平板轉向、拉寬視窗）：關掉，不然頁面會卡住不能捲
+  matchMedia('(min-width: 960px)').addEventListener('change', e => { if (e.matches) setMore(false); });
+
+  // key：哪一頁；提醒也會直接指定某一頁；業務員沒有人員頁（這台裝置之前記著人員頁時）
   function showTab(key) {
-    const group = groupOf(key) || GROUPS[0];
-    if (group.key === key) key = group.pages[0][0];
-    if (!lists[key]) key = 'devices';
+    if (!lists[key] || (key === 'people' && Sync.isSales())) key = 'devices';
     current = key;
     renderWho();
-    $('page-title').textContent = group.pages.length > 1 ? group.label : PAGES[key].title;
-    subtabsEl.hidden = group.pages.length < 2;
-    subtabsEl.innerHTML = group.pages.length < 2 ? '' : group.pages.map(([k, label]) =>
-      `<button type="button" role="tab" data-page="${k}" aria-selected="${k === key}">${label}</button>`).join('');
+    $('page-title').textContent = PAGES[key].title;
     // 業務員只能新增抄表、保養（照權限，見 records.js 的 canAdd）
     const add = ADD[key] && Records.canAdd(ADD[key][0]) ? ADD[key] : null;
     addBtn.disabled = !add;
@@ -132,22 +149,18 @@
       addWhat.textContent = add[1];
       addBtn.setAttribute('aria-label', `新增${add[1]}`);
     }
-    tabBtns.forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === group.key)));
+    tabBtns.forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === key)));
+    moreBtn.setAttribute('aria-selected', String(IN_MORE.includes(key)));
     Object.entries(lists).forEach(([k, l]) => { l.el.hidden = k !== key; });
     if (stale.delete(key)) lists[key].refresh();
     try { localStorage.setItem(TAB_KEY, key); } catch (_) {}
   }
 
   tabBtns.forEach(b => b.addEventListener('click', () => {
-    if (groupOf(current).key !== b.dataset.tab) showTab(b.dataset.tab);
+    setMore(false);
+    if (current !== b.dataset.tab) showTab(b.dataset.tab);
     window.scrollTo(0, 0);
   }));
-  subtabsEl.addEventListener('click', e => {
-    const btn = e.target.closest('[data-page]');
-    if (!btn || btn.dataset.page === current) return;
-    showTab(btn.dataset.page);
-    window.scrollTo(0, 0);
-  });
   addBtn.addEventListener('click', () => { if (ADD[current]) Form.open(ADD[current][0], null); });
 
   const refreshAll = () => {
@@ -163,8 +176,8 @@
   const settingsMenu = $('settings-menu');
   const listsMenu = $('lists-menu');
 
-  // 設定裡的清單：幾項、幾個不在清單裡；客戶、位置有自己的一頁（底部第二、三格），這裡不列
-  const menuLists = () => Refs.lists().filter(l => l.table !== 'locations' && l.table !== 'customers').map(l => ({
+  // 設定裡的清單：幾項、幾個不在清單裡；客戶、位置、人員有自己的一頁，這裡不列
+  const menuLists = () => Refs.lists().filter(l => !['locations', 'customers', 'people'].includes(l.table)).map(l => ({
     l, n: Refs.listItems(l).length, miss: new Set(Lists.missingOf(l).flatMap(x => x.values)).size,
   }));
 
@@ -201,7 +214,7 @@
   const LIST_GROUPS = [
     ['設備', ['options:類別', 'options:品牌', 'options:機型', 'options:世代', 'statuses', 'options:選配件']],
     ['保養', ['options:保養項目']],
-    ['人員和廠商', ['people', 'vendors']],
+    ['廠商', ['vendors']],
   ];
 
   // 每一份清單一列：名稱、幾項；有不在清單裡的值時寫出來
@@ -241,7 +254,8 @@
     if (!menu.open) menu.showModal();
   }
 
-  $('btn-menu').addEventListener('click', () => openMenu());
+  $('more-settings').addEventListener('click', () => { setMore(false); openMenu(); });
+  $('side-settings').addEventListener('click', () => openMenu());
   menu.querySelector('[data-act="close"]').addEventListener('click', () => menu.close());
   menu.addEventListener('click', e => { if (e.target === menu) menu.close(); }); // 點背景關閉
 

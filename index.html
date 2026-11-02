@@ -9,11 +9,11 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="設備管理">
   <!-- 加到主畫面時的名稱與圖示 -->
-  <link rel="manifest" href="manifest.json?v=2026.11.02.20">
+  <link rel="manifest" href="manifest.json?v=2026.11.02.25">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>設備管理</title>
-  <link rel="stylesheet" href="css/style.css?v=2026.11.02.20">
+  <link rel="stylesheet" href="css/style.css?v=2026.11.02.25">
 </head>
 <body>
   <div class="app">
@@ -34,13 +34,8 @@
           <svg class="line" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 2H4.4z"/><path d="M10 20.6a2.2 2.2 0 0 0 4 0"/></svg>
           <span id="inbox-count" class="count-badge" hidden></span>
         </button>
-        <button id="btn-menu" class="icon-btn" type="button" aria-label="設定：清單、雲端同步、資料備份">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
-        </button>
       </div>
     </header>
-    <!-- 上方切換：底部一格裡有好幾頁時，在標題下面左右切換（見 app.js 的 GROUPS） -->
-    <div id="subtabs" class="subtabs" role="tablist" hidden></div>
     <div id="banner" class="banner" hidden></div>
     <!-- 同步提示：有資料還沒同步、太久沒同步、沒有網路、同步失敗時才出現（其他提醒在鈴鐺） -->
     <div id="sync-bar" class="sync-bar" role="status" hidden>
@@ -70,23 +65,57 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
         <span>設備</span>
       </button>
-      <!-- 合約：上面四個方塊，下面行政狀態的篩選和所有的合約（見 contracts.js） -->
-      <button type="button" role="tab" data-tab="contracts">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/><path d="M14 3.5V8h4.5M9 13h6M9 16.5h4"/></svg>
-        <span>合約</span>
-      </button>
       <!-- 抄表：所有設備的抄表；頁面最上面的小字寫上次讀信的時間，同步中寫「同步中…」（見 app.js） -->
       <button type="button" role="tab" data-tab="readings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17a8.5 8.5 0 0 1 17 0"/><path d="M12 17l4-5"/></svg>
         <span>抄表</span>
       </button>
-      <!-- 紀錄：所有設備的保養、翻新、異動 -->
-      <button type="button" role="tab" data-tab="records">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4.5" width="14" height="16" rx="2.5"/><path d="M9 3.5h6v2.5H9zM8.5 10.5h7M8.5 14h7M8.5 17.5h4"/></svg>
-        <span>紀錄</span>
+      <!-- 電腦版的側欄才有：更多裡的頁全部展開（見 style.css） -->
+      <div class="side-sep" aria-hidden="true"></div>
+      <button type="button" role="tab" class="side-only" data-tab="contracts">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/><path d="M14 3.5V8h4.5M9 13h6M9 16.5h4"/></svg>
+        <span>合約</span>
+      </button>
+      <button type="button" role="tab" class="side-only" data-tab="maintenance">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
+        <span>保養</span>
+      </button>
+      <button type="button" role="tab" class="side-only" data-tab="refurbs">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.3L3.5 9"/><path d="M3.5 4.5V9H8"/><path d="M4 13a8 8 0 0 0 14.3 4.3l2.2-2.3"/><path d="M20.5 19.5V15H16"/></svg>
+        <span>翻新</span>
+      </button>
+      <button type="button" role="tab" class="side-only" data-tab="moves">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14"/><path d="M14.5 4.5 18 8l-3.5 3.5"/><path d="M20 16H6"/><path d="M9.5 12.5 6 16l3.5 3.5"/></svg>
+        <span>異動</span>
+      </button>
+      <button type="button" role="tab" class="side-only admin-only" data-tab="people">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="8" r="3.5"/><path d="M3 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.8a3.5 3.5 0 0 1 0 6.4"/><path d="M18.2 14.4A6.5 6.5 0 0 1 21 20"/></svg>
+        <span>人員</span>
+      </button>
+      <!-- 手機才有：更多，打開下面的 more-panel -->
+      <button type="button" id="btn-more" class="more-tab" role="tab" aria-expanded="false" aria-haspopup="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r=".9"/><circle cx="12" cy="6" r=".9"/><circle cx="18" cy="6" r=".9"/><circle cx="6" cy="12" r=".9"/><circle cx="12" cy="12" r=".9"/><circle cx="18" cy="12" r=".9"/><circle cx="6" cy="18" r=".9"/><circle cx="12" cy="18" r=".9"/><circle cx="18" cy="18" r=".9"/></svg>
+        <span>更多</span>
       </button>
     </div>
+    <!-- 電腦版的設定：釘在側欄最下面 -->
+    <button type="button" id="side-settings" class="side-settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span>設定</span>
+    </button>
   </nav>
+  <!-- 更多：一格一個，一排 4 格；底部那一排留在上面，再點一次更多就關 -->
+  <div id="more-scrim" class="more-scrim" hidden></div>
+  <div id="more-panel" class="more-panel" role="dialog" aria-label="更多" hidden>
+    <div class="more-grid">
+      <button type="button" class="more-tile" data-tab="contracts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/><path d="M14 3.5V8h4.5M9 13h6M9 16.5h4"/></svg><span>合約</span></button>
+      <button type="button" class="more-tile" data-tab="maintenance"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg><span>保養</span></button>
+      <button type="button" class="more-tile" data-tab="refurbs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.3L3.5 9"/><path d="M3.5 4.5V9H8"/><path d="M4 13a8 8 0 0 0 14.3 4.3l2.2-2.3"/><path d="M20.5 19.5V15H16"/></svg><span>翻新</span></button>
+      <button type="button" class="more-tile" data-tab="moves"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14"/><path d="M14.5 4.5 18 8l-3.5 3.5"/><path d="M20 16H6"/><path d="M9.5 12.5 6 16l3.5 3.5"/></svg><span>異動</span></button>
+      <button type="button" class="more-tile admin-only" data-tab="people"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="8" r="3.5"/><path d="M3 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.8a3.5 3.5 0 0 1 0 6.4"/><path d="M18.2 14.4A6.5 6.5 0 0 1 21 20"/></svg><span>人員</span></button>
+      <button type="button" id="more-settings" class="more-tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span>設定</span></button>
+    </div>
+  </div>
 
   <!-- 新增／編輯表單 -->
   <dialog id="form-sheet" class="sheet">
@@ -136,7 +165,7 @@
   <dialog id="detail-sheet" class="sheet detail">
     <div class="sheet-head">
       <button type="button" class="text-btn" data-act="close">返回</button>
-      <h2 class="sheet-title"></h2>
+      <h2 class="sheet-title">設備</h2>
       <button type="button" class="text-btn strong" data-act="edit">編輯</button>
     </div>
     <div class="sheet-body">
@@ -160,7 +189,7 @@
   <dialog id="place-sheet" class="sheet detail">
     <div class="sheet-head">
       <button type="button" class="text-btn" data-act="close">返回</button>
-      <h2 class="sheet-title"></h2>
+      <h2 class="sheet-title">位置</h2>
       <button type="button" class="text-btn strong" data-act="edit">編輯</button>
     </div>
     <div class="sheet-body">
@@ -183,7 +212,7 @@
   <dialog id="customer-sheet" class="sheet detail">
     <div class="sheet-head">
       <button type="button" class="text-btn" data-act="close">返回</button>
-      <h2 class="sheet-title"></h2>
+      <h2 class="sheet-title">客戶</h2>
       <button type="button" class="text-btn strong" data-act="edit">編輯</button>
     </div>
     <div class="sheet-body">
@@ -231,7 +260,7 @@
 
       <!-- 每次更新網站時改這裡，用來確認手機上開的是不是新版
            css、js 網址後面的 ?v= 也要一起改成同一個版本號，瀏覽器才會重新下載（tests/version.test.mjs 會檢查） -->
-      <p class="note muted">版本 2026.11.02.20</p>
+      <p class="note muted">版本 2026.11.02.25</p>
     </div>
   </dialog>
 
@@ -447,27 +476,28 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/util.js?v=2026.11.02.20"></script>
-  <script src="js/dropdown.js?v=2026.11.02.20"></script>
-  <script src="js/schema.js?v=2026.11.02.20"></script>
-  <script src="js/storage.js?v=2026.11.02.20"></script>
-  <script src="js/refs.js?v=2026.11.02.20"></script>
-  <script src="js/records.js?v=2026.11.02.20"></script>
-  <script src="js/list.js?v=2026.11.02.20"></script>
-  <script src="js/form.js?v=2026.11.02.20"></script>
-  <script src="js/picker.js?v=2026.11.02.20"></script>
-  <script src="js/lists.js?v=2026.11.02.20"></script>
-  <script src="js/detail.js?v=2026.11.02.20"></script>
-  <script src="js/overview.js?v=2026.11.02.20"></script>
-  <script src="js/places.js?v=2026.11.02.20"></script>
-  <script src="js/customers.js?v=2026.11.02.20"></script>
-  <script src="js/contracts.js?v=2026.11.02.20"></script>
-  <script src="js/config.js?v=2026.11.02.20"></script>
-  <script src="js/google.js?v=2026.11.02.20"></script>
-  <script src="js/sheet.js?v=2026.11.02.20"></script>
-  <script src="js/sync.js?v=2026.11.02.20"></script>
-  <script src="js/inbox.js?v=2026.11.02.20"></script>
-  <script src="js/app.js?v=2026.11.02.20"></script>
+  <script src="js/util.js?v=2026.11.02.25"></script>
+  <script src="js/dropdown.js?v=2026.11.02.25"></script>
+  <script src="js/schema.js?v=2026.11.02.25"></script>
+  <script src="js/storage.js?v=2026.11.02.25"></script>
+  <script src="js/refs.js?v=2026.11.02.25"></script>
+  <script src="js/records.js?v=2026.11.02.25"></script>
+  <script src="js/list.js?v=2026.11.02.25"></script>
+  <script src="js/form.js?v=2026.11.02.25"></script>
+  <script src="js/picker.js?v=2026.11.02.25"></script>
+  <script src="js/lists.js?v=2026.11.02.25"></script>
+  <script src="js/detail.js?v=2026.11.02.25"></script>
+  <script src="js/overview.js?v=2026.11.02.25"></script>
+  <script src="js/places.js?v=2026.11.02.25"></script>
+  <script src="js/customers.js?v=2026.11.02.25"></script>
+  <script src="js/people.js?v=2026.11.02.25"></script>
+  <script src="js/contracts.js?v=2026.11.02.25"></script>
+  <script src="js/config.js?v=2026.11.02.25"></script>
+  <script src="js/google.js?v=2026.11.02.25"></script>
+  <script src="js/sheet.js?v=2026.11.02.25"></script>
+  <script src="js/sync.js?v=2026.11.02.25"></script>
+  <script src="js/inbox.js?v=2026.11.02.25"></script>
+  <script src="js/app.js?v=2026.11.02.25"></script>
   <!-- Google 登入元件（連結 Google 帳號時才用到，不擋住畫面載入） -->
   <script src="https://accounts.google.com/gsi/client" async></script>
 </body>
