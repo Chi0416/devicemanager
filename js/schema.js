@@ -57,6 +57,7 @@
 //                       side(列) sub 那一行的右邊（標籤下面）：{ text, tone } 或 null，tone 是 fresh 綠字／old 橘字
 //                       grid 卡片下方的欄位（沒有時列出其餘全部）
 //   （資料表）status:    沒有 badge 時的標籤：status(列) 回傳 { label, cls } 或 null（目前的合約、已拆除）
+//   （資料表）statusHead: 放在詳情裡時，標籤寫在日期旁邊、有標籤的卡片藍框；紀錄分頁留在卡片上（合約，見 list.js）
 //   （資料表）note:      卡片最下面的一行：note(列) 回傳 { text, warn } 或 null
 //   （資料表）period:    依日期篩選與分組：{ key, unit: 'month' | 'day', label }，新到舊；沒有時依 order 或 sort 排序
 //                       fallback：key 空白時照哪個欄位排（抄表：結算月份空白的照抄表日期）；emptyHead：空白的那一組的標題
@@ -414,6 +415,7 @@ const SCHEMAS = {
     period: recordMonth('signDate'),
     card: { title: r => Records.firstLine(r.content) || '合約', grid: [] },
     status: r => (Records.isCurrentContract(r) ? { label: '目前', cls: 'blue' } : null),
+    statusHead: true,
     note: r => Records.contractNote(r),
     describe: r => Records.describe('contracts', r),
     search: ['content', 'billing'],

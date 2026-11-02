@@ -7,6 +7,7 @@
 //   schema.card.cols(列)：標題下面的小表格，一欄一種張數 [{ label, use, tone, count }]（抄表、保養的黑白、彩色）
 //     最上面一列寫黑白、彩色；下面兩列是使用量（粗體）、計數器（灰字），左邊寫是哪一列
 //   schema.total 存在時，列表上方顯示合計
+//   schema.statusHead：放在詳情裡（detail）時，狀態標籤寫在日期旁邊、有標籤的卡片藍框；紀錄分頁大多都有標籤，留在卡片上，對齊標題第一行（合約）
 //   rows：要列的資料（設備詳情裡只列這台設備的紀錄）；沒有時列整張表
 //   detail：放在設備詳情裡，不要搜尋框和月份、分組選單（篩選按鈕照常）
 //   device(列)：卡片最上面那一排寫在哪裡、哪一台設備（底部「紀錄」分頁，和設備卡片一樣小標題在上、內容在下），下面才是紀錄的內容
@@ -72,6 +73,12 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     ? Refs.tone(badgeField.ref, Refs.find(badgeField, v))
     : badgeField?.toggle?.find(o => o.match.test(v))?.tone || '');
   const statusOf = r => (schema.status ? schema.status(r) : null);
+  const statusOnHead = detail && schema.statusHead;
+  // 日期旁邊的標籤：同一天有好幾筆時只寫一個，哪一筆看藍框
+  const headTag = rows => {
+    const st = statusOnHead && rows.map(statusOf).find(Boolean);
+    return st ? `<span class="badge ${st.cls}">${U.esc(st.label)}</span>` : '';
+  };
   const introHTML = schema.intro ? `<p class="list-intro">${U.esc(schema.intro)}</p>` : '';
   const placeholder = schema.searchHint || `搜尋${searchKeys.slice(0, 2).map(k => byKey[k]?.label).filter(Boolean).join('或')}`;
   const byText = (a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true });
@@ -153,7 +160,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
       `<span class="cell"><small>${cardLabel(f)}</small><span>${show(f, r[f.key])}</span></span>`).join('');
     // 標籤：有 badge 欄位用欄位的值；沒有時用狀態標籤
     const st = statusOf(r);
-    const tag = badge ? r[badge] && { label: r[badge], cls: tone(r[badge]) } : st;
+    const tag = statusOnHead ? null : badge ? r[badge] && { label: r[badge], cls: tone(r[badge]) } : st;
     const note = schema.note ? schema.note(r) : null;
     const sub = card.sub?.(r) || '';
     const side = card.side?.(r);
@@ -167,9 +174,9 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
       `<small>使用量</small>${each(c => `<b class="${U.esc(c.tone || '')}">${U.esc(c.use)}</b>`)}` +
       `<small>計數器</small>${each(c => `<em>${U.esc(c.count)}</em>`)}</span>` : '';
     return `
-      <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}" data-id="${U.esc(r.id)}">
+      <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}${statusOnHead && st ? ' marked' : ''}" data-id="${U.esc(r.id)}">
         ${devCells ? `<span class="card-grid rec cols-${dev.length}">${devCells}</span>` : ''}
-        <span class="card-top${as ? ' with-aside' : ''}">
+        <span class="card-top${as ? ' with-aside' : ''}${schema.statusHead ? ' tag-top' : ''}">
           <span class="card-title">${code && r[code] ? `<span class="card-code">${U.esc(r[code])}</span>` : ''}${U.esc(titleOf(r))}</span>
           ${as ? `<span class="card-aside${as.warn ? ' warn' : ''}">${U.esc(as.text)}</span>` : ''}
           ${tag ? `<span class="badge ${tag.cls}">${U.esc(tag.label)}</span>` : ''}
@@ -249,7 +256,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
         : `<p class="empty">${detail ? `還沒有${U.esc(schema.title)}` : schema.empty || '還沒有資料<br>點右上角「＋ 新增」開始記錄'}</p>`;
     } else {
       listEl.innerHTML = introHTML + (schema.total ? summaryHTML(rows) : '') + grouped(rows).map(g =>
-        (g.head ? `<h3 class="group-head">${U.esc(g.head)}${g.count ? `<span>${g.count}</span>` : ''}</h3>` : '') +
+        (g.head ? `<h3 class="group-head">${U.esc(g.head)}${g.count ? `<span>${g.count}</span>` : ''}${headTag(g.rows)}</h3>` : '') +
         g.rows.map(cardHTML).join('')).join('');
     }
     state.flashId = null;

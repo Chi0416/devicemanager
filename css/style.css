@@ -247,6 +247,7 @@ body:has(dialog[open]) { overflow: hidden; }
   color: var(--text-2);
 }
 .group-head span { margin-left: 8px; font-weight: 500; color: var(--muted); }
+.group-head .badge { font-weight: 600; }
 .list-intro { margin: 2px 4px 12px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 /* 抄表頁最上面的小字：上次讀信的時間 */
 .meter-line { margin: 0 4px 10px; font-size: 12px; line-height: 1.6; color: var(--muted); }
@@ -269,9 +270,13 @@ body:has(dialog[open]) { overflow: hidden; }
 .card:active { background: var(--chip-bg); }
 .card.flash { animation: flash 2s ease-out; }
 @keyframes flash { from { background: var(--flash); } }
+/* 詳情裡目前的合約：藍框；框線只有 .5px 看不出來，外面用陰影再畫一圈（卡片不會動） */
+.card.marked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
 
 /* 卡片頂端：名稱、狀態標籤、右上角的數字 */
 .card-top { display: flex; align-items: center; gap: 10px; }
+/* 標題折行時，標籤對齊第一行（紀錄的合約） */
+.card-top.tag-top .badge { align-self: flex-start; }
 .card-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
 .card-code { margin-right: 6px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 .card-primary { flex-shrink: 0; text-align: right; line-height: 1.25; }
@@ -1360,6 +1365,7 @@ dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 /* ---------- 滑鼠移過去的回饋（只在電腦上） ---------- */
 @media (hover: hover) {
   .card:hover, .stat-tile:hover { border-color: var(--border-strong); box-shadow: var(--shadow-lg); }
+  .card.marked:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-lg); }
   button.model-cell:hover .model-name { color: var(--accent-text); }
   .icon-btn:hover,
   .text-btn:not(.strong):hover,
