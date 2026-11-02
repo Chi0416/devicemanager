@@ -76,6 +76,7 @@
 //   （資料表）target:    被其他表的 ref 欄位引用（見 refs.js）：
 //                       name 名字的欄位；group 分清單的欄位（options 的 list）
 //                       active(列) 會不會出現在下拉選單；sub(列) 下拉選單裡名字後面的小字；off 停用時的標籤
+//                       pickSub(列) 下拉選單裡的小字要和 sub 不一樣時（人員：設定的清單寫職稱、部門、業務員，下拉選單只寫部門）
 //                       order 排序的欄位（數字小的在前，沒有時依名字排）；tone(列) 標籤的顏色（狀態）
 //                       label(列) 下拉選單和欄位上顯示的字，和存的名字不一樣時（設備：顯示位置、存編號；位置：顯示名稱、存編號）
 //                         有 label 的不列在「不在清單裡」（存的是編號，不能用打的字加進清單），下拉選單依 label 排
@@ -655,7 +656,7 @@ const SCHEMAS = {
     // 業務員：存好之後表單下面有「複製邀請連結」（見 app.js 的 invite）
     action: { key: 'invite', label: '複製邀請連結', show: r => !!(r?.sales && String(r.email ?? '').trim() && stillHere(r)),
       note: r => `傳給${r.name}，用 ${r.email} 登入；這個 Gmail 要先加進 Google Cloud 的測試使用者` },
-    target: { name: 'name', active: stillHere, sub: r => [r.jobTitle, r.dept, r.sales && '業務員'].filter(Boolean).join(' · '),
+    target: { name: 'name', active: stillHere, sub: r => [r.jobTitle, r.dept, r.sales && '業務員'].filter(Boolean).join(' · '), pickSub: r => r.dept,
       off: '已離職', removeHint: '不再使用的話，可以填「離職日」' },
     unique: [['code'], ['name']],
     uniqueMsg: (dup, keys) => (keys[0] === 'code'

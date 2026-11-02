@@ -226,6 +226,8 @@ const Form = (() => {
         autos[i] = document.createElement('div');
         autos[i].className = 'auto-value';
         wrap.append(inp, autos[i]);
+      } else if (f.select) {
+        wrap.appendChild(Dropdown.attach(inp));
       } else {
         wrap.appendChild(inp);
         if (f.suggest) {
@@ -522,7 +524,7 @@ const Form = (() => {
       ? (!Refs.active(f.ref, exact) ? `「${q}」已經${off.replace(/^已/, '')}` : f.onlyNote?.(values) || '') : '';
     c.list.innerHTML = listed.slice(0, 60).map(r => {
       const on = hit && r.id === hit.id;
-      const sub = Refs.sub(f.ref, r);
+      const sub = Refs.pickSub(f.ref, r);
       const tone = Refs.tone(f.ref, r);
       return `<button type="button" class="combo-opt${on ? ' on' : ''}" role="option" aria-selected="${!!on}" data-pick="${U.esc(name(r))}">` +
         `${tone ? `<i class="dot ${U.esc(tone)}" aria-hidden="true"></i>` : ''}<span>${U.esc(label(r) || name(r))}</span>${sub ? `<small>${U.esc(sub)}</small>` : ''}</button>`;

@@ -123,6 +123,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   const countEl = el.querySelector('.count');
   const chipsEl = el.querySelector('.filter-chips');
   const filterSel = el.querySelector('.f-filter');
+  [periodSel, groupSel, filterSel].forEach(sel => sel && Dropdown.attach(sel));
   const listEl = el.querySelector('.list');
 
   periodSel?.addEventListener('change', () => { state.period = periodSel.value; renderList(); });

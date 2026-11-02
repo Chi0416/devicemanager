@@ -75,6 +75,10 @@ test('下拉選單：選項依清單分；人員（保管人、工程師）、�
   assert.deepEqual(names(Refs.items(field('refurbs', 'engineer'))), ['王小明', '陳大華']);
   assert.deepEqual(names(Refs.items(field('devices', 'vendor'))), ['原價屋']); // 聯強停用了
   assert.equal(Refs.sub('people', Refs.items(field('devices', 'keeper'))[0]), '資訊組長 · 資訊組');
+  // 下拉選單上只寫部門（沒填部門就不寫）；其他清單照 sub
+  assert.equal(Refs.pickSub('people', Refs.items(field('devices', 'keeper'))[0]), '資訊組');
+  assert.ok(!Refs.pickSub('people', Refs.items(field('devices', 'keeper'))[1]));
+  assert.equal(Refs.pickSub('locations', Refs.items(field('devices', 'location'))[0]), Refs.sub('locations', Refs.items(field('devices', 'location'))[0]));
 });
 
 test('依名字找：全形半形、大小寫、前後空白都不影響；停用的也找得到（舊資料照常認得）；位置依編號找', () => {

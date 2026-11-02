@@ -198,6 +198,7 @@ body:has(dialog[open]) { overflow: hidden; }
 }
 .filterbar-row { display: flex; align-items: center; gap: 8px; }
 .filterbar select,
+.filterbar .dropdown-btn,
 .filterbar input {
   height: 40px;
   padding: 0 12px;
@@ -210,15 +211,15 @@ body:has(dialog[open]) { overflow: hidden; }
   -webkit-appearance: none;
   appearance: none;
 }
-.filterbar select {
-  flex: 0 1 auto;
-  max-width: 45%;
+.filterbar .dropdown { flex: 0 1 auto; max-width: 45%; }
+.filterbar select,
+.filterbar .dropdown-btn {
   padding-right: 28px;
   background: var(--icon-chevron) right 7px center / 16px no-repeat, var(--surface);
   cursor: pointer;
 }
 /* 合約頁的行政狀態：字要看得完（數字在後面），寬度讓給它，搜尋框變窄 */
-.filterbar .f-filter { flex: none; max-width: none; }
+.filterbar .dropdown:has(.f-filter) { flex: none; max-width: none; }
 .filterbar input {
   flex: 1;
   min-width: 0;
@@ -227,7 +228,8 @@ body:has(dialog[open]) { overflow: hidden; }
 }
 .filterbar input::placeholder { color: var(--muted); }
 .filterbar input:focus,
-.filterbar select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.filterbar .dropdown-btn:focus-visible,
+.filterbar .dropdown-btn[aria-expanded="true"] { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .filterbar .count { flex-shrink: 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* 狀態篩選：一排膠囊按鈕，後面是筆數；放不下時左右滑 */
 .filter-chips { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
@@ -599,6 +601,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .field label { display: block; margin: 0 0 6px 2px; font-size: 13px; font-weight: 500; color: var(--text-2); }
 .field input,
 .field select,
+.field .dropdown-btn,
 .field textarea {
   display: block;
   width: 100%;
@@ -620,12 +623,18 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .field input::-webkit-date-and-time-value { text-align: left; }
 /* 字距縮一點（主機板號碼 15 碼在半格裡放得下） */
 .field input.tight { padding: 0 10px; letter-spacing: -.02em; }
-.field select { padding-right: 34px; background: var(--icon-chevron) right 10px center / 18px no-repeat, var(--surface); cursor: pointer; }
+/* 下拉選單都有小箭頭（可以打字的那種也有） */
+.field select,
+.field .dropdown-btn,
+.field .combo > input { padding-right: 34px; background: var(--icon-chevron) right 10px center / 18px no-repeat, var(--surface); }
+.field .dropdown-btn { cursor: pointer; }
+.field .dropdown-btn.empty { color: var(--muted); }
 .field input:focus,
-.field select:focus,
+.field .dropdown-btn:focus,
+.field .dropdown-btn[aria-expanded="true"],
 .field textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .field.invalid input,
-.field.invalid select,
+.field.invalid .dropdown-btn,
 .field.invalid textarea { border-color: var(--danger); background-color: var(--invalid-bg); }
 .field .hint { margin: 5px 2px 0; font-size: 12px; color: var(--muted); }
 /* 依填的內容出現的提醒：位置先留好（1 行或 2 行），出現時下面的欄位不會被推動；放不下的截掉 */
@@ -725,6 +734,18 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .combo-opt + .combo-add { margin-top: 2px; border-top: .5px solid var(--border); border-radius: 0 0 8px 8px; }
 .combo-empty { margin: 0; padding: 10px; font-size: 13px; color: var(--muted); }
 .field .combo-info { color: var(--warn); }
+/* 不能打字的下拉選單（見 dropdown.js）：按鈕蓋在不顯示的 select 上，寬度由 select 撐開 */
+.dropdown { display: grid; grid-template-columns: minmax(0, 1fr); }
+.dropdown > select,
+.dropdown > .dropdown-btn { grid-area: 1 / 1; }
+.dropdown > select { visibility: hidden; }
+.dropdown-btn { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
+/* 高一點：看得到半列，知道下面還有（手機上沒有捲軸） */
+.dropdown .combo-list { max-height: 320px; }
+.dropdown-head { padding: 8px 10px 4px; font-size: 12px; color: var(--muted); }
+/* 篩選列的按鈕窄：清單照字的寬度；在一排最右邊的（位置頁的業務員）往左開 */
+.filterbar .dropdown .combo-list { right: auto; min-width: 100%; width: max-content; max-width: calc(100vw - 32px); }
+.filterbar-row > .dropdown:last-child .combo-list { left: auto; right: 0; }
 /* 可以選好幾個的（合約的位置）：表單上列出全部，點了打開小視窗改（見 picker.js） */
 .many-box {
   display: flex;

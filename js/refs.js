@@ -67,6 +67,8 @@ const Refs = (() => {
 
   // 名字後面的小字（職稱、部門；聯絡人、電話）、標籤的顏色（狀態）
   const sub = (t, r) => (targetOf(t).sub ? targetOf(t).sub(r) : '');
+  // 下拉選單上的小字：格子窄，有 pickSub 的照它寫（人員只寫部門，寫太多名字會被擠到下一行）
+  const pickSub = (t, r) => (targetOf(t).pickSub ? targetOf(t).pickSub(r) : sub(t, r));
   const tone = (t, r) => (r && targetOf(t)?.tone ? targetOf(t).tone(r) : '');
 
   // 一筆空白的資料：每個欄位都有值（有預設值的用預設值，其他文字是 ''、數字和日期是 null、勾選是 false）
@@ -203,7 +205,7 @@ const Refs = (() => {
   const listOfScope = key => lists().find(l => l.key === key || l.key === key.split(':')[0]) || null;
 
   return {
-    isTarget, targetOf, norm, multi, inScope, items, find, nameOf, labelOf, valuesOf, active, sub, tone, blankRecord, quickAdd,
+    isTarget, targetOf, norm, multi, inScope, items, find, nameOf, labelOf, valuesOf, active, sub, pickSub, tone, blankRecord, quickAdd,
     refsTo, usesOf, usesText, removeBlock, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, moveTo, listOfScope,
   };
 })();

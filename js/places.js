@@ -23,6 +23,7 @@ function createPlaces() {
     <div class="list"></div>`;
   const keywordInput = el.querySelector('.f-keyword');
   const salesSel = el.querySelector('.f-sales');
+  const salesBox = Dropdown.attach(salesSel);
   const chipsEl = el.querySelector('.filter-chips');
   const listEl = el.querySelector('.list');
 
@@ -120,8 +121,8 @@ function createPlaces() {
   // 業務員選單：沒有業務員、勾了業務員的人（還沒有位置的也列）、位置上寫的其他名字；後面的數字是選了會列出幾個（照目前的搜尋、篩選）
   //   選的人不見了（改名、取消勾選，又沒有位置）：回到全部
   function renderSales(all, words) {
-    salesSel.hidden = Records.salesLimited();
-    if (salesSel.hidden) {
+    salesBox.hidden = Records.salesLimited();
+    if (salesBox.hidden) {
       state.sales = '';
       return;
     }
