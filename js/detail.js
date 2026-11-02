@@ -145,6 +145,23 @@ const DetailRows = {
 };
 
 // ---------- 設備詳情 ----------
+// 最新回報的格子（設備詳情、客戶詳情共用）：黑白、彩色兩格；K Y M C 四格（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）
+//   20% 以下紅字；百分比下面一條碳粉顏色的細條（讀不到的只有灰色底條）
+const ReportCells = {
+  counts(t) {
+    const count = v => (v === null || v === undefined ? '<span class="muted">—</span>' : `<span>${U.fmtNum(v)}</span>`);
+    return [['黑白', t?.bw], ['彩色', t?.color]].map(([label, v]) => `<span class="cell"><small>${label}</small>${count(v)}</span>`).join('');
+  },
+  toner(t) {
+    return Records.tonerColors(t).map(c => {
+      const v = t ? t[c] : null;
+      const cls = v === null ? 'muted' : Records.tonerIsLow(v) ? 'low' : '';
+      const bar = `<i class="toner-bar t-${c.toLowerCase()}" aria-hidden="true"><b style="width:${v ?? 0}%"></b></i>`;
+      return `<span class="cell"><small>${c}</small><span class="${cls}">${v === null ? '—' : `${v}%`}</span>${bar}</span>`;
+    }).join('');
+  },
+};
+
 const Detail = (() => {
   const statusField = SCHEMAS.devices.fields.find(f => f.key === 'status');
   const mine = key => d => Records.of(key, d.code);
@@ -181,14 +198,6 @@ const Detail = (() => {
   //   沒回報過的也顯示：張數、四格「—」、灰色底條，右上角「還沒有回報」
   function latestHTML(d) {
     const t = Records.latestReport(d);
-    const count = v => (v === null || v === undefined ? '<span class="muted">—</span>' : `<span>${U.fmtNum(v)}</span>`);
-    const counts = [['黑白', t?.bw], ['彩色', t?.color]].map(([label, v]) => `<span class="cell"><small>${label}</small>${count(v)}</span>`).join('');
-    const cells = Records.tonerColors(t).map(c => {
-      const v = t ? t[c] : null;
-      const cls = v === null ? 'muted' : Records.tonerIsLow(v) ? 'low' : '';
-      const bar = `<i class="toner-bar t-${c.toLowerCase()}" aria-hidden="true"><b style="width:${v ?? 0}%"></b></i>`;
-      return `<span class="cell"><small>${c}</small><span class="${cls}">${v === null ? '—' : `${v}%`}</span>${bar}</span>`;
-    }).join('');
     const days = Records.reportDays(t);
     const when = !t ? '還沒有回報' : days === null ? '—' : Records.reportWhen(t);
     const read = Number.isInteger(t?.bw) && t.date && Records.canAdd('readings')
@@ -196,8 +205,8 @@ const Detail = (() => {
     return `
       <div class="detail-card toner-card">
         <span class="uc-head"><b>最新回報</b><span class="${Records.reportTone(days)}">${U.esc(when)}</span></span>
-        <span class="card-grid latest-counts">${counts}</span>
-        <span class="card-grid toner-grid">${cells}</span>
+        <span class="card-grid latest-counts">${ReportCells.counts(t)}</span>
+        <span class="card-grid toner-grid">${ReportCells.toner(t)}</span>
         ${t?.ip ? `<p class="toner-ip">IP ${U.esc(t.ip)}</p>` : ''}
         ${read}
       </div>`;
@@ -569,21 +578,16 @@ const Customer = (() => {
       </div>`;
   }
 
-  // 一台一列：機器、多久以前，下面位置、張數、碳粉；顏色和設備詳情一樣（見 latestHTML），抄表到設備詳情按
+  // 一台一列：機器、多久以前、位置，下面張數、碳粉的格子和設備詳情一樣（見 ReportCells），沒有 IP，抄表到設備詳情按
   function reportRowHTML({ device: d, place: p, report: t }) {
     const note = Records.reportNote(d);
     const when = note ? `<em class="${note.tone}">${U.esc(note.text)}</em>` : `<em>${t ? '—' : '還沒有回報'}</em>`;
-    const counts = [['黑白', t?.bw], ['彩色', t?.color]].filter(([, v]) => v !== null && v !== undefined)
-      .map(([label, v]) => `<span><i>${label}</i> ${U.fmtNum(v)}</span>`).join('');
-    const toner = t ? Records.tonerColors(t).map(c =>
-      `<span class="${Records.tonerIsLow(t[c]) ? 'low' : ''}"><i>${c}</i> ${typeof t[c] === 'number' ? `${t[c]}%` : '—'}</span>`).join('') : '';
     return `
       <button type="button" class="cust-row" data-device="${U.esc(d.id)}">
         <span class="cust-main">
           <span class="report-top"><b>${U.esc(Records.label(d))}</b>${when}</span>
           <small>${U.esc(p.name || p.code)}</small>
-          ${counts ? `<span class="report-line">${counts}</span>` : ''}
-          ${toner ? `<span class="report-line">${toner}</span>` : ''}
+          ${t ? `<span class="card-grid latest-counts">${ReportCells.counts(t)}</span><span class="card-grid toner-grid">${ReportCells.toner(t)}</span>` : ''}
         </span>
         <span class="go" aria-hidden="true">›</span>
       </button>`;
