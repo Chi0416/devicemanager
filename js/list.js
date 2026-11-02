@@ -16,8 +16,9 @@
 //   status(列)：這張清單的標籤，沒有時用 schema.status（位置、設備詳情的合約：只看這個位置目前的是哪一份）
 //   filterKey：篩選依哪個欄位，沒有時用 schema.filter（合約的行政狀態只有合約頁有）；filterEmpty：這一欄空白的那一項的名稱，有空白的才列
 //   filterSelect：篩選改成搜尋框旁邊的下拉選單（不佔一排按鈕），字是「全部」那一項寫的；數字寫在每一項後面
+//   note(列)：卡片最下面的一行，沒有時用 schema.note（合約頁的狀態異常寫原因）
 //   period、order：這張清單的日期分組、排法，沒有時用 schema 的（合約頁照到期日）；period.noSelect：不要上方的月份選單；period.head(日期)：分組標題要怎麼寫
-function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null, status = null, filterKey = schema.filter, filterEmpty = '', filterSelect = '', period: listPeriod = schema.period, order = schema.order }) {
+function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null, status = null, filterKey = schema.filter, filterEmpty = '', filterSelect = '', period: listPeriod = schema.period, order = schema.order, note: noteOf = schema.note }) {
   const fields = schema.fields;
   const byKey = Object.fromEntries(fields.map(f => [f.key, f]));
   const period = listPeriod || null;
@@ -180,7 +181,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     // 標籤：有 badge 欄位用欄位的值；沒有時用狀態標籤
     const st = statusOf(r);
     const tag = statusOnHead ? null : badge ? r[badge] && { label: r[badge], cls: tone(r[badge]) } : st;
-    const note = schema.note ? schema.note(r) : null;
+    const note = noteOf ? noteOf(r) : null;
     const sub = card.sub?.(r) || '';
     const side = card.side?.(r);
     const sideHTML = side ? `<span class="card-side ${side.tone}">${U.esc(side.text)}</span>` : '';

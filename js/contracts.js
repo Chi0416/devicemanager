@@ -1,6 +1,7 @@
 // 合約頁（底部第五格）：上面四個要處理的方塊，下面行政狀態的下拉選單、搜尋和清單（卡片和其他紀錄一樣，標籤寫行政狀態，見 list.js）
 //   清單照到期日排：還沒到期的最近到期在最上面，再來沒有到期日的，最後是過了的（見 records.js 的 compareContractDue）
-//   方塊：快到期、已到期、還沒簽回、有機器沒合約；數字是全部的（不跟著搜尋），計算見 records.js，總覽的要處理也是這些
+//   方塊：快到期、已到期、還沒簽回、有機器沒合約；有狀態異常時多一格，佔滿一排；數字是全部的（不跟著搜尋），計算見 records.js，總覽的要處理也是這些
+//     狀態異常：行政狀態和日期對不上的（見 records.js 的 contractIssue），標籤寫「狀態不對」，下面一行寫原因；修好就不見
 //     點一格只列那些（搜尋、行政狀態清掉），再點一次回到全部；0 的不能點；正在看的一格處理完了回到全部
 //     有機器沒合約列的是位置：一個位置一張卡片，點了打開位置詳情，在那裡新增合約
 //   行政狀態：行政手動切換，報表照它分；舊合約沒選的寫「未填」
@@ -11,6 +12,7 @@ function createContracts() {
     { key: 'over', label: '已到期', warn: true, list: () => Records.contractsDue().filter(late) },
     { key: 'out', label: '還沒簽回', warn: true, list: () => Records.contractsOut() },
     { key: 'none', label: '有機器沒合約', warn: true, list: () => Records.placesNoContract() },
+    { key: 'issue', label: '狀態異常', warn: true, wide: true, list: () => Records.contractIssues() },
   ];
   const tileOf = k => TILES.find(t => t.key === k) || null;
   const state = { tile: '' };
@@ -19,7 +21,9 @@ function createContracts() {
   const list = createList('contracts', SCHEMAS.contracts, {
     openForm: id => Form.open('contracts', id),
     device: r => Records.recordCells('contracts', r),
-    status: r => Records.contractTag(r),
+    status: r => (state.tile === 'issue' ? { label: '狀態不對', cls: 'orange' } : Records.contractTag(r)),
+    note: r => (state.tile === 'issue'
+      ? { text: [String(r.adminStatus ?? '').trim(), Records.contractIssue(r)].filter(Boolean).join('：'), warn: true } : Records.contractNote(r)),
     filterKey: 'adminStatus',
     filterEmpty: '未填',
     filterSelect: '全部狀態',
@@ -61,8 +65,9 @@ function createContracts() {
     if (state.tile && !tileOf(state.tile).list().length) state.tile = '';
     tilesEl.innerHTML = TILES.map(t => {
       const n = t.list().length;
+      if (t.wide && !n) return '';
       return `
-      <button type="button" class="stat-tile${t.warn && n ? ' warn' : ''}${state.tile === t.key ? ' on' : ''}" data-tile="${t.key}" aria-pressed="${state.tile === t.key}"${n ? '' : ' disabled'}>
+      <button type="button" class="stat-tile${t.warn && n ? ' warn' : ''}${t.wide ? ' wide' : ''}${state.tile === t.key ? ' on' : ''}" data-tile="${t.key}" aria-pressed="${state.tile === t.key}"${n ? '' : ' disabled'}>
         <span class="stat-label">${U.esc(t.label)}</span>
         <b>${n}</b>
       </button>`;

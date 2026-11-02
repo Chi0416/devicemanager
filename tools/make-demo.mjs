@@ -304,6 +304,10 @@ data.contracts.forEach((c, i) => {
   c.signer = c.adminStatus === '免簽' ? '' : '林小芳';
   if (c.adminStatus === '免簽') c.signDate = null, c.startDate = c.startDate || addDays(TODAY, -200 - i);
 });
+// 狀態異常：兩份生效中，一份寫退租沒填實際結束日、一份已經開始還寫洽談中
+const running = data.contracts.filter(c => c.adminStatus === '生效中' && c.endDate > TODAY);
+running[1].adminStatus = '退租';
+running[2].adminStatus = '洽談中';
 
 // 客戶：放在最後產生（不動到上面的亂數和 id）；鼎泰國際、長榮物流有填資料，主要業務員是林小芳，位置的業務員跟著帶
 const GROUP_HQ = '宏遠集團';

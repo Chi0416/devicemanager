@@ -505,10 +505,16 @@ const Records = (() => {
   // 合約的位置（編號）、位置的名稱
   const placesOf = r => Refs.multi(r?.locations);
   const contractPlaces = r => placesOf(r).map(placeName);
-  // 實際結束了（過了實際結束日）
-  const endedEarly = r => !!r.earlyEnd && String(r.earlyEnd) < U.today();
-  // 作廢的不算目前的合約（不會蓋掉這個位置還有效的舊合約）；行政狀態其他的只是給報表分類
-  const isVoid = r => String(r?.adminStatus ?? '').trim() === '作廢';
+  const adminOf = r => String(r?.adminStatus ?? '').trim();
+  // 合約完成、到期日過了：當作到期那天結束，不用再填實際結束日
+  const doneAtEnd = r => adminOf(r) === '合約完成' && !r.earlyEnd && !!r.endDate && String(r.endDate) < U.today();
+  // 結束了：過了實際結束日，或上面那樣
+  const endedEarly = r => (!!r.earlyEnd && String(r.earlyEnd) < U.today()) || doneAtEnd(r);
+  // 作廢的不算目前的合約（不會蓋掉這個位置還有效的舊合約）
+  const isVoid = r => adminOf(r) === '作廢';
+  // 結案了：不用再提醒到期、紙本；洽談中還沒開始，也不提醒到期
+  const isClosed = r => ['合約完成', '退租', '作廢'].includes(adminOf(r));
+  const remindsDue = r => !isClosed(r) && adminOf(r) !== '洽談中';
   // 開始日：空白照簽約日；兩個都空白的是還在簽（簽約日不等於開始的日子：續約可能先簽好，舊的到期才開始）
   const contractStart = r => String(r?.startDate || r?.signDate || '');
   const contractStarted = r => !isVoid(r) && !!contractStart(r) && contractStart(r) <= U.today();
@@ -530,14 +536,14 @@ const Records = (() => {
   //   code：只看這個位置（位置、設備詳情：只重簽一個位置時，舊合約對別的位置還是目前的，這裡不標）；沒有時看合約寫的每個位置
   function contractStatus(r, code) {
     if (code ? currentContract(code)?.id === r.id : isCurrentContract(r)) return { label: '目前', cls: 'blue' };
-    if (contractStarted(r) || endedEarly(r) || isVoid(r)) return null;
+    if (contractStarted(r) || endedEarly(r) || isClosed(r)) return null;
     const label = contractStart(r) ? '還沒開始' : r.adminStatus === '洽談中' ? '洽談中' : '簽約中';
     return { label, cls: 'pending', pending: true };
   }
-  // 合約頁卡片上的標籤：行政狀態；還沒選的照日期算的
+  // 合約頁卡片上的標籤：行政狀態；還沒選的寫未填（「目前」只在位置、設備、客戶詳情，看的是這個位置現在照哪一份）
   function contractTag(r) {
     const v = String(r.adminStatus ?? '').trim();
-    if (!v) return contractStatus(r);
+    if (!v) return { label: '未填', cls: 'gray' };
     const o = SCHEMAS.contracts.fields.find(f => f.key === 'adminStatus').toggle.find(x => x.value === v);
     return { label: v, cls: o?.tone || '' };
   }
@@ -555,7 +561,7 @@ const Records = (() => {
   const contractTaker = v => (v.outDate ? String(place(placesOf(v)[0])?.sales ?? '').trim() : '');
   // 紙本拿走了還沒簽回（提前結束的不算）：{ text, warn }，過了 CONTRACT_OUT 天標色；其他是 null
   function contractOutText(r) {
-    if (!r?.outDate || r.backDate || r.earlyEnd || isVoid(r)) return null;
+    if (!r?.outDate || r.backDate || r.earlyEnd || isClosed(r)) return null;
     const days = -daysTo(r.outDate);
     const who = String(r.taker ?? '').trim();
     return { text: `${who && `${who} `}${days > 0 ? `拿走 ${days} 天` : '今天拿走'}，還沒簽回`, warn: days >= CONTRACT_OUT };
@@ -570,10 +576,37 @@ const Records = (() => {
     if (!r.endDate) return null;
     const days = daysTo(r.endDate);
     const date = U.fmtDate(r.endDate);
+    if (doneAtEnd(r)) return { text: `${date} 已結束`, warn: false };
     if (!isCurrentContract(r)) return { text: `${date} 到期`, warn: false };
     if (days < 0) return { text: `${date} 已到期`, warn: true };
     if (days <= CONTRACT_SOON) return { text: days ? `${date} 到期・剩 ${days} 天` : `${date} 今天到期`, warn: true };
     return { text: `${date} 到期`, warn: false };
+  }
+
+  // ---------- 合約的狀態異常：行政狀態和日期對不上（填錯了或還沒做完）；合約頁、總覽列出來，修好就不見 ----------
+  //   退租、合約完成（到期日還沒過、或沒有到期日）還沒填實際結束日（表單上也提醒）
+  const needsEnd = v => {
+    const s = String(v.adminStatus ?? '').trim();
+    if (v.earlyEnd || (s !== '退租' && s !== '合約完成')) return false;
+    return s === '退租' || !v.endDate || String(v.endDate) >= U.today();
+  };
+  // 還在跑的狀態，所有位置都有開始日比它新的合約（只重簽一個位置的，舊合約對別的位置還有效，不算）
+  const replacedAll = r => placesOf(r).length > 0 && placesOf(r).every(p => contractsAt(p)
+    .some(x => x.id !== r.id && contractStarted(x) && contractStart(x) > contractStart(r)));
+  // 舊合約還沒選行政狀態的不算異常（在合約頁的「未填」），只看日期順序；回傳原因，沒問題時回傳空字串
+  function contractIssue(r) {
+    const s = adminOf(r);
+    const start = contractStart(r);
+    const running = ['生效中', '免簽', '不扣款'].includes(s);
+    if (s && !SCHEMAS.contracts.fields.find(f => f.key === 'adminStatus').toggle.some(o => o.value === s)) return '行政狀態不在選項裡';
+    if (start && ((r.endDate && String(r.endDate) < start) || (r.earlyEnd && String(r.earlyEnd) < start))) return '日期順序不對';
+    if (needsEnd(r)) return '還沒填實際結束日';
+    if (running && endedEarly(r)) return '已經結束，狀態還沒改';
+    if (s === '生效中' && contractStarted(r) && replacedAll(r)) return '已被新合約取代，狀態還沒改';
+    if (s === '洽談中' && start && start <= U.today()) return '已經開始，狀態還是洽談中';
+    if (running && !start) return '沒有開始日、簽約日';
+    if (s === '免簽' && (r.signDate || r.outDate || r.backDate)) return '免簽不應該有簽約資料';
+    return '';
   }
 
   function contractNote(r) {
@@ -616,14 +649,18 @@ const Records = (() => {
   // ---------- 要處理（總覽、提醒的鈴鐺）：依資料算，處理掉就自己不見 ----------
   // 合約到期、快到期：目前的合約過了到期日，或 30 天內到期；依到期日排
   //   續約按「重新簽約」（先簽好、還沒開始的也算續約了）、客戶不租了填實際結束日就不算了；位置都停用了的（客戶走了）不算
+  //   行政狀態結案了（合約完成、退租、作廢）、還在洽談的不列；不然做完的合約會一直堆在已到期
   const contractsDue = () => Store.list('contracts')
-    .filter(r => r.endDate && daysTo(r.endDate) <= CONTRACT_SOON && placesOf(r).some(p => !place(p)?.disabled
-      && currentContract(p)?.id === r.id && !contractsAt(p).some(x => !isVoid(x) && contractStart(x) > contractStart(r))))
+    .filter(r => r.endDate && daysTo(r.endDate) <= CONTRACT_SOON && remindsDue(r) && placesOf(r).some(p => !place(p)?.disabled
+      && currentContract(p)?.id === r.id && !contractsAt(p).some(x => remindsDue(x) && contractStart(x) > contractStart(r))))
     .sort(byDate('endDate'));
   // 合約還沒簽回：拿走超過 CONTRACT_OUT 天還沒填簽回日；填了簽回日、提前結束就不算了；位置都停用了的不算；拿走最久的在最上面
   const contractsOut = () => Store.list('contracts')
     .filter(r => contractOutText(r)?.warn && placesOf(r).some(p => !place(p)?.disabled))
     .sort(byDate('outDate'));
+  // 狀態異常的合約：位置都停用了的不算；業務員不用看（行政才改得到）
+  const contractIssues = () => (salesMode() ? [] : Store.list('contracts')
+    .filter(r => contractIssue(r) && placesOf(r).some(p => !place(p)?.disabled)));
   // 合約頁的排法（見 contracts.js）：還沒到期的最近到期在前，再來沒有到期日的，最後是過了的（最近過的在前）；填了實際結束日的看實際結束日
   const contractDueDate = r => String(r?.earlyEnd || r?.endDate || '');
   function compareContractDue(a, b) {
@@ -1477,10 +1514,10 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, contractsOut, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, contractsOut, contractIssues, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,
     customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, noCustomerPlaces, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
-    contractStarted, contractDate, contractDueDate, compareContractDue, contractStatus, contractTag, contractEndFrom, startText, contractTaker, contractOutText, pendingContracts, pendingShort,
+    contractStarted, contractDate, needsEnd, contractIssue, contractDueDate, compareContractDue, contractStatus, contractTag, contractEndFrom, startText, contractTaker, contractOutText, pendingContracts, pendingShort,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,

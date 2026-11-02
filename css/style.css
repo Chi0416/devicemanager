@@ -978,6 +978,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .contract-tiles .stat-tile.on.warn b { color: var(--accent-text); }
 .contract-tiles .stat-tile:disabled { cursor: default; box-shadow: none; }
 .contract-tiles .stat-tile:disabled b { color: var(--muted); }
+.contract-tiles .stat-tile.wide { grid-column: 1 / -1; }
 .place-list { margin-top: 12px; }
 @media (min-width: 700px) {
   .contract-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }

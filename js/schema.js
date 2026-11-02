@@ -131,7 +131,7 @@ const DEFAULT_OPTIONS = [
 
 // 左右切換的選項：[{ value, tone }] → toggle 的寫法
 const toggleOf = list => list.map(o => ({ value: o.value, label: o.value, tone: o.tone, match: new RegExp(`^${o.value}$`) }));
-// 合約的行政狀態：行政手動切換，報表照它分；到期提醒、目前的合約照日期算，只有作廢不算目前的合約（見 records.js）
+// 合約的行政狀態：行政手動切換，報表照它分；到期提醒、目前的合約照日期算，例外：作廢不算目前的合約，合約完成過了到期日算結束，結案的不提醒到期（見 records.js）
 const CONTRACT_STATUS = [
   { value: '洽談中', tone: 'purple' }, { value: '生效中', tone: 'blue' }, { value: '合約完成', tone: 'green' }, { value: '免簽', tone: 'gray' },
   { value: '不扣款', tone: 'gray' }, { value: '退租', tone: 'orange' }, { value: '作廢', tone: 'red' },
@@ -413,7 +413,8 @@ const SCHEMAS = {
 
   // 合約：綁位置、不綁機器（一次租三台是一份合約寫三個位置）；機器目前的合約＝它現在所在位置的合約，換機時不用改
   //   一個位置目前的合約：已經開始的裡面開始日最新的那一份（實際結束了的話沒有）；開始日空白照簽約日（見 records.js 的 contractStart）
-  //   行政狀態：行政手動切換，報表照它分；時間的判斷照日期，只有作廢不算目前的合約
+  //   行政狀態：行政手動切換，報表照它分；時間的判斷照日期，例外：作廢不算目前的合約，合約完成過了到期日算結束，合約完成、退租、作廢、洽談中不提醒到期
+  //   行政狀態和日期對不上的：合約頁、總覽的狀態異常（見 records.js 的 contractIssue）
   //   不簽約的客戶簽約日空白；紙本拿出去還沒簽回的只填拿走日，簽回來填了日期才算目前的合約
   //   紙本（拿走的人、拿走日、簽回日）和目前的合約分開算：機器先裝了、紙本還在外面時，開始日到了就算目前，同時繼續提醒還沒簽回
   //   重簽、續約、改條件都按「重新簽約」新增一份；修改只用來改打錯的，改了什麼記在合約修改紀錄（見 records.js）
@@ -468,7 +469,7 @@ const SCHEMAS = {
       // 新增時一定要選；舊合約留空也可以，合約頁寫「未填」
       { key: 'adminStatus', label: '行政狀態', type: 'text', optional: true, toggle: toggleOf(CONTRACT_STATUS), select: true, section: '行政',
         check: v => (v.id || v.adminStatus ? '' : '請選行政狀態'),
-        note: v => (['合約完成', '退租'].includes(v.adminStatus) && !v.earlyEnd ? { text: '還要填實際結束日', warn: true } : '') },
+        note: v => (Records.needsEnd(v) ? { text: '還要填實際結束日', warn: true } : '') },
       // 開發人、簽約人：只列勾了業務員的人員（和位置的業務員一樣）
       { key: 'developer', label: '開發人', type: 'ref', ref: 'people', optional: true, noAdd: true, only: () => p => !!p.sales, onlyNote: () => '沒有勾「業務員」，先到人員勾',
         check: v => Records.salesCheck(v, 'contracts', 'developer') },

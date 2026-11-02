@@ -701,11 +701,11 @@ test('行政狀態：只是報表的分類，時間照日期算；只有作廢�
   const { Store, Records, SCHEMAS, field, add } = withDevices(); // 今天 2026-10-11
   const ids = list => plain(list.map(r => r.id));
   const old = add('contracts', { locations: DH, signDate: '2024-01-01', endDate: '2026-11-01', adminStatus: '生效中' });
-  // 其他狀態不影響目前的合約、到期提醒
+  // 到期日還沒過：其他狀態不影響目前的合約；結案的、洽談中不提醒到期
   ['洽談中', '生效中', '合約完成', '免簽', '不扣款', '退租'].forEach(v => {
     Store.update('contracts', old.id, { adminStatus: v });
     assert.equal(Records.currentContract(DH).id, old.id, v);
-    assert.deepEqual(ids(Records.contractsDue()), [old.id], v);
+    assert.deepEqual(ids(Records.contractsDue()), ['生效中', '免簽', '不扣款'].includes(v) ? [old.id] : [], v);
   });
   Store.update('contracts', old.id, { adminStatus: '生效中' });
   // 作廢的新合約：不算目前、沒有標籤，舊的繼續算，也不算續約了，紙本不提醒
@@ -717,10 +717,11 @@ test('行政狀態：只是報表的分類，時間照日期算；只有作廢�
   Store.update('contracts', bad.id, { startDate: '2026-02-01' });
   assert.equal(Records.currentContract(DH).id, old.id); // 開始日過了也一樣
   assert.equal(Records.currentContracts().size, 1);
-  // 合約頁的標籤寫行政狀態，沒選的照日期算；顏色照選項
+  // 合約頁的標籤寫行政狀態，沒選的寫未填；顏色照選項；「目前」是詳情清單的（照日期算）
   assert.deepEqual(plain(Records.contractTag(Store.get('contracts', bad.id))), { label: '作廢', cls: 'red' });
   const blank = add('contracts', { locations: AX, signDate: '2026-01-01' });
-  assert.deepEqual(plain(Records.contractTag(blank)), { label: '目前', cls: 'blue' });
+  assert.deepEqual(plain(Records.contractTag(blank)), { label: '未填', cls: 'gray' });
+  assert.deepEqual(plain(Records.contractStatus(blank)), { label: '目前', cls: 'blue' });
   // 洽談中：什麼日期都沒有也可以存，標籤寫洽談中；還不算目前的合約
   const talk = add('contracts', { locations: WH, signDate: null, adminStatus: '洽談中' });
   assert.equal(Records.contractStatus(talk).label, '洽談中');
@@ -734,7 +735,10 @@ test('行政狀態：只是報表的分類，時間照日期算；只有作廢�
   assert.equal(status.check({ id: 'x' }), '');
   assert.equal(status.check({ adminStatus: '生效中' }), '');
   assert.deepEqual(plain(status.note({ adminStatus: '退租' })), { text: '還要填實際結束日', warn: true });
+  assert.deepEqual(plain(status.note({ adminStatus: '退租', endDate: '2026-01-01' })), { text: '還要填實際結束日', warn: true });
   assert.deepEqual(plain(status.note({ adminStatus: '合約完成' })), { text: '還要填實際結束日', warn: true });
+  assert.deepEqual(plain(status.note({ adminStatus: '合約完成', endDate: '2027-01-01' })), { text: '還要填實際結束日', warn: true });
+  assert.equal(status.note({ adminStatus: '合約完成', endDate: '2026-01-01' }), ''); // 到期日過了：當作到期那天結束
   assert.equal(status.note({ adminStatus: '退租', earlyEnd: '2026-10-01' }), '');
   assert.equal(status.note({ adminStatus: '作廢' }), '');
   // 開發人、簽約人只列勾了業務員的人員
@@ -758,6 +762,90 @@ test('行政狀態：只是報表的分類，時間照日期算；只有作廢�
   assert.equal(SCHEMAS.contracts.card.title({}), '合約');
   // 表單的排法
   assert.deepEqual(plain(SCHEMAS.contracts.formOrder), ['locations', 'signDate', 'years', 'startDate', 'endDate', 'earlyEnd', 'taxType', 'rent', 'content', 'billing', 'deposit', 'cycle', 'readDay', 'adminStatus', 'developer', 'signer', 'taker', 'outDate', 'backDate']);
+});
+
+test('已到期不會堆滿結案的合約：結案、洽談中不提醒；合約完成過了到期日算結束，機器還在就是有機器沒合約；免簽、不扣款有填到期日才提醒', () => {
+  const { Store, Records, add, d1 } = withDevices(); // 今天 2026-10-11
+  const ids = list => plain(list.map(r => r.id));
+  const over = (locations, adminStatus) => add('contracts', { locations, signDate: '2024-01-01', endDate: '2026-09-30', adminStatus });
+  const r1 = add('locations', { code: 'L0101', name: '甲' }), r2 = add('locations', { code: 'L0102', name: '乙' }), r3 = add('locations', { code: 'L0103', name: '丙' });
+  const r4 = add('locations', { code: 'L0104', name: '丁' }), r5 = add('locations', { code: 'L0105', name: '戊' });
+  const done = over(r1.code, '合約完成');
+  over(r2.code, '退租');
+  const free = over(r3.code, '免簽');
+  const noPay = over(r4.code, '不扣款');
+  const blank = over(r5.code, '');
+  assert.deepEqual(ids(Records.contractsDue()).sort(), [free.id, noPay.id, blank.id].sort()); // 到期日一樣時照 id
+  // 合約完成、到期日過了：不是目前的合約，不用填實際結束日，寫已結束，沒有異常
+  assert.equal(Records.currentContract(r1.code), null);
+  assert.equal(Records.contractStatus(done), null);
+  assert.deepEqual(plain(Records.endText(done)), { text: '2026/09/30 已結束', warn: false });
+  assert.equal(Records.contractIssue(done), '');
+  // 機器還在：有機器沒合約
+  assert.deepEqual(plain(Records.placesNoContract().map(p => p.name)), []);
+  Store.update('devices', d1.id, { location: r1.code });
+  assert.deepEqual(plain(Records.placesNoContract().map(p => p.name)), ['甲']);
+  // 退租沒填實際結束日：還是目前的合約（時間照日期），算異常；填了就結束
+  const out = add('contracts', { locations: AX, signDate: '2026-01-01', outDate: '2026-01-01', adminStatus: '退租' });
+  assert.equal(Records.currentContract(AX).id, out.id);
+  assert.equal(Records.contractOutText(out), null); // 結案了，紙本不提醒
+  Store.update('contracts', out.id, { earlyEnd: '2026-10-01' });
+  assert.equal(Records.currentContract(AX), null);
+});
+
+test('狀態異常：八種矛盾；舊合約沒選行政狀態的只看日期順序；修好就不見；業務員不用看', () => {
+  const { Store, Records, add } = withDevices(); // 今天 2026-10-11
+  const why = over => Records.contractIssue({ locations: DH, id: 'x', ...over });
+  const start = { signDate: '2026-01-01' };
+  // 5 少了結束日
+  assert.equal(why({ ...start, adminStatus: '退租' }), '還沒填實際結束日');
+  assert.equal(why({ ...start, adminStatus: '退租', endDate: '2026-02-01' }), '還沒填實際結束日');
+  assert.equal(why({ ...start, adminStatus: '退租', earlyEnd: '2026-02-01' }), '');
+  assert.equal(why({ ...start, adminStatus: '合約完成' }), '還沒填實際結束日');
+  assert.equal(why({ ...start, adminStatus: '合約完成', endDate: '2027-01-01' }), '還沒填實際結束日');
+  assert.equal(why({ ...start, adminStatus: '合約完成', endDate: '2026-02-01' }), '');
+  // 6 結束了，狀態沒改
+  ['生效中', '免簽', '不扣款'].forEach(s => assert.equal(why({ startDate: '2026-01-01', adminStatus: s, earlyEnd: '2026-02-01' }), '已經結束，狀態還沒改', s));
+  assert.equal(why({ ...start, adminStatus: '生效中', earlyEnd: '2026-12-01' }), ''); // 還沒到那天
+  // 8 已開始，還寫洽談中
+  assert.equal(why({ startDate: '2026-10-11', adminStatus: '洽談中' }), '已經開始，狀態還是洽談中');
+  assert.equal(why({ startDate: '2026-12-01', adminStatus: '洽談中' }), '');
+  assert.equal(why({ adminStatus: '洽談中' }), '');
+  // 9 寫生效中，卻沒有日期
+  ['生效中', '免簽', '不扣款'].forEach(s => assert.equal(why({ adminStatus: s }), '沒有開始日、簽約日', s));
+  assert.equal(why({ startDate: '2027-01-01', adminStatus: '生效中' }), ''); // 續約先簽好、還沒開始是正常的
+  // 10 免簽卻有簽約資料
+  assert.equal(why({ ...start, adminStatus: '免簽' }), '免簽不應該有簽約資料');
+  assert.equal(why({ startDate: '2026-01-01', outDate: '2026-01-01', adminStatus: '免簽' }), '免簽不應該有簽約資料');
+  assert.equal(why({ startDate: '2026-01-01', adminStatus: '免簽' }), '');
+  // 11 日期順序不對（沒選行政狀態的也看）
+  assert.equal(why({ ...start, endDate: '2025-12-31' }), '日期順序不對');
+  assert.equal(why({ ...start, earlyEnd: '2025-12-31', adminStatus: '退租' }), '日期順序不對');
+  // 12 狀態不在選項裡
+  assert.equal(why({ ...start, adminStatus: '打錯字' }), '行政狀態不在選項裡');
+  // 舊合約沒選行政狀態：其他都不算；過了到期日還生效中也不算（在已到期）
+  assert.equal(why({ ...start }), '');
+  assert.equal(why({ ...start, endDate: '2026-02-01', adminStatus: '生效中' }), '');
+  // 7 被取代，狀態沒改：所有位置都有新合約才算；只重簽一個位置不算
+  const old = add('contracts', { locations: `${DH}、${AX}`, signDate: '2024-01-01', adminStatus: '生效中' });
+  add('contracts', { locations: DH, signDate: '2026-01-01', adminStatus: '生效中' });
+  assert.equal(Records.contractIssue(old), '');
+  const next = add('contracts', { locations: AX, signDate: '2026-02-01', startDate: '2027-01-01', adminStatus: '生效中' });
+  assert.equal(Records.contractIssue(old), ''); // 新的還沒開始：舊的還有效
+  Store.update('contracts', next.id, { startDate: '2026-02-01' });
+  assert.equal(Records.contractIssue(old), '已被新合約取代，狀態還沒改');
+  // 列出來；修好就不見；位置都停用的不算
+  assert.deepEqual(plain(Records.contractIssues().map(r => r.id)), [old.id]);
+  Store.update('contracts', old.id, { adminStatus: '合約完成', earlyEnd: '2025-12-31' });
+  assert.deepEqual(plain(Records.contractIssues()), []);
+  const gone = add('locations', { code: 'L0011', name: '舊客戶', disabled: true });
+  add('contracts', { locations: gone.code, signDate: '2026-01-01', adminStatus: '退租' });
+  assert.deepEqual(plain(Records.contractIssues()), []);
+  // 業務員不用看
+  const sales = app({ sales: true });
+  sales.add('locations', { code: DH, name: '大華貿易 3F' });
+  sales.add('contracts', { locations: DH, signDate: '2026-01-01', adminStatus: '退租' });
+  assert.deepEqual(plain(sales.Records.contractIssues()), []);
 });
 
 test('年限帶到期日：開始日（空白照簽約日）加幾年；實際結束日的字：比到期日早是提前結束，其他是結束；免簽沒有到期日時寫免簽', () => {

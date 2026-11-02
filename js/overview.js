@@ -1,6 +1,6 @@
 // 總覽：最上面寫共幾台、幾種機型；下面是狀態方塊、要處理、各機型有幾台（計算見 records.js）
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
-//   要處理：合約到期、快到期，合約還沒簽回（拿走超過 14 天），保固 30 天內到期，耗材快到了（預估 14 天內），該抄表了，回報停了（超過 3 天），狀態和位置對不上，空著的位置；
+//   要處理：合約到期、快到期，合約還沒簽回（拿走超過 14 天），合約狀態異常（行政狀態和日期對不上），保固 30 天內到期，耗材快到了（預估 14 天內），該抄表了，回報停了（超過 3 天），狀態和位置對不上，空著的位置；
 //     依資料算，處理掉就自己不見，沒有的那一列不列
 //     保固…：點一列打開那份清單（#todo-sheet），點一項打開那台設備；空著的位置：到位置頁、篩好空著的（onPlaces）；合約：到合約頁，只列那一格（onContracts）
 //   機型：依世代分組（機型清單的「世代」，空白時照型號猜），標題寫「IM C 系列」和小計，下面一條線；組裡一行一個、照機型清單的順序，細長條是台數
@@ -53,6 +53,12 @@ function createOverview({ onPick, onPlaces, onContracts }) {
       list: () => Records.contractsOut(),
       summary: list => `最久拿走 ${Math.round((Date.parse(U.today()) - Date.parse(list[0].outDate)) / 86400000)} 天`,
       go: () => onContracts('out'),
+    },
+    {
+      key: 'contractIssues', title: '合約狀態異常', icon: 'doc', tone: 'warn',
+      list: () => Records.contractIssues(),
+      summary: () => '行政狀態和日期對不上',
+      go: () => onContracts('issue'),
     },
     {
       key: 'warranty', title: '保固 30 天內到期', icon: 'shield', tone: 'warn',
