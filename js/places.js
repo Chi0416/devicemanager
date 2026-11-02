@@ -68,7 +68,7 @@ function createPlaces() {
       const list = [...kinds].map(([m, n]) => (n > 1 ? `${m} ×${n}` : m));
       return `${x.on.length} 台：${list.slice(0, 4).join('、')}${list.length > 4 ? '…' : ''}`;
     }
-    if (x.on.length) return Records.fullLabel(x.on[0]);
+    if (x.on.length) return Records.label(x.on[0]);
     if (x.p.stock) return '現在沒有機器';
     const m = Records.lastMoveAt(x.p.code);
     return m ? `${shortDate(m.date)} ${m.type || ''} ${Records.label(Records.device(m.device))}`.replace(/\s+/g, ' ').trim() : '還沒有放過機器';

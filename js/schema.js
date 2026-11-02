@@ -249,7 +249,7 @@ const SCHEMAS = {
     unit: '台設備',
     order: (a, b) => Records.deviceOrder(a, b), // 照機型清單的順序，同一個機型依名稱
     filter: 'status',
-    groups: [['category', '類別'], ['model', '機型'], ['location', '位置'], ['keeper', '保管人']],
+    groups: [['category', '類別'], ['model', '機型'], ['keeper', '保管人']],
     search: ['serial', 'name', 'brand', 'model', 'board', 'keeper'],
     searchText: r => Records.placeText(r.location),
     searchHint: '搜尋序號、名稱或位置',

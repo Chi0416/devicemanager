@@ -2,7 +2,7 @@
 //   有 schema.period 時依日期分組（新到舊，同一天新增的在前；period.then 是同一組裡再依哪個欄位排），上方可以選年、月
 //     依月份分組的（抄表的結算月份）標題寫 2026/09；沒有 period 時依 schema.order 或 schema.sort 排序
 //   schema.filter：上方一排篩選按鈕（依那個欄位的 toggle 或清單，例如設備的狀態），寫著每一種有幾筆
-//   schema.groups：上方的分組選單（不分組、依類別、依位置…），這台裝置記住上次選的
+//   schema.groups：上方的分組選單（不分組、依類別、依機型…），這台裝置記住上次選的
 //   schema.note：卡片最下面的一行（例如保固快到期）
 //   schema.card.cols(列)：標題下面的小表格，一欄一種張數 [{ label, use, tone, count }]（抄表、保養的黑白、彩色）
 //     最上面一列寫黑白、彩色；下面兩列是使用量（粗體）、計數器（灰字），左邊寫是哪一列
@@ -206,15 +206,12 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   });
 
   // 分組：依日期（有 period 時）或依選的欄位；欄位空白的放最後（「未填類別」）
-  //   存編號的欄位（位置）依畫面上寫的字分組（欄位的 format）
   function grouped(rows) {
     if (state.group) {
       const label = groups.find(([k]) => k === state.group)[1];
-      const gf = byKey[state.group];
       const map = new Map();
       rows.forEach(r => {
-        const raw = String(r[state.group] ?? '').trim();
-        const g = raw && gf.format ? String(gf.format(raw)).trim() : raw;
+        const g = String(r[state.group] ?? '').trim();
         if (!map.has(g)) map.set(g, []);
         map.get(g).push(r);
       });
