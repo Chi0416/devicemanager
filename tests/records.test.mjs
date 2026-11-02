@@ -8,8 +8,8 @@ import vm from 'node:vm';
 
 const FILES = ['util', 'schema', 'storage', 'refs', 'records'];
 
-// sales：業務員模式（假的 Sync，見 sync.js 的業務員）
-function app({ today = '2026-10-11', sales = false } = {}) {
+// sales：業務員模式（假的 Sync，見 sync.js 的業務員）；all：看全部
+function app({ today = '2026-10-11', sales = false, all = false } = {}) {
   const ls = {};
   const ctx = vm.createContext({
     localStorage: {
@@ -23,7 +23,7 @@ function app({ today = '2026-10-11', sales = false } = {}) {
   });
   for (const f of FILES) vm.runInContext(readFileSync(new URL(`../js/${f}.js`, import.meta.url), 'utf8'), ctx, { filename: `${f}.js` });
   vm.runInContext(`U.today = () => '${today}'`, ctx);
-  if (sales) vm.runInContext('var Sync = { isSales: () => true, salesAll: () => false, salesCan: () => true, salesSee: () => true }', ctx);
+  if (sales) vm.runInContext(`var Sync = { isSales: () => true, salesAll: () => ${all}, salesCan: () => true, salesSee: () => true }`, ctx);
   const a = vm.runInContext('({ Store, Refs, Records, SCHEMAS })', ctx);
   const field = (t, key) => a.SCHEMAS[t].fields.find(f => f.key === key);
   // 新增一筆：沒寫的欄位用空白（和表單存的一樣）
@@ -408,6 +408,27 @@ test('業務員：人員勾業務員、預設全部權限、要填 Email；位�
   assert.equal(Refs.usesOf('people', a).length, 0);
   Store.update('locations', p.id, { sales: '阿明' });
   assert.deepEqual(plain(Refs.usesOf('people', a).map(u => u.key)), ['sales']);
+});
+
+test('位置頁的業務員：名單只有勾了業務員、沒離職的；人員裡沒有、沒勾、離職的算有問題；業務員模式不判斷，只看自己客戶的不寫', () => {
+  const { Records, add } = app();
+  add('people', { name: '阿明', sales: true });
+  add('people', { name: '小華' });
+  add('people', { name: '老王', sales: true, leaveDate: '2026-10-11' }); // 離職那天就拿不到（和 meter.gs 的 salesPerson_ 一樣）
+  add('people', { name: '阿芳', sales: true, leaveDate: '2026-10-12' });
+  assert.deepEqual(plain(Records.salesPeople()), ['阿明', '阿芳']);
+  assert.equal(Records.salesBad('阿明'), false);
+  assert.equal(Records.salesBad(' 阿芳 '), false);
+  assert.equal(Records.salesBad('小華'), true);
+  assert.equal(Records.salesBad('老王'), true);
+  assert.equal(Records.salesBad('沒這個人'), true);
+  assert.equal(Records.salesLimited(), false);
+  // 業務員模式拿到的人員只有姓名（沒有業務員的勾選）：不能當成有問題
+  const sales = app({ sales: true });
+  sales.add('people', { name: '阿明' });
+  assert.equal(sales.Records.salesBad('阿明'), false);
+  assert.equal(sales.Records.salesLimited(), true);
+  assert.equal(app({ sales: true, all: true }).Records.salesLimited(), false);
 });
 
 // 客戶：鼎泰國際有 3F、4F（停用）兩個位置；宏遠集團是宏遠建設的母公司（自己沒有位置）

@@ -1,11 +1,13 @@
 // 位置頁（底部第三格）：每個位置一張卡片，點了打開位置詳情（見 detail.js 的 Place）
-//   倉庫排最上面，其他照名稱；卡片：名稱、現在放的機器（空著寫最後一次搬走，倉庫寫幾台）、合約（快到期、已到期標色）、最近一期用量（跟前一期比）
-//   上面搜尋（名稱、以前的名字、客戶、放著的機器的機型名稱序號都找得到），篩選：全部（沒停用的）／有機器／空著／倉庫／停用
+//   倉庫排最上面，其他照名稱；卡片：名稱、現在放的機器（空著寫最後一次搬走，倉庫寫幾台）、業務員、合約（快到期、已到期標色）、最近一期用量（跟前一期比）
+//   上面搜尋（名稱、以前的名字、客戶、業務員、放著的機器的機型名稱序號都找得到），業務員選單，篩選：全部（沒停用的）／有機器／空著／倉庫／停用
 //   放著的機器狀態和位置對不上（庫存放在客戶那裡、出租中放在倉庫，跟總覽一樣）：原本的標籤左邊加橘色「狀態不對」
+//   只看得到自己客戶的業務員：不寫業務員、沒有業務員選單（看到的都是他的）
 //   用量、合約一次算好全部的位置（見 records.js 的 usageByPlace、currentContracts）
 function createPlaces() {
   const FILTERS = [['', '全部'], ['on', '有設備'], ['empty', '空著'], ['stock', '倉庫'], ['off', '停用']];
-  const state = { keyword: '', filter: '', flashId: null };
+  const NO_SALES = ' '; // 業務員選單的「沒有業務員」：姓名都去掉前後空白，不會和它一樣
+  const state = { keyword: '', filter: '', sales: '', flashId: null };
 
   const el = document.createElement('section');
   el.className = 'panel places';
@@ -13,12 +15,14 @@ function createPlaces() {
   el.innerHTML = `
     <div class="filterbar">
       <div class="filterbar-row">
-        <input class="f-keyword" type="search" placeholder="搜尋位置、客戶或設備" autocomplete="off" enterkeyhint="search">
+        <input class="f-keyword" type="search" placeholder="搜尋位置、設備" autocomplete="off" enterkeyhint="search">
+        <select class="f-sales" aria-label="業務員"></select>
       </div>
       <div class="filter-chips" role="group" aria-label="篩選"></div>
     </div>
     <div class="list"></div>`;
   const keywordInput = el.querySelector('.f-keyword');
+  const salesSel = el.querySelector('.f-sales');
   const chipsEl = el.querySelector('.filter-chips');
   const listEl = el.querySelector('.list');
 
@@ -43,16 +47,18 @@ function createPlaces() {
       .map(p => {
         const on = machines.get(norm(p.code)) || [];
         return { p, on, kind: kindOf(p, on.length), usage: usage.get(norm(p.code)) || [], contract: contracts.get(norm(p.code)) || null,
-          wrong: wrong.has(norm(p.code)) };
+          wrong: wrong.has(norm(p.code)), sales: p.stock ? '' : String(p.sales ?? '').trim() };
       })
       .sort((a, b) => (b.kind === 'stock') - (a.kind === 'stock')
         || String(a.p.name ?? '').localeCompare(String(b.p.name ?? ''), 'zh-Hant', { numeric: true }));
   }
 
   // 位置的客戶的統編、電話…也找得到（名稱在 placeText 裡）；客戶自己的卡片在客戶頁（見 customers.js）
-  const searchText = x => [Records.placeText(x.p.code), Records.customerText(Records.customerOf(x.p) || {}),
+  const searchText = x => [Records.placeText(x.p.code), Records.customerText(Records.customerOf(x.p) || {}), x.sales,
     ...x.on.map(d => `${Records.label(d)} ${d.serial || ''}`)].join(' ');
   const inFilter = x => (state.filter ? x.kind === state.filter : x.kind !== 'off');
+  // 業務員選單：倉庫不用填，選了人或「沒有業務員」時都不列
+  const inSales = (x, v = state.sales) => !v || (!x.p.stock && x.sales === (v === NO_SALES ? '' : v));
 
   // 名稱下面那一行：現在放的機器；空著寫最後一次搬走；倉庫（或一格放了好幾台）寫幾台、哪幾種
   function subText(x) {
@@ -66,6 +72,14 @@ function createPlaces() {
     if (x.p.stock) return '現在沒有機器';
     const m = Records.lastMoveAt(x.p.code);
     return m ? `${shortDate(m.date)} ${m.type || ''} ${Records.label(Records.device(m.device))}`.replace(/\s+/g, ' ').trim() : '還沒有放過機器';
+  }
+
+  // 機器下面那一行：負責的業務員；選的人有問題時橘字（看起來填好了，他其實看不到）
+  function salesHTML(x) {
+    if (x.p.stock || Records.salesLimited()) return '';
+    if (!x.sales) return '<span class="card-sub muted">沒有業務員</span>';
+    const bad = Records.salesBad(x.sales);
+    return `<span class="card-sub${bad ? ' warn' : ''}">業務員：${U.esc(x.sales)}${bad ? '（不是業務員）' : ''}</span>`;
   }
 
   function cellsHTML(x) {
@@ -97,14 +111,33 @@ function createPlaces() {
           ${badge ? `<span class="badge ${badge[1]}">${badge[0]}</span>` : ''}
         </span>
         <span class="card-sub">${U.esc(subText(x))}</span>
+        ${salesHTML(x)}
         ${cellsHTML(x)}
       </button>`;
+  }
+
+  // 業務員選單：沒有業務員、勾了業務員的人（還沒有位置的也列）、位置上寫的其他名字；後面的數字是選了會列出幾個（照目前的搜尋、篩選）
+  //   選的人不見了（改名、取消勾選，又沒有位置）：回到全部
+  function renderSales(all, words) {
+    salesSel.hidden = Records.salesLimited();
+    if (salesSel.hidden) {
+      state.sales = '';
+      return;
+    }
+    const names = [...new Set([...Records.salesPeople(), ...all.map(x => x.sales).filter(Boolean)])]
+      .sort((a, b) => a.localeCompare(b, 'zh-Hant', { numeric: true }));
+    if (state.sales !== NO_SALES && !names.includes(state.sales)) state.sales = '';
+    const option = (v, label) => `<option value="${U.esc(v)}">${U.esc(label)} (${words.filter(x => inFilter(x) && inSales(x, v)).length})</option>`;
+    salesSel.innerHTML = `<option value="">全部業務員</option>${option(NO_SALES, '沒有業務員')}${names.map(n => option(n, n)).join('')}`;
+    salesSel.value = state.sales;
   }
 
   function render() {
     const all = rows();
     const kw = state.keyword.trim().toLowerCase();
-    const matched = kw ? all.filter(x => searchText(x).toLowerCase().includes(kw)) : all;
+    const words = kw ? all.filter(x => searchText(x).toLowerCase().includes(kw)) : all;
+    renderSales(all, words);
+    const matched = words.filter(x => inSales(x));
     const count = f => matched.filter(x => (f ? x.kind === f : x.kind !== 'off')).length;
     chipsEl.innerHTML = FILTERS.map(([f, label]) => `
       <button type="button" class="chip filter${state.filter === f ? ' on' : ''}" data-filter="${f}" aria-pressed="${state.filter === f}">${label}<span>${count(f)}</span></button>`).join('');
@@ -115,6 +148,7 @@ function createPlaces() {
   }
 
   keywordInput.addEventListener('input', () => { state.keyword = keywordInput.value; render(); });
+  salesSel.addEventListener('change', () => { state.sales = salesSel.value; render(); });
   chipsEl.addEventListener('click', e => {
     const btn = e.target.closest('[data-filter]');
     if (!btn) return;
@@ -131,6 +165,7 @@ function createPlaces() {
     if (rec && Store.get('locations', rec.id)) {
       const x = rows().find(r => r.p.id === rec.id);
       if (x && !inFilter(x)) state.filter = '';
+      if (x && !inSales(x)) state.sales = '';
       if (x && state.keyword && !searchText(x).toLowerCase().includes(state.keyword.trim().toLowerCase())) {
         state.keyword = '';
         keywordInput.value = '';
@@ -141,7 +176,7 @@ function createPlaces() {
   }
 
   function reset() {
-    Object.assign(state, { keyword: '', filter: '', flashId: null });
+    Object.assign(state, { keyword: '', filter: '', sales: '', flashId: null });
     keywordInput.value = '';
     render();
   }
@@ -149,6 +184,7 @@ function createPlaces() {
   // 從別的地方帶著篩選打開（總覽的「空著的位置」）
   function show({ filter = '' } = {}) {
     state.filter = filter;
+    state.sales = '';
     state.keyword = '';
     keywordInput.value = '';
     render();

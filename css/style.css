@@ -1007,6 +1007,8 @@ button.model-cell:active .model-name { color: var(--accent-text); }
 .place-grid .cell > span.muted { font-weight: 500; color: var(--muted); }
 .place-grid .cell > span i { margin-left: 2px; font-style: normal; font-weight: 500; font-size: 12.5px; color: var(--muted); }
 .place-grid .cell em { display: block; font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.place-card .card-sub.muted { color: var(--muted); }
+.place-card .card-sub.warn { color: var(--warn); }
 .place-card.off .card-title, .place-card.off .card-sub { color: var(--muted); }
 
 /* ---------- 位置詳情的用量（見 detail.js 的 usageHTML）：最近 12 個月，一個月一條，下面黑白、上面彩色 ---------- */

@@ -456,6 +456,12 @@ const Records = (() => {
     const p = Store.list('people').find(x => key(x.name) === n);
     return p && !p.sales ? `「${p.name}」沒有勾業務員，先到人員勾` : '';
   }
+  // 位置頁（見 places.js）：勾了業務員、沒離職的人（位置的業務員照姓名對，見 meter.gs 的 salesScope_）
+  const salesPeople = () => Store.list('people').filter(p => p.sales && stillHere(p)).map(p => String(p.name ?? '').trim()).filter(Boolean);
+  // 這個名字的人拿不到位置：人員裡沒有、沒勾業務員、離職了；業務員模式拿到的人員只有姓名，不判斷
+  const salesBad = name => !salesMode() && !salesPeople().includes(String(name ?? '').trim());
+  // 業務員模式、沒有看全部：看到的位置都是他的，不用寫業務員
+  const salesLimited = () => salesMode() && !Sync.salesAll();
 
   // ---------- 客戶 ----------
   const byName = (a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-Hant', { numeric: true });
@@ -1386,7 +1392,7 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
     customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, noCustomerPlaces, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     logContract, contractHistory, dropContractLog,
