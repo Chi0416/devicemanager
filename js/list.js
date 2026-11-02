@@ -14,11 +14,13 @@
 //     回傳 [{ label, value, warn }]（位置、設備）
 //   aside(列)：卡片標題右邊（標籤左邊）的灰字，{ text, warn } 或 null（位置詳情：放過好幾台的位置寫哪一台）；放不下時後面變「…」
 //   status(列)：這張清單的標籤，沒有時用 schema.status（位置、設備詳情的合約：只看這個位置目前的是哪一份）
-//   filterKey：篩選按鈕依哪個欄位，沒有時用 schema.filter（合約的行政狀態只有合約頁有）；filterEmpty：這一欄空白的那個按鈕的名稱，有空白的才列
-function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null, status = null, filterKey = schema.filter, filterEmpty = '' }) {
+//   filterKey：篩選依哪個欄位，沒有時用 schema.filter（合約的行政狀態只有合約頁有）；filterEmpty：這一欄空白的那一項的名稱，有空白的才列
+//   filterSelect：篩選改成搜尋框旁邊的下拉選單（不佔一排按鈕），字是「全部」那一項寫的；數字寫在每一項後面
+//   period、order：這張清單的日期分組、排法，沒有時用 schema 的（合約頁照到期日）；period.noSelect：不要上方的月份選單；period.head(日期)：分組標題要怎麼寫
+function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null, status = null, filterKey = schema.filter, filterEmpty = '', filterSelect = '', period: listPeriod = schema.period, order = schema.order }) {
   const fields = schema.fields;
   const byKey = Object.fromEntries(fields.map(f => [f.key, f]));
-  const period = schema.period || null;
+  const period = listPeriod || null;
   const card = schema.card;
   const { code, title, badge, primary, grid } = card;
   const titleOf = r => (typeof title === 'function' ? title(r) : r[title]);
@@ -98,7 +100,8 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   el.hidden = true;
   const searchRow = `
       <div class="filterbar-row">
-        ${period ? `<select class="f-period" aria-label="${period.label}"></select>` : ''}
+        ${filterField && filterSelect ? `<select class="f-filter" aria-label="${U.esc(filterField.label)}"></select>` : ''}
+        ${period && !period.noSelect ? `<select class="f-period" aria-label="${period.label}"></select>` : ''}
         ${groups.length ? `<select class="f-group" aria-label="分組">
           <option value="">不分組</option>
           ${groups.map(([k, label]) => `<option value="${k}">依${U.esc(label)}</option>`).join('')}
@@ -109,7 +112,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   el.innerHTML = `
     ${detail && !filterField ? '' : `<div class="filterbar">
       ${detail ? '' : searchRow}
-      ${filterField ? '<div class="filter-chips" role="group" aria-label="篩選"></div>' : ''}
+      ${filterField && !filterSelect ? '<div class="filter-chips" role="group" aria-label="篩選"></div>' : ''}
     </div>`}
     <div class="list"></div>`;
 
@@ -118,6 +121,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   const keywordInput = el.querySelector('.f-keyword');
   const countEl = el.querySelector('.count');
   const chipsEl = el.querySelector('.filter-chips');
+  const filterSel = el.querySelector('.f-filter');
   const listEl = el.querySelector('.list');
 
   periodSel?.addEventListener('change', () => { state.period = periodSel.value; renderList(); });
@@ -130,6 +134,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     });
   }
   keywordInput?.addEventListener('input', () => { state.keyword = keywordInput.value; renderList(); });
+  filterSel?.addEventListener('change', () => { state.filter = filterSel.value; renderList(); });
   chipsEl?.addEventListener('click', e => {
     const btn = e.target.closest('[data-filter]');
     if (!btn) return;
@@ -155,9 +160,14 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
 
   // 篩選按鈕的數字跟著搜尋走（搜尋「筆電」時，寫的是筆電裡各狀態有幾台）
   function renderChips(rows) {
-    if (!chipsEl) return;
+    if (!chipsEl && !filterSel) return;
     const count = v => rows.filter(r => !v || filterOf(r) === v).length;
-    const opts = [{ value: '', label: '全部', tone: '' }, ...filterOptions(rows)];
+    const opts = [{ value: '', label: filterSelect || '全部', tone: '' }, ...filterOptions(rows)];
+    if (filterSel) {
+      filterSel.innerHTML = opts.map(o => `<option value="${U.esc(o.value)}">${U.esc(o.label)} (${count(o.value)})</option>`).join('');
+      filterSel.value = state.filter;
+      return;
+    }
     chipsEl.innerHTML = opts.map(o => `
       <button type="button" class="chip filter ${U.esc(o.tone)}${state.filter === o.value ? ' on' : ''}" data-filter="${U.esc(o.value)}"
         aria-pressed="${state.filter === o.value}">${U.esc(o.label)}<span>${count(o.value)}</span></button>`).join('');
@@ -212,7 +222,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   }
 
   const desc = (x, y) => (x < y ? 1 : x > y ? -1 : 0);
-  const compare = schema.order || ((a, b) => {
+  const compare = order || ((a, b) => {
     const k = period ? period.key : schema.sort;
     if (!k) return 0;
     const x = period ? periodOf(a) : String(a[k] ?? ''), y = period ? periodOf(b) : String(b[k] ?? '');
@@ -240,7 +250,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
       rows.forEach(r => {
         const raw = dateOf(r);
         const g = raw || `empty:${periodOf(r)}`;
-        const head = !raw ? period.emptyHead || '沒有日期' : byKey[period.key].type === 'month' ? U.fmtMonth(raw) : `${U.fmtDate(raw)} ${U.weekday(raw)}`;
+        const head = !raw ? period.emptyHead || '沒有日期' : period.head ? period.head(raw) : byKey[period.key].type === 'month' ? U.fmtMonth(raw) : `${U.fmtDate(raw)} ${U.weekday(raw)}`;
         if (out.at(-1)?.key !== g) out.push({ key: g, head, rows: [] });
         out.at(-1).rows.push(r);
       });

@@ -624,6 +624,13 @@ const Records = (() => {
   const contractsOut = () => Store.list('contracts')
     .filter(r => contractOutText(r)?.warn && placesOf(r).some(p => !place(p)?.disabled))
     .sort(byDate('outDate'));
+  // 合約頁的排法（見 contracts.js）：還沒到期的最近到期在前，再來沒有到期日的，最後是過了的（最近過的在前）；填了實際結束日的看實際結束日
+  const contractDueDate = r => String(r?.earlyEnd || r?.endDate || '');
+  function compareContractDue(a, b) {
+    const rank = r => { const d = contractDueDate(r); return !d ? 1 : d >= U.today() ? 0 : 2; };
+    const x = contractDueDate(a), y = contractDueDate(b);
+    return rank(a) - rank(b) || (rank(a) === 2 ? cmp(y, x) : cmp(x, y)) || cmp(String(b.id), String(a.id));
+  }
   // 合約頁的方塊（見 contracts.js）：放著機器卻沒有目前的合約的位置（倉庫、停用的不算）
   const placesNoContract = () => Store.list('locations')
     .filter(p => !p.stock && !p.disabled && machinesAt(p.code).length && !currentContract(p.code))
@@ -1473,7 +1480,7 @@ const Records = (() => {
     moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, contractsOut, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,
     customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, noCustomerPlaces, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
-    contractStarted, contractDate, contractStatus, contractTag, contractEndFrom, startText, contractTaker, contractOutText, pendingContracts, pendingShort,
+    contractStarted, contractDate, contractDueDate, compareContractDue, contractStatus, contractTag, contractEndFrom, startText, contractTaker, contractOutText, pendingContracts, pendingShort,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,

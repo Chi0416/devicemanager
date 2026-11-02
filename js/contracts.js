@@ -1,8 +1,9 @@
-// 合約頁（底部第五格）：上面四個要處理的方塊，下面搜尋、行政狀態的篩選按鈕和清單（卡片和其他紀錄一樣，標籤寫行政狀態，見 list.js）
+// 合約頁（底部第五格）：上面四個要處理的方塊，下面行政狀態的下拉選單、搜尋和清單（卡片和其他紀錄一樣，標籤寫行政狀態，見 list.js）
+//   清單照到期日排：還沒到期的最近到期在最上面，再來沒有到期日的，最後是過了的（見 records.js 的 compareContractDue）
 //   方塊：快到期、已到期、還沒簽回、有機器沒合約；數字是全部的（不跟著搜尋），計算見 records.js，總覽的要處理也是這些
 //     點一格只列那些（搜尋、行政狀態清掉），再點一次回到全部；0 的不能點；正在看的一格處理完了回到全部
 //     有機器沒合約列的是位置：一個位置一張卡片，點了打開位置詳情，在那裡新增合約
-//   行政狀態：行政手動切換，報表照它分；舊合約沒選的按鈕寫「未填」
+//   行政狀態：行政手動切換，報表照它分；舊合約沒選的寫「未填」
 function createContracts() {
   const late = r => String(r.endDate) < U.today();
   const TILES = [
@@ -21,6 +22,15 @@ function createContracts() {
     status: r => Records.contractTag(r),
     filterKey: 'adminStatus',
     filterEmpty: '未填',
+    filterSelect: '全部狀態',
+    period: {
+      ...SCHEMAS.contracts.period,
+      noSelect: true,
+      date: r => Records.contractDueDate(r),
+      emptyHead: '沒有到期日',
+      head: d => `${U.fmtDate(d)} ${U.weekday(d)}${d >= U.today() ? ' 到期' : ''}`,
+    },
+    order: (a, b) => Records.compareContractDue(a, b),
     rows: () => (state.tile && state.tile !== 'none' ? tileOf(state.tile).list() : Store.list('contracts')),
   });
   list.el.hidden = false;

@@ -217,6 +217,8 @@ body:has(dialog[open]) { overflow: hidden; }
   background: var(--icon-chevron) right 7px center / 16px no-repeat, var(--surface);
   cursor: pointer;
 }
+/* 合約頁的行政狀態：字要看得完（數字在後面），寬度讓給它，搜尋框變窄 */
+.filterbar .f-filter { flex: none; max-width: none; }
 .filterbar input {
   flex: 1;
   min-width: 0;

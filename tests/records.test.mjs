@@ -783,6 +783,21 @@ test('年限帶到期日：開始日（空白照簽約日）加幾年；實際�
   assert.equal(Records.currentContract(DH).adminStatus, '免簽');
 });
 
+test('合約頁照到期日排：還沒到期的最近到期在前，再來沒有到期日的，最後是過了的；填了實際結束日的看實際結束日', () => {
+  const { Records, add } = withDevices(); // 今天 2026-10-11
+  const far = add('contracts', { locations: DH, signDate: '2026-01-01', endDate: '2029-01-01', content: '遠' });
+  const near = add('contracts', { locations: DH, signDate: '2024-01-01', endDate: '2026-11-01', content: '近' });
+  const today = add('contracts', { locations: DH, signDate: '2024-01-01', endDate: '2026-10-11', content: '今天' });
+  const none = add('contracts', { locations: AX, signDate: '2026-01-01', content: '沒有' });
+  const old = add('contracts', { locations: AX, signDate: '2020-01-01', endDate: '2022-01-01', content: '很久' });
+  const late = add('contracts', { locations: AX, signDate: '2024-01-01', endDate: '2026-09-01', content: '剛過' });
+  const ended = add('contracts', { locations: AX, signDate: '2024-01-01', endDate: '2030-01-01', earlyEnd: '2026-08-01', content: '提前' });
+  const sorted = [far, none, old, near, ended, late, today].sort(Records.compareContractDue).map(r => r.content);
+  assert.deepEqual(plain(sorted), ['今天', '近', '遠', '沒有', '剛過', '提前', '很久']);
+  assert.equal(Records.contractDueDate(ended), '2026-08-01');
+  assert.equal(Records.contractDueDate(none), '');
+});
+
 test('合約頁的方塊：有機器沒合約（倉庫、停用的不算，還在簽的也算沒合約）', () => {
   const { Store, Records, add, d1, d2 } = withDevices(); // 今天 2026-10-11
   add('contracts', { locations: DH, signDate: '2026-01-01', endDate: '2027-12-31' });
