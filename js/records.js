@@ -1311,6 +1311,43 @@ const Records = (() => {
     return text ? { text, warn: false } : null;
   }
 
+  // 設備表單上的選配件按鈕：清單上的（沒停用的，照清單的順序），再加上這台裝著、但清單上沒有的（停用了、試算表手打的），存檔才不會不見
+  const partField = () => SCHEMAS.parts.fields.find(f => f.key === 'name');
+  // 清單上的寫法（大小寫、全形半形不同也認得）；不在清單裡的照原本的字
+  const partName = n => Refs.nameOf('options', Refs.find(partField(), n)) || String(n ?? '').trim();
+  const partsOn = code => of('parts', code).filter(p => !p.removeDate);
+  const partChoices = d => [...new Set([
+    ...Refs.items(partField()).map(r => Refs.nameOf('options', r)),
+    ...(d ? partsOn(d.code).map(p => partName(p.name)) : []),
+  ])].filter(Boolean);
+  // 這台目前裝著的（同一種只算一次，照按鈕的順序）
+  function partNames(d) {
+    const on = new Set(partsOn(d.code).map(p => partName(p.name)));
+    return partChoices(d).filter(n => on.has(n));
+  }
+  function partsHint(d) {
+    if (!partChoices(d).length) return '清單裡還沒有選配件，到「設定 → 清單 → 選配件」新增';
+    if (!d) return '';
+    return of('parts', d.code).length ? '取消的記今天拆除，新選的記今天安裝' : '還沒登記過配件，安裝日期會留空';
+  }
+  // 存設備表單：選了的（names）和裝著的比，新選的新增一筆、取消的填拆除日期（同一種裝兩個的一起拆）
+  //   新增設備：購買時清點的，安裝日期寫購買日期（沒填空白）
+  //   編輯設備：都寫今天；還沒有任何配件紀錄的算補登，安裝日期空白（不知道哪天裝的，不要記成今天才裝）
+  function saveDeviceParts(before, after, names) {
+    const rows = of('parts', after.code);
+    const on = rows.filter(p => !p.removeDate);
+    const had = new Set(on.map(p => partName(p.name)));
+    const installDate = !before ? after.buyDate || null : rows.length ? U.today() : null;
+    on.filter(p => !names.includes(partName(p.name))).forEach(p => Store.update('parts', p.id, { removeDate: U.today() }));
+    names.filter(n => !had.has(n)).forEach(name => Store.add('parts', { ...Refs.blankRecord('parts'), device: after.code, name, installDate }));
+  }
+  // 撤機表單的備註下面：機器回來時要核對哪些配件（新增時才寫，舊的異動不知道當時裝什麼）
+  function partsCheckNote(values) {
+    if (values.id || values.type !== '撤機' || !device(values.device)) return '';
+    const on = partNames(device(values.device));
+    return on.length ? `核對配件：${on.join('、')}` : '';
+  }
+
   // ---------- 總覽 ----------
   // 設備的狀態，照狀態清單的寫法（大小寫、全形半形不同也認得）
   const statusField = () => SCHEMAS.devices.fields.find(f => f.key === 'status');
@@ -1523,6 +1560,6 @@ const Records = (() => {
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     shownDevices, isShown, canAdd, TONER_LOW, tonerColors, tonerIsLow, customerReports, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
     toConfirm, confirmsDue, confirmWhen, confirmValues,
-    partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,
+    partOrder, partNote, partChoices, partNames, partsHint, saveDeviceParts, partsCheckNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,
   };
 })();

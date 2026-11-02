@@ -690,6 +690,8 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 /* 沒有指定顏色的切換（選項的清單）、可以複選的（人員的用途、廠商的類型）：選了的淡藍色 */
 .seg.toggle button.plain[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent); }
 .seg.toggle.multi button[aria-pressed="true"]::before { content: "✓ "; }
+/* 名字從清單來的複選（設備的選配件）：長短不一定，放不下時換行 */
+.seg.toggle.multi.rows button { height: auto; min-height: 40px; padding: 4px; line-height: 1.25; white-space: normal; }
 /* 選項多的左右切換（選項的清單）：兩排，一排 3 個 */
 .seg.toggle.rows { height: auto; }
 

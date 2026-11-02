@@ -1341,6 +1341,80 @@ test('選配件：裝著的在前、拆掉的在後；已拆除的標籤', () =>
   assert.deepEqual(plain(Records.partNote(b)), { text: '序號 SR1・2026/02/01 安裝', warn: false });
 });
 
+test('選配件：設備表單的按鈕不是設備的欄位，試算表沒有這一欄', () => {
+  const { SCHEMAS, field } = app();
+  assert.equal(field('devices', 'parts'), undefined);
+  assert.deepEqual(plain(SCHEMAS.devices.extra.map(f => f.key)), ['parts']);
+  assert.equal(SCHEMAS.devices.formOrder.at(-1), 'parts');
+});
+
+test('選配件：按鈕照清單的順序，停用的不列；這台裝著、清單上沒有的也列，大小寫不同算同一種', () => {
+  const { Store, Records, add, d1 } = withDevices();
+  const base = ['送紙匣', '裝訂器', '傳真卡', '底座'];
+  assert.deepEqual(plain(Records.partChoices(null)), base);
+  const scan = add('options', { list: '選配件', name: 'ARDF', order: 5 });
+  add('parts', { device: d1.code, name: 'ardf' });
+  add('parts', { device: d1.code, name: '舊的抽屜' });
+  add('parts', { device: d1.code, name: '底座', removeDate: '2026-01-01' });
+  assert.deepEqual(plain(Records.partChoices(d1)), [...base, 'ARDF', '舊的抽屜']);
+  assert.deepEqual(plain(Records.partNames(d1)), ['ARDF', '舊的抽屜']);
+  Store.update('options', scan.id, { disabled: true });
+  assert.deepEqual(plain(Records.partChoices(null)), base);
+  assert.deepEqual(plain(Records.partNames(d1)), ['ARDF', '舊的抽屜']);
+});
+
+test('選配件：新增設備選的每個新增一筆，安裝日期寫購買日期，沒填空白', () => {
+  const { SCHEMAS, Records, d1, d2 } = withDevices();
+  SCHEMAS.devices.saveExtra(null, { ...d1, buyDate: '2026-03-01' }, { parts: ['送紙匣', '裝訂器'] });
+  assert.deepEqual(plain(Records.of('parts', d1.code).map(p => [p.name, p.installDate, p.removeDate])),
+    [['送紙匣', '2026-03-01', null], ['裝訂器', '2026-03-01', null]]);
+  SCHEMAS.devices.saveExtra(null, { ...d2, buyDate: null }, { parts: ['底座'] });
+  assert.deepEqual(plain(Records.of('parts', d2.code).map(p => [p.name, p.installDate])), [['底座', null]]);
+});
+
+test('選配件：編輯設備時單面改雙面，一次記拆除和安裝，日期寫今天；沒動的不變，舊紀錄留著', () => {
+  const { SCHEMAS, Records, add, d1 } = withDevices();
+  const one = add('parts', { device: d1.code, name: '單面掃描', installDate: '2026-01-05' });
+  const tray = add('parts', { device: d1.code, name: '送紙匣', installDate: '2026-01-05', serial: 'PB1' });
+  SCHEMAS.devices.saveExtra({ ...d1 }, d1, { parts: ['送紙匣', '雙面掃描'] });
+  const rows = Records.of('parts', d1.code);
+  assert.deepEqual(plain(rows.find(p => p.id === one.id)).removeDate, '2026-10-11');
+  assert.deepEqual(plain(rows.find(p => p.id === tray.id)), { ...plain(tray), removeDate: null });
+  const two = rows.find(p => p.name === '雙面掃描');
+  assert.deepEqual(plain([two.installDate, two.removeDate]), ['2026-10-11', null]);
+  assert.equal(rows.length, 3);
+  assert.deepEqual(plain(Records.partNames(d1)), ['送紙匣', '雙面掃描']);
+});
+
+test('選配件：沒改就不會多紀錄；同一種裝兩個的取消時一起拆；還沒有紀錄的舊機器補登安裝日期空白', () => {
+  const { SCHEMAS, Records, Store, add, d1, d2 } = withDevices();
+  add('parts', { device: d1.code, name: '送紙匣' });
+  add('parts', { device: d1.code, name: '送紙匣' });
+  SCHEMAS.devices.saveExtra({ ...d1 }, d1, { parts: ['送紙匣'] });
+  assert.equal(Store.list('parts').length, 2);
+  assert.ok(Records.of('parts', d1.code).every(p => !p.removeDate));
+  SCHEMAS.devices.saveExtra({ ...d1 }, d1, { parts: [] });
+  assert.ok(Records.of('parts', d1.code).every(p => p.removeDate === '2026-10-11'));
+  assert.equal(Records.partsHint(d2), '還沒登記過配件，安裝日期會留空');
+  SCHEMAS.devices.saveExtra({ ...d2 }, d2, { parts: ['底座'] });
+  assert.equal(Records.of('parts', d2.code)[0].installDate, null);
+  assert.equal(Records.partsHint(d2), '取消的記今天拆除，新選的記今天安裝');
+  assert.equal(Records.partsHint(null), '');
+});
+
+test('選配件：撤機的備註下面列出要核對的；其他類型、舊的異動、沒有配件的不寫', () => {
+  const { Records, add, d1, d2 } = withDevices();
+  add('parts', { device: d1.code, name: '送紙匣' });
+  add('parts', { device: d1.code, name: '底座' });
+  add('parts', { device: d1.code, name: '裝訂器', removeDate: '2026-01-01' });
+  const note = v => Records.partsCheckNote(v);
+  assert.equal(note({ type: '撤機', device: d1.code }), '核對配件：送紙匣、底座');
+  assert.equal(note({ type: '安裝', device: d1.code }), '');
+  assert.equal(note({ type: '撤機', device: d1.code, id: 'm1' }), '');
+  assert.equal(note({ type: '撤機', device: d2.code }), '');
+  assert.equal(note({ type: '撤機', device: '' }), '');
+});
+
 // ---------- 總覽 ----------
 test('總覽：各機型有幾台，先篩狀態；機型的大小寫、空格不同算同一種；照機型清單的順序，沒填機型的排最後', () => {
   const { Records, add } = withDevices();
@@ -1979,7 +2053,7 @@ test('抄表、保養卡片最下面一行：有業務員回報時寫回報（�
 test('表單的順序（formOrder）：寫的欄位都有、不重複；新增時不出現停用、以前的名字、提前結束日', () => {
   const { SCHEMAS, field } = app();
   Object.entries(SCHEMAS).forEach(([t, s]) => {
-    const keys = s.fields.map(f => f.key);
+    const keys = [...s.fields, ...(s.extra || [])].map(f => f.key);
     (s.formOrder || []).forEach(k => assert.ok(keys.includes(k), `${t} 的 formOrder 沒有 ${k}`));
     assert.equal(new Set(s.formOrder || []).size, (s.formOrder || []).length, `${t} 的 formOrder 重複`);
   });

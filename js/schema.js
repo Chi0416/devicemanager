@@ -10,7 +10,8 @@
 //                     only：下拉選單依表單填的內容只列一部分：only(values) 回傳 (一項) → true/false，不用篩時回傳 null（異動依類型）
 //                     onlyNote：打了一項沒列出來的名字時，選單裡寫為什麼：onlyNote(values) 回傳文字
 //                     noAdd：這一欄的下拉選單不能「＋ 新增」（位置的業務員：要先到人員勾業務員）
-//                multi（可以複選）：choices 是選項，存成「甲、乙」
+//                multi（可以複選）：choices 是選項，存成「甲、乙」；choices 可以是函式：choices(這一筆（新增時是 null）) 回傳選項（設備的選配件，從清單來）
+//                     rows：不管幾個選項都一排 3 個（選項的多少會變的）
 //                flag（勾選）：存 true／false，試算表上是核取方塊
 //   optional:    可以空白
 //   format:      列表卡片上的顯示方式
@@ -27,11 +28,11 @@
 //   keep:        連續新增時保留該欄的值（一次買好幾台時，類別、品牌、購買日期不用重填）
 //                可以是函式：keep(values) 為 true 時才留（設備的位置：倉庫才留）
 //   default:     新增時預先填入的值；可以是函式（設備的位置：第一個倉庫）
-//   hint:        顯示在表單欄位下方的說明
+//   hint:        顯示在表單欄位下方的說明；可以是函式：hint(這一筆（新增時是 null）)
 //   note:        依表單目前填的內容，顯示在欄位下方的提醒：note(values) 回傳文字或 { text, warn }，不用提醒時回傳空字串
 //                values 是各欄位目前填的內容，另外 values.id 是正在編輯的那一筆的 id（新增時是 null）
 //                位置先留好，沒有提醒時也空著（提醒出現時表單不會跳）；文字要放得進 noteLines 行，多的會被截掉
-//   noteLines:   提醒留幾行（預設 1；張數的「上次…／使用量…」是 2 行，用 \n 換行）
+//   noteLines:   提醒留幾行（預設 1；張數的「上次…／使用量…」是 2 行，用 \n 換行；0 是不留位置，字多時自己換行：表單最後一格的核對配件）
 //   clean:       存檔前整理打的字：clean(打的字, values) 回傳要存的值（主機板號碼補上 RNP、轉大寫；機型轉大寫）
 //                清單的名字：下拉選單的「＋ 新增」也照它整理（見 refs.js 的 quickAdd）
 //   calc:        依表單目前填的內容先填好：calc(values) 回傳要填的值，沒有時回傳空字串
@@ -92,6 +93,8 @@
 //   （資料表）history:   編輯時表單最下面的修改紀錄：history(這一筆) 回傳 [{ date, text }]
 //   （資料表）once:      新增時沒有「儲存，再新增一筆」（異動、抄表、翻新、合約：一次一筆，連續輸入很容易同一台機器多存一筆）
 //   （資料表）next:      新增好按「儲存」後接著打開的表單：next(存好的那一筆) 回傳 { table, preset, message } 或 null（安裝、撤機後抄表）
+//   （資料表）extra:     只在表單上、不是這張表的欄位（試算表沒有這一欄，設備的選配件）：寫法和 fields 一樣，formOrder 可以排它；目前只有複選
+//                       extraValues(這一筆) 編輯時帶入的值；saveExtra(改之前（新增時是 null）, 改之後, { 欄位: 選了的名字 }) 存好後交給它
 //   （資料表）afterSave、afterRemove: 新增、修改、刪除之後要跟著改的（異動改了，設備的位置跟著算）：
 //                       afterSave(改之前（新增時是 null）, 改之後)、afterRemove(刪掉的那一筆)
 //   （資料表）seed:      全新的裝置上預先放的資料（id 用 seed- 開頭，沒改過時不算這台裝置的資料，見 storage.js）
@@ -267,7 +270,7 @@ const SCHEMAS = {
     //   序號那一行的右邊（狀態標籤下面）寫最新回報多久以前（今天 08:30、5 天前）；沒回報過的不寫（見 records.js 的 reportNote）
     card: { title: r => Records.label(r), sub: r => (r.serial ? `序號 ${r.serial}` : ''), side: r => Records.reportNote(r), badge: 'status', grid: ['location', 'keeper'] },
     // 表單上：類別、品牌、機型、名稱（卡片寫機型＋名稱，名稱的提醒要先選機型）；狀態跟著位置帶，放在位置後面
-    formOrder: ['code', 'category', 'brand', 'model', 'name', 'serial', 'board', 'location', 'status', 'keeper'],
+    formOrder: ['code', 'category', 'brand', 'model', 'name', 'serial', 'board', 'location', 'status', 'keeper', 'buyDate', 'price', 'vendor', 'warranty', 'parts'],
     note: warrantyNote,
     describe: r => Records.label(r),
     unique: [['code'], ['board']],
@@ -279,6 +282,11 @@ const SCHEMAS = {
     target: { name: 'code', label: r => Records.placeName(r.location) || Records.label(r), sub: r => Records.fullLabel(r), noAdd: true, cascade: true,
       active: r => Records.isShown(r) },
     empty: '還沒有設備<br>點右上角「＋ 新增」開始記錄',
+    // 選配件：一排按鈕，選了什麼就是這台目前裝什麼；存在選配件那張表，設備表沒有這一欄（見 records.js 的 saveDeviceParts）
+    extra: [{ key: 'parts', label: '選配件', type: 'multi', choices: d => Records.partChoices(d), rows: true, optional: true, full: true, keep: true,
+      section: '選配件', hint: d => Records.partsHint(d) }],
+    extraValues: d => ({ parts: Records.partNames(d).join('、') }),
+    saveExtra: (before, after, extra) => Records.saveDeviceParts(before, after, extra.parts),
     fields: [
       // 年份照購買日期（沒填用今年），給了就不會變；表單上不顯示
       { key: 'code',     label: '編號',     type: 'text', auto: nextDeviceCode, hidden: true, section: '基本資料' },
@@ -408,7 +416,8 @@ const SCHEMAS = {
         note: v => Records.moveToNote(v), noteLines: 2 }),
       { key: 'status', label: '狀態', type: 'ref', ref: 'statuses', optional: true,
         calc: v => Records.moveStatus(v), hint: '存檔後設備改成這個狀態' },
-      noteField(),
+      // 撤機：機器回來時要核對哪些配件，寫在備註下面（沒有配件的不佔位置）
+      { ...noteField(), note: v => Records.partsCheckNote(v), noteLines: 0 },
     ],
   },
 

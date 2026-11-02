@@ -12,6 +12,7 @@
 //   同一個位置的另一種按鈕（schema 的 action，人員的「複製邀請連結」）：編輯時、show(這一筆) 為 true 才有，按了交給 app.js（init 的 action）
 //   業務員模式（見 sync.js）：只能新增他有權限的（抄表、保養），不能修改、刪除；清單的下拉選單不能「＋ 新增」
 //     打開一筆抄表、保養（view）：每一欄都只顯示，只有「業務員回報」可以寫
+//   只在表單上的欄位（schema 的 extra，設備的選配件）：不存進這張表，存好後把選了的交給 saveExtra
 //   修改紀錄（schema 的 history，合約）：編輯時列在下面
 //   刪除：按第一次在按鈕下面寫會刪掉什麼，再按一次才刪；不用瀏覽器的確認視窗（有些環境不會跳出來，按了就像沒反應）
 //     設備有紀錄的：寫出有幾筆、建議改成報廢，真的要刪就連同紀錄一起刪（schema 的 target.cascade）
@@ -77,7 +78,8 @@ const Form = (() => {
     if (id && !rec) return;
     // 表單上的順序（schema 的 formOrder 寫的先排，異動的類型在最上面）；試算表照 fields 的順序
     const first = schema.formOrder || [];
-    const fields = [...first.map(k => schema.fields.find(f => f.key === k)), ...schema.fields.filter(f => !first.includes(f.key))];
+    const all = [...schema.fields, ...(schema.extra || [])];
+    const fields = [...first.map(k => all.find(f => f.key === k)), ...all.filter(f => !first.includes(f.key))];
     ctx = { tableKey, schema, id, count: 0, fields, preset, view: sales && !!id };
     // 標題：選項寫它屬於哪一份清單（「編輯保養項目」），其他寫表的名稱
     const name = typeof schema.formTitle === 'function' ? schema.formTitle(rec || preset) : schema.formTitle || schema.title;
@@ -96,7 +98,7 @@ const Form = (() => {
     renderHistory(rec);
     statusEl.textContent = message;
     statusEl.hidden = !message;
-    buildFields(rec, preset);
+    buildFields(rec && { ...rec, ...schema.extraValues?.(rec) }, preset);
     dlg.style.height = '';
     dlg.showModal();
     bodyEl.scrollTop = 0;
@@ -190,7 +192,8 @@ const Form = (() => {
       const label = document.createElement('label');
       label.htmlFor = inp.id;
       label.textContent = f.formLabel || f.label;
-      wrap.append(label);
+      // 小標題和欄位同名時（選配件）不寫兩次
+      if (f.section !== f.label) wrap.append(label);
       if (f.hidden) {
         wrap.hidden = true;
         inp.type = 'hidden';
@@ -205,18 +208,19 @@ const Form = (() => {
         wrap.append(inp, autos[i]);
       } else if ((f.toggle && !f.select) || f.type === 'multi') {
         label.removeAttribute('for');
-        const opts = f.toggle || f.choices.map(c => ({ value: c, label: c, tone: '' }));
+        const opts = f.toggle || (typeof f.choices === 'function' ? f.choices(rec) : f.choices).map(c => ({ value: c, label: c, tone: '' }));
         const seg = document.createElement('div');
         seg.className = `seg toggle${f.type === 'multi' ? ' multi' : ''}`;
         // 選項多的排成兩排，一排 3 個（選項的清單、狀態的顏色）；5 個都是兩個字以內的放一排（抄表週期）
-        const rows = opts.length > 5 || (opts.length > 4 && opts.some(o => String(o.label).length > 2));
+        const rows = f.rows || opts.length > 5 || (opts.length > 4 && opts.some(o => String(o.label).length > 2));
         seg.style.gridTemplateColumns = `repeat(${rows ? 3 : opts.length}, 1fr)`;
         if (rows) seg.classList.add('rows');
         seg.setAttribute('role', 'group');
         seg.setAttribute('aria-label', f.label);
         seg.innerHTML = opts.map(o => `<button type="button" class="${U.esc(o.tone || 'plain')}" data-${f.type === 'multi' ? 'multi' : 'toggle'}="${i}"` +
           ` data-v="${U.esc(o.value)}" aria-pressed="false">${U.esc(o.label)}</button>`).join('');
-        wrap.append(inp, seg);
+        wrap.append(inp);
+        if (opts.length) wrap.append(seg);
       } else if (f.type === 'ref' && f.many) {
         wrap.appendChild(buildMany(f, i, inp));
       } else if (f.type === 'ref') {
@@ -236,7 +240,7 @@ const Form = (() => {
           wrap.appendChild(chipBoxes[i]);
         }
       }
-      const hintText = locked[i] ? (f.lock ? f.lock(rec) : '') : f.hint;
+      const hintText = locked[i] ? (f.lock ? f.lock(rec) : '') : typeof f.hint === 'function' ? f.hint(rec) : f.hint;
       if (hintText) {
         const hint = document.createElement('div');
         hint.className = 'hint';
@@ -245,9 +249,9 @@ const Form = (() => {
       }
       if (combos[i]) wrap.appendChild(combos[i].info);
       if (f.note) {
-        // 提醒的位置先留好（noteLines 行），出現、變長時下面的欄位不會被推動
+        // 提醒的位置先留好（noteLines 行），出現、變長時下面的欄位不會被推動；0 是不留位置，字多時自己換行
         noteEls[i] = document.createElement('div');
-        noteEls[i].className = `note lines-${f.noteLines || 1}`;
+        noteEls[i].className = `note lines-${f.noteLines ?? 1}`;
         wrap.appendChild(noteEls[i]);
       }
       const err = document.createElement('div');
@@ -296,9 +300,11 @@ const Form = (() => {
           b.setAttribute('aria-pressed', String(!!v && o.match.test(v)));
         });
       } else if (f.type === 'multi') {
-        const on = Refs.multi(inputs[i].value);
+        const v = inputs[i].value;
+        const on = Refs.multi(v);
         inputs[i].parentElement.querySelectorAll('[data-multi]').forEach(b => {
-          b.setAttribute('aria-pressed', String(on.includes(b.dataset.v)));
+          // 整個名字對得上也算：從清單來的名字裡可能有逗號
+          b.setAttribute('aria-pressed', String(on.includes(b.dataset.v) || `、${v}、`.includes(`、${b.dataset.v}、`)));
         });
       }
     });
@@ -743,6 +749,13 @@ const Form = (() => {
       return;
     }
 
+    // 只在表單上的欄位不存進這張表，存好後把按鈕上選了的交給 saveExtra
+    const extra = {};
+    (ctx.schema.extra || []).forEach(f => {
+      delete rec[f.key];
+      extra[f.key] = [...inputs[fieldIndex(f.key)].parentElement.querySelectorAll('[data-multi][aria-pressed="true"]')].map(b => b.dataset.v);
+    });
+
     if (ctx.id) {
       const before = { ...Store.get(ctx.tableKey, ctx.id) };
       Store.update(ctx.tableKey, ctx.id, rec);
@@ -750,6 +763,7 @@ const Form = (() => {
       // 清單改了名字：用到舊名字的設備一起改
       const renamed = Refs.isTarget(ctx.tableKey) ? Refs.renameRefs(ctx.tableKey, before, after) : [];
       ctx.schema.afterSave?.(before, after);
+      ctx.schema.saveExtra?.(before, after, extra);
       dlg.close();
       hooks.onChanged(ctx.tableKey, { ...rec, id: ctx.id });
       hooks.toast(renamed.length ? `已儲存，用到舊名字的 ${renamed.length} 筆資料一起改了` : '已儲存');
@@ -758,6 +772,7 @@ const Form = (() => {
 
     const saved = Store.add(ctx.tableKey, rec);
     ctx.schema.afterSave?.(null, saved);
+    ctx.schema.saveExtra?.(null, saved, extra);
     ctx.count++;
     hooks.onChanged(ctx.tableKey, saved);
     if (!again) {
@@ -906,9 +921,9 @@ const Form = (() => {
     const mul = e.target.closest('[data-multi]');
     if (mul) {
       const i = +mul.dataset.multi;
-      const on = new Set(Refs.multi(inputs[i].value));
-      if (!on.delete(mul.dataset.v)) on.add(mul.dataset.v);
-      inputs[i].value = ctx.fields[i].choices.filter(c => on.has(c)).join('、');
+      const pressed = b => b.getAttribute('aria-pressed') === 'true';
+      inputs[i].value = [...mul.parentElement.querySelectorAll('[data-multi]')]
+        .filter(b => (b === mul ? !pressed(b) : pressed(b))).map(b => b.dataset.v).join('、');
       setError(i, '');
       renderToggles();
       return;
