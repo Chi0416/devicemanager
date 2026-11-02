@@ -1057,6 +1057,17 @@ const Records = (() => {
     return { text: n <= 1 && t.time ? `${agoText(n)} ${t.time}` : agoText(n), tone: reportTone(n) };
   }
 
+  // 要列哪幾色：黑白機（Y、M、C 都讀不到）只有 K；沒回報過的四色都列
+  const tonerColors = t => (!t || ['Y', 'M', 'C'].some(c => t[c] !== null) ? ['K', 'Y', 'M', 'C'] : ['K']);
+  const tonerIsLow = v => typeof v === 'number' && v <= TONER_LOW;
+
+  // 客戶詳情的最新回報：這個客戶（母公司連旗下公司）沒停用的位置現在放著的機器，照位置排，同一個位置照機型順序
+  //   [{ device, place, report }]；沒回報過的 report 是 null
+  function customerReports(c, list = reports()) {
+    return [c, ...childrenOf(c)].flatMap(customerPlaces).filter(p => !p.disabled)
+      .flatMap(p => machinesAt(p.code).sort(deviceOrder).map(device => ({ device, place: p, report: latestReport(device, list) })));
+  }
+
   // ---------- 待確認抄表：張數信、客戶在抄表程式按「提交計數器」的張數，行政人員確認了才寫進抄表 ----------
   //   連結 Google 時是試算表「待確認抄表」分頁讀回來的（試算表上的程式寫的，一台一筆最新的）；沒有時用匯入的 data.json 裡的
   //   和最新回報一樣先用序號找；抄表裡有這台、同一天的那一筆就算確認過（日期照帶的，張數改過也算）
@@ -1398,7 +1409,7 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
-    shownDevices, isShown, canAdd, TONER_LOW, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
+    shownDevices, isShown, canAdd, TONER_LOW, tonerColors, tonerIsLow, customerReports, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
     toConfirm, confirmsDue, confirmWhen, confirmValues,
     partOrder, partNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,
   };

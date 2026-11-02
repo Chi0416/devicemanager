@@ -183,10 +183,9 @@ const Detail = (() => {
     const t = Records.latestReport(d);
     const count = v => (v === null || v === undefined ? '<span class="muted">—</span>' : `<span>${U.fmtNum(v)}</span>`);
     const counts = [['黑白', t?.bw], ['彩色', t?.color]].map(([label, v]) => `<span class="cell"><small>${label}</small>${count(v)}</span>`).join('');
-    const colors = !t || ['Y', 'M', 'C'].some(c => t[c] !== null) ? ['K', 'Y', 'M', 'C'] : ['K'];
-    const cells = colors.map(c => {
+    const cells = Records.tonerColors(t).map(c => {
       const v = t ? t[c] : null;
-      const cls = v === null ? 'muted' : v <= Records.TONER_LOW ? 'low' : '';
+      const cls = v === null ? 'muted' : Records.tonerIsLow(v) ? 'low' : '';
       const bar = `<i class="toner-bar t-${c.toLowerCase()}" aria-hidden="true"><b style="width:${v ?? 0}%"></b></i>`;
       return `<span class="cell"><small>${c}</small><span class="${cls}">${v === null ? '—' : `${v}%`}</span>${bar}</span>`;
     }).join('');
@@ -512,6 +511,7 @@ const Place = (() => {
 //   資訊卡：統編、主要業務員、電話、傳真、聯絡人、帳單地址、送貨地址、備註；有母公司的點了打開母公司
 //   旗下公司（母公司才有）：一間一列，寫幾個位置，點了打開那間
 //   位置：一個位置一列，名稱下面寫現在放的機器（停用的灰字），點了打開位置詳情；母公司自己沒有位置的不寫
+//   最新回報：現在放著的機器一台一列（母公司連旗下公司的），寫張數、碳粉，點了打開設備詳情；一台都沒回報過時不放
 //   下面一列合約：這些位置的合約（一份寫好幾個位置的只算一份）
 const Customer = (() => {
   const placesOf = c => Records.customerPlaces(c);
@@ -536,7 +536,8 @@ const Customer = (() => {
         ${parent ? link('customer', parent.id, '母公司', parent.name) : c.parent ? `<span class="card-sub">母公司：${U.esc(c.parent)}</span>` : ''}
       </div>
       ${kidsHTML(c)}
-      ${placesHTML(c)}`;
+      ${placesHTML(c)}
+      ${reportsHTML(c)}`;
   }
 
   function kidsHTML(c) {
@@ -568,6 +569,37 @@ const Customer = (() => {
       </div>`;
   }
 
+  // 一台一列：機器、多久以前，下面位置、張數、碳粉；顏色和設備詳情一樣（見 latestHTML），抄表到設備詳情按
+  function reportRowHTML({ device: d, place: p, report: t }) {
+    const note = Records.reportNote(d);
+    const when = note ? `<em class="${note.tone}">${U.esc(note.text)}</em>` : `<em>${t ? '—' : '還沒有回報'}</em>`;
+    const counts = [['黑白', t?.bw], ['彩色', t?.color]].filter(([, v]) => v !== null && v !== undefined)
+      .map(([label, v]) => `<span><i>${label}</i> ${U.fmtNum(v)}</span>`).join('');
+    const toner = t ? Records.tonerColors(t).map(c =>
+      `<span class="${Records.tonerIsLow(t[c]) ? 'low' : ''}"><i>${c}</i> ${typeof t[c] === 'number' ? `${t[c]}%` : '—'}</span>`).join('') : '';
+    return `
+      <button type="button" class="cust-row" data-device="${U.esc(d.id)}">
+        <span class="cust-main">
+          <span class="report-top"><b>${U.esc(Records.label(d))}</b>${when}</span>
+          <small>${U.esc(p.name || p.code)}</small>
+          ${counts ? `<span class="report-line">${counts}</span>` : ''}
+          ${toner ? `<span class="report-line">${toner}</span>` : ''}
+        </span>
+        <span class="go" aria-hidden="true">›</span>
+      </button>`;
+  }
+
+  function reportsHTML(c) {
+    const list = Records.customerReports(c);
+    if (!list.some(x => x.report)) return '';
+    const low = list.filter(x => x.report && ['K', 'Y', 'M', 'C'].some(k => Records.tonerIsLow(x.report[k]))).length;
+    return `
+      <div class="detail-card cust-card">
+        <span class="uc-head"><b>最新回報</b><span>${list.length} 台${low ? `・碳粉低 ${low} 台` : ''}</span></span>
+        ${list.map(reportRowHTML).join('')}
+      </div>`;
+  }
+
   // 這些位置的合約，由舊到新；一份寫好幾個位置的只列一次
   function contracts(c) {
     const seen = new Set();
@@ -593,6 +625,8 @@ const Customer = (() => {
       if (place) Place.open(place.dataset.place);
       const cust = e.target.closest('[data-customer]');
       if (cust) Customer.open(cust.dataset.customer);
+      const device = e.target.closest('[data-device]');
+      if (device) Detail.open(device.dataset.device);
     },
     rows: [
       { key: 'contracts', label: '合約', summary: contractRow, records: contracts, preset: () => ({}) },

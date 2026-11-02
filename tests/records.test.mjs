@@ -467,6 +467,25 @@ test('客戶：位置的客戶存名稱；客戶的位置（倉庫不算）、�
   assert.equal(Store.get('locations', f3.id).customer, '鼎泰');
 });
 
+test('客戶的最新回報：現在放著的機器照位置排；停用的位置、別的客戶、倉庫不算；母公司連旗下公司；黑白機只有 K；20% 以下算低', () => {
+  const { Records, add, dt, hy, hc } = withCustomers();
+  add('devices', { code: '26-0001', name: '#1001', serial: 'A1', location: 'L0002' });
+  add('devices', { code: '26-0002', name: '#1002', serial: 'B2', location: 'L0003' }); // 停用的位置
+  add('devices', { code: '26-0003', name: '#1003', serial: 'C3', location: 'L0004' });
+  add('devices', { code: '26-0004', name: '#1004', serial: 'D4', location: WH });
+  const toner = [{ serial: 'A1', date: '2026-10-11', time: '08:30', bw: 100, color: null, K: 15, Y: null, M: null, C: null }];
+  const row = x => [x.device.code, x.place.name, x.report?.bw ?? null];
+  assert.deepEqual(plain(Records.customerReports(dt, toner).map(row)), [['26-0001', '鼎泰國際 3F', 100]]);
+  assert.deepEqual(plain(Records.customerReports(hc, toner).map(row)), [['26-0003', '宏遠建設 總務部', null]]);
+  assert.deepEqual(plain(Records.customerReports(hy, toner).map(row)), [['26-0003', '宏遠建設 總務部', null]]);
+  assert.deepEqual(plain(Records.tonerColors(toner[0])), ['K']);
+  assert.deepEqual(plain(Records.tonerColors({ K: 80, Y: null, M: 60, C: null })), ['K', 'Y', 'M', 'C']);
+  assert.deepEqual(plain(Records.tonerColors(null)), ['K', 'Y', 'M', 'C']);
+  assert.equal(Records.tonerIsLow(20), true);
+  assert.equal(Records.tonerIsLow(21), false);
+  assert.equal(Records.tonerIsLow(null), false);
+});
+
 test('還沒選客戶的位置：客戶空白或打的名字不在客戶裡；倉庫、停用的不算；選了客戶就不列', () => {
   const { Store, Records, add } = withCustomers();
   const a = add('locations', { code: 'L0005', name: '安心診所 櫃台' });
