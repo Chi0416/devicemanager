@@ -14,7 +14,8 @@
 //     回傳 [{ label, value, warn }]（位置、設備）
 //   aside(列)：卡片標題右邊（標籤左邊）的灰字，{ text, warn } 或 null（位置詳情：放過好幾台的位置寫哪一台）；放不下時後面變「…」
 //   status(列)：這張清單的標籤，沒有時用 schema.status（位置、設備詳情的合約：只看這個位置目前的是哪一份）
-function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null, status = null }) {
+//   filterKey：篩選按鈕依哪個欄位，沒有時用 schema.filter（合約的行政狀態只有合約頁有）；filterEmpty：這一欄空白的那個按鈕的名稱，有空白的才列
+function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null, status = null, filterKey = schema.filter, filterEmpty = '' }) {
   const fields = schema.fields;
   const byKey = Object.fromEntries(fields.map(f => [f.key, f]));
   const period = schema.period || null;
@@ -26,7 +27,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     : fields.filter(f => ![period?.key, code, title, badge, primary].includes(f.key) && !f.multiline);
   const searchKeys = schema.search || [code, title].filter(k => typeof k === 'string');
   const getRows = rows || schema.rows || (() => Store.list(tableKey));
-  const filterField = schema.filter ? byKey[schema.filter] : null;
+  const filterField = filterKey ? byKey[filterKey] : null;
   const groups = schema.groups || [];
   const GROUP_KEY = `${Store.PREFIX}group.${tableKey}`;
   let savedGroup = '';
@@ -52,13 +53,16 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   // 篩選按鈕：toggle 的哪一個（試算表手打的字也認得）；從清單選的欄位：清單裡的哪一項（大小寫、全形半形不同也認得）
   const filterOf = r => {
     const v = String(r[filterField.key] ?? '').trim();
-    if (filterField.toggle) return filterField.toggle.find(o => o.match.test(v))?.value ?? '';
+    if (filterField.toggle) return filterField.toggle.find(o => o.match.test(v))?.value ?? filterEmpty;
     const hit = Refs.find(filterField, v);
     return hit ? Refs.nameOf(filterField.ref, hit) : v;
   };
   // 篩選按鈕的選項：toggle 的選項；從清單選的欄位是清單裡沒停用的，加上停用了但還有設備在用的、不在清單裡的值
   function filterOptions(rows) {
-    if (filterField.toggle) return filterField.toggle;
+    if (filterField.toggle) {
+      return filterEmpty && rows.some(r => filterOf(r) === filterEmpty)
+        ? [...filterField.toggle, { value: filterEmpty, label: filterEmpty, tone: '' }] : filterField.toggle;
+    }
     const used = new Set(rows.map(filterOf).filter(Boolean));
     const listed = Refs.items(filterField, { all: true }).filter(r => Refs.active(filterField.ref, r) || used.has(Refs.nameOf(filterField.ref, r)));
     const names = listed.map(r => Refs.nameOf(filterField.ref, r));

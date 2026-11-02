@@ -60,7 +60,7 @@
     locations: createPlaces(),
     // 點設備卡片打開詳情（見 detail.js）
     devices: createList('devices', SCHEMAS.devices, { openForm: id => Detail.open(id), rows: () => Records.shownDevices() }),
-    // 合約：上面六個方塊，下面清單（見 contracts.js）
+    // 合約：上面四個方塊，下面行政狀態的篩選和清單（見 contracts.js）
     contracts: createContracts(),
     // 紀錄：卡片最上面那一排寫位置、設備，和設備卡片一樣小標題在上，下面才是內容（依紀錄的種類，見 records.js 的 recordCells）
     ...Object.fromEntries(RECORD_PAGES.filter(([k]) => k !== 'contracts').map(([k]) => [k, createList(k, SCHEMAS[k], {
@@ -933,7 +933,7 @@
   Store.onChange(checkLists);
 
   // 合約到期、快到期，合約還沒簽回，保固 30 天內到期：一份合約、一台設備各一則（計算見 records.js，總覽的「要處理」也是這些）
-  //   處理掉（重新簽約、填提前結束日、保固過了）就變成「已解決」；內容只寫日期，天數每天變不會每天重新標成未讀
+  //   處理掉（重新簽約、填實際結束日、保固過了）就變成「已解決」；內容只寫日期，天數每天變不會每天重新標成未讀
   function checkDue() {
     Inbox.reconcile('contract:', Records.contractsDue().map(c => ({
       key: `contract:${c.id}`,

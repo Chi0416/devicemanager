@@ -291,8 +291,19 @@ first.startDate = addDays(first.signDate, 12);
 first.deposit = `10,000 元，${first.signDate.replaceAll('-', '/')} 收現金`;
 const renew = data.contracts.find(c => c !== first && c.endDate > TODAY && c.endDate <= addDays(TODAY, 30));
 if (renew) data.contracts.push(rec('contracts', { locations: renew.locations, signDate: addDays(TODAY, -5), startDate: renew.endDate, endDate: addMonths(renew.endDate, 24), content: renew.content, billing: renew.billing, readDay: renew.readDay, cycle: renew.cycle }));
-data.contracts.push(rec('contracts', { locations: place('晶華會計師事務所'), signDate: null, taker: '林小芳', outDate: addDays(TODAY, -18), content: '月租 3,000 元，含黑白 2000 張' }));
-data.contracts.push(rec('contracts', { locations: first.locations, signDate: null, taker: '陳志明', outDate: addDays(TODAY, -3), content: '續約：月租 3,800 元，含黑白 3000 張、彩色 300 張' }));
+data.contracts.push(rec('contracts', { locations: place('晶華會計師事務所'), signDate: null, taker: '林小芳', outDate: addDays(TODAY, -18), content: '月租 3,000 元，含黑白 2000 張', adminStatus: '洽談中' }));
+data.contracts.push(rec('contracts', { locations: first.locations, signDate: null, taker: '陳志明', outDate: addDays(TODAY, -3), content: '續約：月租 3,800 元，含黑白 3000 張、彩色 300 張', adminStatus: '洽談中' }));
+// 行政狀態、月租費、年限、稅別、開發人、簽約人：大多生效中，提前結束的退租，留幾份免簽、不扣款、未填
+data.contracts.forEach((c, i) => {
+  if (c.adminStatus) return;
+  c.adminStatus = c.earlyEnd ? '退租' : i % 9 === 4 ? '免簽' : i % 9 === 7 ? '不扣款' : i % 11 === 10 ? '' : c.endDate && c.endDate < TODAY ? '合約完成' : '生效中';
+  c.rent = Number(/月租 ([\d,]+)/.exec(c.content)?.[1].replace(',', '')) || null;
+  c.years = c.endDate && (c.startDate || c.signDate) ? Math.round((day(c.endDate) - day(c.startDate || c.signDate)) / (365.25 * 86400000)) || null : null;
+  c.taxType = ['含稅', '含稅', '稅外加', '不計稅'][i % 4];
+  c.developer = '林小芳';
+  c.signer = c.adminStatus === '免簽' ? '' : '林小芳';
+  if (c.adminStatus === '免簽') c.signDate = null, c.startDate = c.startDate || addDays(TODAY, -200 - i);
+});
 
 // 客戶：放在最後產生（不動到上面的亂數和 id）；鼎泰國際、長榮物流有填資料，主要業務員是林小芳，位置的業務員跟著帶
 const GROUP_HQ = '宏遠集團';

@@ -368,7 +368,7 @@ test('異動的表單：編輯時原位置鎖住、寫當時的位置；日期�
   assert.deepEqual(plain(to({ type: '撤機', device: '24-0001', from: DH, to: WH })), { text: '客戶不租了的話，大華貿易 3F 可以勾停用', warn: false });
   add('contracts', { locations: DH, signDate: '2026-01-05', endDate: '2027-03-15' });
   assert.deepEqual(plain(to({ type: '撤機', device: '24-0001', from: DH, to: WH })),
-    { text: '大華貿易 3F 還有合約（到 2027/03/15）\n客戶不租了：合約填提前結束日、位置勾停用', warn: false });
+    { text: '大華貿易 3F 還有合約（到 2027/03/15）\n客戶不租了：合約填實際結束日、位置勾停用', warn: false });
   assert.deepEqual(plain(to({ type: '安裝', device: '25-0001', from: '', to: AX })), { text: '這個位置還沒有合約', warn: true });
   assert.deepEqual(plain(to({ type: '安裝', device: '25-0001', from: '', to: DH })), { text: '這裡現在是 #1001', warn: true });
   // 異動沒有「儲存，再新增一筆」，新位置不留
@@ -691,24 +691,101 @@ test('紙本合約：拿走了還沒簽回標「簽約中」、不算目前；�
   Store.update('locations', place.id, { sales: '林小芳' });
   assert.equal(Records.contractTaker({ locations: `${DH}、${AX}`, outDate: '2026/10/01' }), '林小芳');
   assert.equal(Records.contractTaker({ locations: DH, outDate: '' }), '');
+  assert.equal(field('contracts', 'endDate').hint, '到期前 30 天開始提醒');
   // 表單的四段
   const heads = SCHEMAS.contracts.formOrder.map(k => field('contracts', k).section).filter(Boolean);
-  assert.deepEqual(plain(heads), ['位置與期間', '內容與收費', '抄表', '文件']);
+  assert.deepEqual(plain(heads), ['位置與期間', '內容與收費', '抄表', '行政']);
 });
 
-test('合約頁的方塊：目前（位置都停用了的不算）、簽約中、有機器沒合約（倉庫、停用的不算，還在簽的也算沒合約）', () => {
-  const { Store, Records, add, d1, d2 } = withDevices(); // 今天 2026-10-11
+test('行政狀態：只是報表的分類，時間照日期算；只有作廢不算目前的合約，也不會蓋掉舊的', () => {
+  const { Store, Records, SCHEMAS, field, add } = withDevices(); // 今天 2026-10-11
   const ids = list => plain(list.map(r => r.id));
-  const now = add('contracts', { locations: DH, signDate: '2026-01-01', endDate: '2027-12-31' });
-  const over = add('contracts', { locations: AX, signDate: '2024-01-01', endDate: '2026-01-31' });
-  const gone = add('locations', { code: 'L0011', name: '舊客戶', disabled: true });
-  add('contracts', { locations: gone.code, signDate: '2024-01-01' });
-  assert.deepEqual(ids(Records.contractsNow()), [now.id, over.id]); // 已到期的還是目前的
-  const draft = add('contracts', { locations: AX, signDate: null, outDate: '2026-10-01' });
-  add('contracts', { locations: gone.code, signDate: null, outDate: '2026-10-01' });
-  add('contracts', { locations: AX, signDate: null, outDate: '2026-01-01', earlyEnd: '2026-02-01' });
-  add('contracts', { locations: AX, signDate: '2026-10-01', startDate: '2027-01-01' }); // 還沒開始的不算簽約中
-  assert.deepEqual(ids(Records.contractsSigning()), [draft.id]);
+  const old = add('contracts', { locations: DH, signDate: '2024-01-01', endDate: '2026-11-01', adminStatus: '生效中' });
+  // 其他狀態不影響目前的合約、到期提醒
+  ['洽談中', '生效中', '合約完成', '免簽', '不扣款', '退租'].forEach(v => {
+    Store.update('contracts', old.id, { adminStatus: v });
+    assert.equal(Records.currentContract(DH).id, old.id, v);
+    assert.deepEqual(ids(Records.contractsDue()), [old.id], v);
+  });
+  Store.update('contracts', old.id, { adminStatus: '生效中' });
+  // 作廢的新合約：不算目前、沒有標籤，舊的繼續算，也不算續約了，紙本不提醒
+  const bad = add('contracts', { locations: DH, signDate: '2026-10-01', startDate: '2026-12-01', outDate: '2026-01-01', adminStatus: '作廢' });
+  assert.equal(Records.currentContract(DH).id, old.id);
+  assert.equal(Records.contractStatus(bad), null);
+  assert.deepEqual(ids(Records.contractsDue()), [old.id]);
+  assert.deepEqual(ids(Records.contractsOut()), []);
+  Store.update('contracts', bad.id, { startDate: '2026-02-01' });
+  assert.equal(Records.currentContract(DH).id, old.id); // 開始日過了也一樣
+  assert.equal(Records.currentContracts().size, 1);
+  // 合約頁的標籤寫行政狀態，沒選的照日期算；顏色照選項
+  assert.deepEqual(plain(Records.contractTag(Store.get('contracts', bad.id))), { label: '作廢', cls: 'red' });
+  const blank = add('contracts', { locations: AX, signDate: '2026-01-01' });
+  assert.deepEqual(plain(Records.contractTag(blank)), { label: '目前', cls: 'blue' });
+  // 洽談中：什麼日期都沒有也可以存，標籤寫洽談中；還不算目前的合約
+  const talk = add('contracts', { locations: WH, signDate: null, adminStatus: '洽談中' });
+  assert.equal(Records.contractStatus(talk).label, '洽談中');
+  assert.equal(Records.currentContract(WH), null);
+  const signCheck = field('contracts', 'signDate').check;
+  assert.equal(signCheck({ adminStatus: '洽談中' }), '');
+  assert.equal(signCheck({ adminStatus: '生效中' }), '簽約日、開始日、拿走日至少填一個');
+  // 新增時一定要選，舊合約可以留空；合約完成、退租沒填實際結束日時提醒
+  const status = field('contracts', 'adminStatus');
+  assert.equal(status.check({}), '請選行政狀態');
+  assert.equal(status.check({ id: 'x' }), '');
+  assert.equal(status.check({ adminStatus: '生效中' }), '');
+  assert.deepEqual(plain(status.note({ adminStatus: '退租' })), { text: '還要填實際結束日', warn: true });
+  assert.deepEqual(plain(status.note({ adminStatus: '合約完成' })), { text: '還要填實際結束日', warn: true });
+  assert.equal(status.note({ adminStatus: '退租', earlyEnd: '2026-10-01' }), '');
+  assert.equal(status.note({ adminStatus: '作廢' }), '');
+  // 開發人、簽約人只列勾了業務員的人員
+  ['developer', 'signer'].forEach(k => {
+    assert.equal(field('contracts', k).ref, 'people');
+    assert.equal(field('contracts', k).only()({ sales: true }), true);
+    assert.equal(field('contracts', k).only()({ sales: false }), false);
+  });
+  add('people', { name: '阿明' });
+  add('people', { name: '小芳', sales: true });
+  assert.equal(field('contracts', 'developer').check({ developer: '阿明' }), '「阿明」沒有勾業務員，先到人員勾');
+  assert.equal(field('contracts', 'signer').check({ signer: '阿明' }), '「阿明」沒有勾業務員，先到人員勾');
+  assert.equal(field('contracts', 'signer').check({ signer: '小芳' }), '');
+  const kept = add('contracts', { locations: AX, signDate: '2020-01-01', signer: '阿明' });
+  assert.equal(field('contracts', 'signer').check({ id: kept.id, signer: '阿明' }), ''); // 舊資料本來就是他：照常可以存
+  // 稅別、行政狀態在表單上是下拉選單
+  ['taxType', 'adminStatus'].forEach(k => assert.equal(field('contracts', k).select, true));
+  assert.deepEqual(plain(field('contracts', 'taxType').toggle.map(o => o.value)), ['含稅', '稅外加', '不計稅']);
+  // 卡片：內容空白時標題寫月租費
+  assert.equal(SCHEMAS.contracts.card.title({ rent: 3500 }), '月租 3,500 元');
+  assert.equal(SCHEMAS.contracts.card.title({}), '合約');
+  // 表單的排法
+  assert.deepEqual(plain(SCHEMAS.contracts.formOrder), ['locations', 'signDate', 'years', 'startDate', 'endDate', 'earlyEnd', 'taxType', 'rent', 'content', 'billing', 'deposit', 'cycle', 'readDay', 'adminStatus', 'developer', 'signer', 'taker', 'outDate', 'backDate']);
+});
+
+test('年限帶到期日：開始日（空白照簽約日）加幾年；實際結束日的字：比到期日早是提前結束，其他是結束；免簽沒有到期日時寫免簽', () => {
+  const { Records, add } = withDevices(); // 今天 2026-10-11
+  const end = Records.contractEndFrom;
+  assert.equal(end({ signDate: '2026-11-02', years: '1' }), '2027-11-02');
+  assert.equal(end({ signDate: '2026-11-02', startDate: '2027-01-01', years: '3' }), '2030-01-01');
+  assert.equal(end({ signDate: '2026-11-02', years: '1.5' }), '2028-05-02');
+  assert.equal(end({ signDate: '2026-11-02', years: '' }), '');
+  assert.equal(end({ years: '2' }), '');
+  assert.equal(end({ signDate: '2026-11-02', years: '-1' }), '');
+  const txt = r => plain(Records.endText(r));
+  assert.deepEqual(txt({ endDate: '2027-12-31', earlyEnd: '2026-06-30' }), { text: '2026/06/30 已提前結束', warn: false });
+  assert.deepEqual(txt({ earlyEnd: '2026-06-30' }), { text: '2026/06/30 已結束', warn: false });
+  assert.deepEqual(txt({ endDate: '2026-06-30', earlyEnd: '2026-06-30' }), { text: '2026/06/30 已結束', warn: false });
+  assert.deepEqual(txt({ earlyEnd: '2026-12-01' }), { text: '2026/12/01 結束', warn: false });
+  const short = c => plain(Records.contractShort(c));
+  assert.deepEqual(short({ earlyEnd: '2026-12-01' }), { text: '結束', sub: '2026/12/01', warn: false });
+  assert.deepEqual(short({ adminStatus: '免簽' }), { text: '免簽', sub: '', warn: false });
+  assert.deepEqual(short({ adminStatus: '生效中' }), { text: '沒有到期日', sub: '', warn: false });
+  assert.deepEqual(short({ adminStatus: '免簽', endDate: '2027-12-31' }), { text: '到 2027/12/31', sub: '', warn: false });
+  add('contracts', { locations: DH, signDate: null, startDate: '2026-01-01', adminStatus: '免簽' });
+  assert.equal(Records.currentContract(DH).adminStatus, '免簽');
+});
+
+test('合約頁的方塊：有機器沒合約（倉庫、停用的不算，還在簽的也算沒合約）', () => {
+  const { Store, Records, add, d1, d2 } = withDevices(); // 今天 2026-10-11
+  add('contracts', { locations: DH, signDate: '2026-01-01', endDate: '2027-12-31' });
   // 有機器沒合約：有合約的、倉庫、沒放機器的都不算
   const names = () => plain(Records.placesNoContract().map(p => p.name));
   Store.update('devices', d2.id, { location: DH });
@@ -726,9 +803,10 @@ test('合約頁的方塊：目前（位置都停用了的不算）、簽約中�
 test('合約：「重新簽約」新增一份，帶入位置、內容、計費方式、抄表日期、抄表週期；改了什麼記在修改紀錄，刪掉合約時一起刪', () => {
   const { Store, Records, SCHEMAS, add } = withDevices();
   const s = SCHEMAS.contracts;
-  assert.deepEqual(plain(s.copy.keys), ['locations', 'content', 'billing', 'deposit', 'readDay', 'cycle']);
-  assert.deepEqual(plain(s.copy.watch), ['locations', 'signDate', 'startDate', 'endDate', 'billing']);
-  assert.deepEqual(plain(s.fields.map(f => f.label)), ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期', '抄表週期', '開始日', '押金', '拿走的人', '拿走日', '簽回日']);
+  assert.deepEqual(plain(s.copy.keys), ['locations', 'years', 'taxType', 'rent', 'content', 'billing', 'deposit', 'readDay', 'cycle', 'developer']);
+  assert.deepEqual(plain(s.copy.watch), ['locations', 'signDate', 'startDate', 'endDate', 'rent', 'billing']);
+  assert.deepEqual(plain(s.fields.map(f => f.label)), ['位置', '簽約日', '到期日', '實際結束日', '合約內容', '計費方式', '抄表日期', '抄表週期', '開始日', '押金', '拿走的人', '拿走日', '簽回日', '年限', '稅別', '月租費', '行政狀態', '開發人', '簽約人']);
+  assert.deepEqual(plain(s.fields.find(f => f.key === 'earlyEnd').was), ['提前結束日']); // 試算表的舊標題，同步時改成新的
   const c = add('contracts', { locations: DH, signDate: '2026-01-05', endDate: '2028-12-31', readDay: '每月 25 號', billing: '每張 0.4' });
   // 新增時不記
   assert.deepEqual(plain(s.afterSave(null, c)), []);

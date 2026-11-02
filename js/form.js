@@ -56,6 +56,8 @@ const Form = (() => {
   // 勾選的欄位是核取方塊（checked），其他是 value
   const getVal = i => (ctx.fields[i].type === 'flag' ? (inputs[i].checked ? 'true' : '') : inputs[i].value);
   function setVal(i, v) {
+    // 下拉選單：不是選項裡的值（試算表手打的）也留著，存檔不會不見
+    if (ctx.fields[i].select && v && ![...inputs[i].options].some(o => o.value === v)) inputs[i].add(new Option(v, v));
     if (ctx.fields[i].type === 'flag') inputs[i].checked = v === 'true';
     else inputs[i].value = v;
   }
@@ -120,6 +122,11 @@ const Form = (() => {
       area.rows = 3;
       area.spellcheck = false;
       return area;
+    }
+    if (f.select) {
+      const sel = document.createElement('select');
+      sel.innerHTML = `<option value="">請選擇</option>${f.toggle.map(o => `<option value="${U.esc(o.value)}">${U.esc(o.label)}</option>`).join('')}`;
+      return sel;
     }
     const inp = document.createElement('input');
     if (f.type === 'flag') {
@@ -196,7 +203,7 @@ const Form = (() => {
         autos[i] = document.createElement('div');
         autos[i].className = 'auto-value';
         wrap.append(inp, autos[i]);
-      } else if (f.toggle || f.type === 'multi') {
+      } else if ((f.toggle && !f.select) || f.type === 'multi') {
         label.removeAttribute('for');
         const opts = f.toggle || f.choices.map(c => ({ value: c, label: c, tone: '' }));
         const seg = document.createElement('div');
@@ -582,7 +589,7 @@ const Form = (() => {
     if (ctx.fields.some(f => f.showIf)) {
       const v = formValues();
       ctx.fields.forEach((f, i) => { if (f.showIf) inputs[i].closest('.field').hidden = !f.showIf(v); });
-      // 一段的欄位全部藏起來時（新增合約時的提前結束日），小標題也藏
+      // 一段的欄位全部藏起來時（新增合約時的實際結束日），小標題也藏
       heads.forEach(h => { h.el.hidden = inputs.slice(h.from, h.to).every(inp => inp.closest('.field').hidden); });
     }
     // 顯示的字依其他欄位算的（異動的原位置依日期）：沒有在打字時跟著換
@@ -680,7 +687,7 @@ const Form = (() => {
       if (!msg && f.check) msg = f.check(values) || '';
       setError(i, msg);
       if (msg && !firstBad) {
-        firstBad = f.toggle || f.type === 'multi' ? inputs[i].parentElement.querySelector('[data-toggle], [data-multi]') : combos[i]?.text || manys[i] || inputs[i];
+        firstBad = (f.toggle && !f.select) || f.type === 'multi' ? inputs[i].parentElement.querySelector('[data-toggle], [data-multi]') : combos[i]?.text || manys[i] || inputs[i];
       }
       rec[f.key] = v;
     });

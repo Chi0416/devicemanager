@@ -70,6 +70,7 @@ const sample = () => ({
     id: 'c1', locations: 'L0001、L0002', signDate: '2026-01-01', endDate: '2027-12-31', earlyEnd: null,
     content: '月租 3,000\n含 2,000 張', billing: '超過每張 0.3 元', readDay: '25 日', cycle: '每季',
     startDate: '2026-02-01', deposit: '10,000 元', taker: '王小明', outDate: '2025-12-20', backDate: '2026-01-02',
+    years: 2, taxType: '含稅', rent: 3000, adminStatus: '生效中', developer: '王小明', signer: '王小明',
   }],
   contractLog: [{ id: 'g1', contract: 'c1', date: '2026-06-01', field: '抄表日期', before: '每月 15 日', after: '每月 25 日' }],
   readings: [{ id: 'r1', device: 'NB-001', date: '2026-03-03', month: '2026-02', bw: 12000, color: 100, note: '', by: '阿明', report: '阿明：張數打錯' }],
@@ -369,7 +370,7 @@ test('改名前的標題（was）讀得到，同步時改成新的標題', () =>
 test('紀錄：設備欄寫設備編號（純文字）；保養一筆一個項目，翻新項目是自由輸入的文字', () => {
   const v = plain(Sheet.toValues(sample()));
   assert.deepEqual(v['異動'][0], ['設備', '日期', '類型', '原位置', '新位置', '狀態', '備註', 'id']);
-  assert.deepEqual(v['合約'][0], ['位置', '簽約日', '到期日', '提前結束日', '合約內容', '計費方式', '抄表日期', '抄表週期', '開始日', '押金', '拿走的人', '拿走日', '簽回日', 'id']);
+  assert.deepEqual(v['合約'][0], ['位置', '簽約日', '到期日', '實際結束日', '合約內容', '計費方式', '抄表日期', '抄表週期', '開始日', '押金', '拿走的人', '拿走日', '簽回日', '年限', '稅別', '月租費', '行政狀態', '開發人', '簽約人', 'id']);
   assert.equal(v['合約'][1][0], 'L0001、L0002'); // 位置存編號，好幾個用「、」分開
   assert.deepEqual(v['合約修改紀錄'][0], ['合約', '日期', '欄位', '改之前', '改之後', 'id']);
   assert.deepEqual(v['位置'][0], ['編號', '名稱', '以前的名字', '倉庫', '客戶', '業務員', '地址', '停用', '備註', 'id']);

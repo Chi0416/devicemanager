@@ -1,15 +1,13 @@
-// 合約頁（底部第五格）：上面六個方塊，下面搜尋和清單（卡片和其他紀錄一樣，見 list.js）
-//   方塊：目前、快到期、已到期、簽約中、還沒簽回、有機器沒合約；數字是全部的（不跟著搜尋），計算見 records.js，總覽的要處理也是這些
-//     快到期、已到期算在目前裡面，數字不會剛好加起來
-//     點一格只列那些，再點一次回到全部；0 的不能點；正在看的一格處理完了回到全部
+// 合約頁（底部第五格）：上面四個要處理的方塊，下面搜尋、行政狀態的篩選按鈕和清單（卡片和其他紀錄一樣，標籤寫行政狀態，見 list.js）
+//   方塊：快到期、已到期、還沒簽回、有機器沒合約；數字是全部的（不跟著搜尋），計算見 records.js，總覽的要處理也是這些
+//     點一格只列那些（搜尋、行政狀態清掉），再點一次回到全部；0 的不能點；正在看的一格處理完了回到全部
 //     有機器沒合約列的是位置：一個位置一張卡片，點了打開位置詳情，在那裡新增合約
+//   行政狀態：行政手動切換，報表照它分；舊合約沒選的按鈕寫「未填」
 function createContracts() {
   const late = r => String(r.endDate) < U.today();
   const TILES = [
-    { key: 'now', label: '目前', list: () => Records.contractsNow() },
     { key: 'soon', label: '快到期', warn: true, list: () => Records.contractsDue().filter(r => !late(r)) },
     { key: 'over', label: '已到期', warn: true, list: () => Records.contractsDue().filter(late) },
-    { key: 'signing', label: '簽約中', list: () => Records.contractsSigning() },
     { key: 'out', label: '還沒簽回', warn: true, list: () => Records.contractsOut() },
     { key: 'none', label: '有機器沒合約', warn: true, list: () => Records.placesNoContract() },
   ];
@@ -20,6 +18,9 @@ function createContracts() {
   const list = createList('contracts', SCHEMAS.contracts, {
     openForm: id => Form.open('contracts', id),
     device: r => Records.recordCells('contracts', r),
+    status: r => Records.contractTag(r),
+    filterKey: 'adminStatus',
+    filterEmpty: '未填',
     rows: () => (state.tile && state.tile !== 'none' ? tileOf(state.tile).list() : Store.list('contracts')),
   });
   list.el.hidden = false;
@@ -68,7 +69,7 @@ function createContracts() {
     const btn = e.target.closest('[data-tile]');
     if (!btn) return;
     state.tile = state.tile === btn.dataset.tile ? '' : btn.dataset.tile;
-    render();
+    render(() => list.show());
   });
   placesEl.addEventListener('click', e => {
     const card = e.target.closest('[data-place]');
@@ -92,7 +93,7 @@ function createContracts() {
   // 從總覽跳過來：只列那一格
   function show({ tile = '' } = {}) {
     state.tile = tile;
-    render();
+    render(() => list.show());
   }
 
   return { el, refresh: () => render(), changed, reset, show };

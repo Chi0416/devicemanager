@@ -43,6 +43,7 @@
 //   showIf:      依其他欄位才出現：showIf(values) 為 false 時藏起來（選項的世代只有機型有）
 //   caps:        手機鍵盤預設大寫（編號、序號常有英文字母）
 //   suggest:     表單下方的快選按鈕（預設值 + 最近輸入過的值），只是提示，不限制；有預設值時試算表也有下拉選單
+//   select:      有 toggle 的欄位在表單上改成下拉選單，不佔位置（合約的稅別、行政狀態）
 //   toggle:      表單上改成左右切換的按鈕（有 toggle 時不顯示 suggest 的快選按鈕）：[{ value, label, tone, match }]
 //                value 是存的值；tone 是顏色（列表上的標籤也用這個顏色）；match 是認得的寫法（試算表手打的字）
 //   was:         這個欄位以前在試算表上的標題（改名前），讀得到舊標題的試算表，同步時改成新標題
@@ -130,6 +131,12 @@ const DEFAULT_OPTIONS = [
 
 // 左右切換的選項：[{ value, tone }] → toggle 的寫法
 const toggleOf = list => list.map(o => ({ value: o.value, label: o.value, tone: o.tone, match: new RegExp(`^${o.value}$`) }));
+// 合約的行政狀態：行政手動切換，報表照它分；到期提醒、目前的合約照日期算，只有作廢不算目前的合約（見 records.js）
+const CONTRACT_STATUS = [
+  { value: '洽談中', tone: 'purple' }, { value: '生效中', tone: 'blue' }, { value: '合約完成', tone: 'green' }, { value: '免簽', tone: 'gray' },
+  { value: '不扣款', tone: 'gray' }, { value: '退租', tone: 'orange' }, { value: '作廢', tone: 'red' },
+];
+const TAX_TYPES = [{ value: '含稅', tone: '' }, { value: '稅外加', tone: '' }, { value: '不計稅', tone: '' }]; // 合約的稅別
 const MOVE_TYPES = [{ value: '安裝', tone: 'blue' }, { value: '撤機', tone: 'gray' }, { value: '移機', tone: 'purple' }, { value: '其他', tone: '' }];
 const COUNTRIES = [{ value: '美', tone: '' }, { value: '日', tone: '' }]; // 翻新的國別
 const PAGE_KINDS = [{ value: '全部', tone: '' }, { value: '彩色', tone: '' }]; // 保養項目算哪種張數（全部＝黑白加彩色）
@@ -405,29 +412,31 @@ const SCHEMAS = {
   },
 
   // 合約：綁位置、不綁機器（一次租三台是一份合約寫三個位置）；機器目前的合約＝它現在所在位置的合約，換機時不用改
-  //   一個位置目前的合約：已經開始的裡面開始日最新的那一份（提前結束了的話沒有）；開始日空白照簽約日（見 records.js 的 contractStart）
-  //   不簽約的客戶簽約日空白；紙本拿出去還沒簽回的只填拿走日，標「簽約中」，簽回來填了日期才算目前的合約
-  //   文件（拿走的人、拿走日、簽回日）和目前的合約分開算：機器先裝了、紙本還在外面時，開始日到了就算目前，同時繼續提醒還沒簽回
+  //   一個位置目前的合約：已經開始的裡面開始日最新的那一份（實際結束了的話沒有）；開始日空白照簽約日（見 records.js 的 contractStart）
+  //   行政狀態：行政手動切換，報表照它分；時間的判斷照日期，只有作廢不算目前的合約
+  //   不簽約的客戶簽約日空白；紙本拿出去還沒簽回的只填拿走日，簽回來填了日期才算目前的合約
+  //   紙本（拿走的人、拿走日、簽回日）和目前的合約分開算：機器先裝了、紙本還在外面時，開始日到了就算目前，同時繼續提醒還沒簽回
   //   重簽、續約、改條件都按「重新簽約」新增一份；修改只用來改打錯的，改了什麼記在合約修改紀錄（見 records.js）
-  //   日期、抄表週期、拿走的人之外都是自由輸入的文字
+  //   日期、數字、稅別、行政狀態、抄表週期、開發人、簽約人、拿走的人之外都是自由輸入的文字
   contracts: {
     title: '合約',
     once: true,
-    // 表單上：位置與期間、內容與收費、抄表、文件四段；提前結束日只有編輯時有（新簽的合約不會提前結束）
-    formOrder: ['locations', 'signDate', 'startDate', 'endDate', 'earlyEnd', 'content', 'billing', 'deposit', 'cycle', 'readDay', 'taker', 'outDate', 'backDate'],
+    // 表單上：位置與期間、內容與收費、抄表、行政四段；實際結束日只有編輯時有（新簽的合約還沒結束）
+    formOrder: ['locations', 'signDate', 'years', 'startDate', 'endDate', 'earlyEnd', 'taxType', 'rent', 'content', 'billing', 'deposit', 'cycle', 'readDay',
+      'adminStatus', 'developer', 'signer', 'taker', 'outDate', 'backDate'],
     period: { ...recordMonth('signDate'), date: r => Records.contractDate(r) },
-    card: { title: r => Records.firstLine(r.content) || '合約', grid: [] },
+    card: { title: r => Records.firstLine(r.content) || (r.rent ? `月租 ${U.fmtNum(r.rent)} 元` : '合約'), grid: [] },
     status: r => Records.contractStatus(r),
     statusHead: true,
     note: r => Records.contractNote(r),
     describe: r => Records.describe('contracts', r),
-    search: ['content', 'billing'],
+    search: ['content', 'billing', 'developer', 'signer', 'taker'],
     searchText: r => Records.contractPlaces(r).map(Records.placeText).join(' '),
     searchHint: '搜尋位置、內容',
     copy: {
       label: '重新簽約',
-      keys: ['locations', 'content', 'billing', 'deposit', 'readDay', 'cycle'],
-      watch: ['locations', 'signDate', 'startDate', 'endDate', 'billing'],
+      keys: ['locations', 'years', 'taxType', 'rent', 'content', 'billing', 'deposit', 'readDay', 'cycle', 'developer'],
+      watch: ['locations', 'signDate', 'startDate', 'endDate', 'rent', 'billing'],
       note: '重新簽約、續約、改條件都按這裡，會新增一份；上面只用來改打錯的地方',
     },
     history: r => Records.contractHistory(r.id),
@@ -437,10 +446,11 @@ const SCHEMAS = {
       placeField('locations', '位置', { many: true, full: true, placeholder: '選擇或搜尋，可以選好幾個', section: '位置與期間' }),
       // 不預設今天：補登舊合約忘了改日期，會變成這個位置目前的合約
       { key: 'signDate', label: '簽約日', type: 'date', optional: true,
-        check: v => (v.signDate || v.startDate || v.outDate ? '' : '簽約日、開始日、拿走日至少填一個') },
-      { key: 'endDate', label: '到期日', type: 'date', optional: true },
-      { key: 'earlyEnd', label: '提前結束日', type: 'date', optional: true, hint: '違約、提前結束時才填', showIf: v => !!v.id },
-      { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true, section: '內容與收費' },
+        check: v => (v.signDate || v.startDate || v.outDate || v.adminStatus === '洽談中' ? '' : '簽約日、開始日、拿走日至少填一個') },
+      // 填了年限時先帶開始日加幾年（自己改過的不蓋掉）
+      { key: 'endDate', label: '到期日', type: 'date', optional: true, hint: '到期前 30 天開始提醒', calc: v => Records.contractEndFrom(v) },
+      { key: 'earlyEnd', label: '實際結束日', type: 'date', optional: true, was: ['提前結束日'], hint: '工期結束、違約、解約時填', showIf: v => !!v.id },
+      { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true },
       { key: 'billing', label: '計費方式', type: 'text', optional: true, full: true, multiline: true },
       { key: 'readDay', label: '抄表日期', type: 'text', optional: true, full: true },
       { key: 'cycle', label: '抄表週期', type: 'text', optional: true, full: true, toggle: toggleOf(READ_CYCLES), hint: '空白＝每月', section: '抄表' },
@@ -448,10 +458,22 @@ const SCHEMAS = {
       { key: 'startDate', label: '開始日', type: 'date', optional: true, hint: '空白＝簽約日' },
       { key: 'deposit', label: '押金', type: 'text', optional: true, full: true },
       // 填了拿走日時先帶第一個位置的業務員（自己改過的不蓋掉）；拿走的不一定是業務員，人員都可以選
-      { key: 'taker', label: '拿走的人', type: 'ref', ref: 'people', optional: true, full: true, noAdd: true, section: '文件', calc: v => Records.contractTaker(v) },
+      { key: 'taker', label: '拿走的人', type: 'ref', ref: 'people', optional: true, noAdd: true, calc: v => Records.contractTaker(v) },
       { key: 'outDate', label: '拿走日', type: 'date', optional: true },
       { key: 'backDate', label: '簽回日', type: 'date', optional: true,
         note: v => (v.backDate && !v.signDate && !v.startDate ? { text: '還要填簽約日或開始日', warn: true } : '') },
+      { key: 'years', label: '年限', type: 'number', optional: true, hint: '填了先帶到期日' },
+      { key: 'taxType', label: '稅別', type: 'text', optional: true, toggle: toggleOf(TAX_TYPES), select: true, section: '內容與收費' },
+      { key: 'rent', label: '月租費', type: 'number', optional: true },
+      // 新增時一定要選；舊合約留空也可以，合約頁寫「未填」
+      { key: 'adminStatus', label: '行政狀態', type: 'text', optional: true, toggle: toggleOf(CONTRACT_STATUS), select: true, section: '行政',
+        check: v => (v.id || v.adminStatus ? '' : '請選行政狀態'),
+        note: v => (['合約完成', '退租'].includes(v.adminStatus) && !v.earlyEnd ? { text: '還要填實際結束日', warn: true } : '') },
+      // 開發人、簽約人：只列勾了業務員的人員（和位置的業務員一樣）
+      { key: 'developer', label: '開發人', type: 'ref', ref: 'people', optional: true, noAdd: true, only: () => p => !!p.sales, onlyNote: () => '沒有勾「業務員」，先到人員勾',
+        check: v => Records.salesCheck(v, 'contracts', 'developer') },
+      { key: 'signer', label: '簽約人', type: 'ref', ref: 'people', optional: true, noAdd: true, only: () => p => !!p.sales, onlyNote: () => '沒有勾「業務員」，先到人員勾',
+        check: v => Records.salesCheck(v, 'contracts', 'signer') },
     ],
   },
 
