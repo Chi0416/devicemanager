@@ -286,6 +286,13 @@ data.toConfirm = CONFIRM.map(([device, ago, time, source]) => {
 const first = data.contracts[0];
 data.contractLog.push(rec('contractLog', { contract: first.id, date: addDays(first.signDate, 3), field: '抄表日期', before: '每月 52 日', after: first.readDay }));
 data.contracts.forEach(c => { delete c.group; });
+// 開始日、押金、紙本合約：第一份晚幾天才開始，有押金；一份先簽好的續約還沒開始；兩份紙本拿出去（一份超過 14 天），都還沒簽回
+first.startDate = addDays(first.signDate, 12);
+first.deposit = `10,000 元，${first.signDate.replaceAll('-', '/')} 收現金`;
+const renew = data.contracts.find(c => c !== first && c.endDate > TODAY && c.endDate <= addDays(TODAY, 30));
+if (renew) data.contracts.push(rec('contracts', { locations: renew.locations, signDate: addDays(TODAY, -5), startDate: renew.endDate, endDate: addMonths(renew.endDate, 24), content: renew.content, billing: renew.billing, readDay: renew.readDay, cycle: renew.cycle }));
+data.contracts.push(rec('contracts', { locations: place('晶華會計師事務所'), signDate: null, taker: '林小芳', outDate: addDays(TODAY, -18), content: '月租 3,000 元，含黑白 2000 張' }));
+data.contracts.push(rec('contracts', { locations: first.locations, signDate: null, taker: '陳志明', outDate: addDays(TODAY, -3), content: '續約：月租 3,800 元，含黑白 3000 張、彩色 300 張' }));
 
 // 客戶：放在最後產生（不動到上面的亂數和 id）；鼎泰國際、長榮物流有填資料，主要業務員是林小芳，位置的業務員跟著帶
 const GROUP_HQ = '宏遠集團';

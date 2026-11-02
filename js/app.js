@@ -923,13 +923,19 @@
   checkLists();
   Store.onChange(checkLists);
 
-  // 合約到期、快到期，保固 30 天內到期：一份合約、一台設備各一則（計算見 records.js，總覽的「要處理」也是這些）
+  // 合約到期、快到期，合約還沒簽回，保固 30 天內到期：一份合約、一台設備各一則（計算見 records.js，總覽的「要處理」也是這些）
   //   處理掉（重新簽約、填提前結束日、保固過了）就變成「已解決」；內容只寫日期，天數每天變不會每天重新標成未讀
   function checkDue() {
     Inbox.reconcile('contract:', Records.contractsDue().map(c => ({
       key: `contract:${c.id}`,
       title: `${String(c.endDate) < U.today() ? '合約已到期' : '合約快到期'}：${Records.contractPlaces(c).join('、') || '沒有填位置'}`,
       body: `到期日 ${U.fmtDate(c.endDate)}`,
+      action: { type: 'record', table: 'contracts', id: c.id },
+    })));
+    Inbox.reconcile('contract-out:', Records.contractsOut().map(c => ({
+      key: `contract-out:${c.id}`,
+      title: `合約還沒簽回：${Records.contractPlaces(c).join('、') || '沒有填位置'}`,
+      body: `${c.taker ? `${c.taker} ` : ''}${U.fmtDate(c.outDate)} 拿走`,
       action: { type: 'record', table: 'contracts', id: c.id },
     })));
     Inbox.reconcile('warranty:', Records.warrantyDue().map(d => ({

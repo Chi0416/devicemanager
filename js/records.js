@@ -5,7 +5,7 @@
 //     保養、抄表、翻新那時候在哪裡不另外存，照日期往回找那天之前的最後一筆異動
 //     搬機器那天的紀錄算客戶那邊（不算倉庫）：撤機那天抄的最後一次表算原客戶，安裝那天抄的算新客戶
 //   異動帶的狀態：撤機先帶庫存、安裝先帶出租中，存了最新一筆時設備的狀態跟著改
-//   目前的合約：合約綁位置；一個位置目前的合約是包含它的合約裡簽約日最新的那一份，機器目前的合約是它所在位置的
+//   目前的合約：合約綁位置；一個位置目前的合約是包含它的合約裡已經開始、開始日最新的那一份，機器目前的合約是它所在位置的
 //   抄表用量：這次減上一次；保養填的張數一起排
 //   每台設備的紀錄、異動、張數一次整理好（cached），資料沒改就直接用；抄表列表每張卡片都要找，一張一張從頭找太慢
 const Records = (() => {
@@ -15,6 +15,7 @@ const Records = (() => {
   const WORKS = ['maintenance']; // 保養也可以填張數
   const COUNTS = [['bw', '黑白'], ['color', '彩色']];
   const CONTRACT_SOON = 30; // 目前的合約這麼多天內到期時標色
+  const CONTRACT_OUT = 14; // 紙本合約拿走這麼多天還沒簽回時提醒
   const key = v => Refs.norm(v);
   const isNum = v => typeof v === 'number' && Number.isFinite(v);
   const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
@@ -235,7 +236,7 @@ const Records = (() => {
   // 一筆紀錄的簡短說明（儲存後的提示、提醒裡用），例如「IMC4500 #1234 2026/10/11 移機」；找不到設備時寫編號
   //   合約寫位置：「大華公司 1F、大華公司 2F 2026/01/05 簽約」
   function describe(table, r) {
-    if (table === 'contracts') return [contractPlaces(r).join('、'), U.fmtDate(r.signDate), '簽約'].filter(Boolean).join(' ');
+    if (table === 'contracts') return [contractPlaces(r).join('、'), startText(r)].filter(Boolean).join(' ');
     const parts = {
       moves: [U.fmtDate(r.date), r.type],
       readings: [r.month ? `${U.fmtMonth(r.month)} 抄表` : `${U.fmtDate(r.date)} 抄表`],
@@ -506,17 +507,41 @@ const Records = (() => {
   const contractPlaces = r => placesOf(r).map(placeName);
   // 提前結束了（過了提前結束日）
   const endedEarly = r => !!r.earlyEnd && String(r.earlyEnd) < U.today();
-  // 包含這個位置的合約，由舊到新（依簽約日，同一天依新增的先後）
+  // 開始日：空白照簽約日；兩個都空白的是還在簽（簽約日不等於開始的日子：續約可能先簽好，舊的到期才開始）
+  const contractStart = r => String(r?.startDate || r?.signDate || '');
+  const contractStarted = r => !!contractStart(r) && contractStart(r) <= U.today();
+  // 清單上的日期：開始日；還在簽的寫拿走日
+  const contractDate = r => contractStart(r) || String(r?.outDate || '');
+  const byStart = (a, b) => cmp(contractStart(a), contractStart(b)) || cmp(String(a.id), String(b.id));
+  // 包含這個位置的合約，由舊到新（依開始日，同一天依新增的先後；還在簽的排最前面）
   const contractsAt = code => (key(code)
-    ? Store.list('contracts').filter(r => placesOf(r).some(p => key(p) === key(code))).sort(byDate('signDate')) : []);
-  // 這個位置目前的合約：簽約日最新的那一份；那一份已經提前結束了就沒有
+    ? Store.list('contracts').filter(r => placesOf(r).some(p => key(p) === key(code))).sort(byStart) : []);
+  // 這個位置目前的合約：已經開始的裡面開始日最新的那一份；那一份已經提前結束了就沒有
   function currentContract(code) {
-    const c = contractsAt(code).at(-1) || null;
+    const c = contractsAt(code).filter(contractStarted).at(-1) || null;
     return c && !endedEarly(c) ? c : null;
   }
   // 機器目前的合約：它現在所在位置的（換機時不用改合約）
   const deviceContract = code => currentContract(device(code)?.location);
   const isCurrentContract = r => placesOf(r).some(p => currentContract(p)?.id === r.id);
+  // 合約的標籤：目前；開始日還沒到的「還沒開始」；還沒有開始日、簽約日的「簽約中」；舊的、提前結束的沒有
+  //   code：只看這個位置（位置、設備詳情：只重簽一個位置時，舊合約對別的位置還是目前的，這裡不標）；沒有時看合約寫的每個位置
+  function contractStatus(r, code) {
+    if (code ? currentContract(code)?.id === r.id : isCurrentContract(r)) return { label: '目前', cls: 'blue' };
+    if (contractStarted(r) || endedEarly(r)) return null;
+    return { label: contractStart(r) ? '還沒開始' : '簽約中', cls: 'pending', pending: true };
+  }
+  // 沒有到期日時寫什麼時候開始的（2026/01/05 簽約）
+  const startText = r => (r.startDate ? `${U.fmtDate(r.startDate)} 開始` : r.signDate ? `${U.fmtDate(r.signDate)} 簽約` : '');
+  // 拿走的人：填了拿走日才先帶，帶第一個位置的業務員
+  const contractTaker = v => (v.outDate ? String(place(placesOf(v)[0])?.sales ?? '').trim() : '');
+  // 紙本拿走了還沒簽回（提前結束的不算）：{ text, warn }，過了 CONTRACT_OUT 天標色；其他是 null
+  function contractOutText(r) {
+    if (!r?.outDate || r.backDate || r.earlyEnd) return null;
+    const days = -daysTo(r.outDate);
+    const who = String(r.taker ?? '').trim();
+    return { text: `${who && `${who} `}${days > 0 ? `拿走 ${days} 天` : '今天拿走'}，還沒簽回`, warn: days >= CONTRACT_OUT };
+  }
 
   // 到期日：目前的合約已經到期或快到期時標色；舊的合約只寫日期；提前結束的寫提前結束日
   //   日期寫在最前面，不加括號（2026/10/30 到期・剩 19 天）
@@ -533,9 +558,10 @@ const Records = (() => {
 
   function contractNote(r) {
     const end = endText(r);
+    const out = contractOutText(r);
     const read = [r.cycle, firstLine(r.readDay)].filter(Boolean).join(' ');
-    const text = [end?.text, read && `抄表 ${read}`].filter(Boolean).join('・');
-    return text ? { text, warn: !!end?.warn } : null;
+    const text = [out?.text, end?.text, read && `抄表 ${read}`].filter(Boolean).join('・');
+    return text ? { text, warn: !!(end?.warn || out?.warn) } : null;
   }
 
   // ---------- 合約修改紀錄 ----------
@@ -569,10 +595,15 @@ const Records = (() => {
 
   // ---------- 要處理（總覽、提醒的鈴鐺）：依資料算，處理掉就自己不見 ----------
   // 合約到期、快到期：目前的合約過了到期日，或 30 天內到期；依到期日排
-  //   續約按「重新簽約」、客戶不租了填提前結束日就不算了；位置都停用了的（客戶走了）不算
+  //   續約按「重新簽約」（先簽好、還沒開始的也算續約了）、客戶不租了填提前結束日就不算了；位置都停用了的（客戶走了）不算
   const contractsDue = () => Store.list('contracts')
-    .filter(r => r.endDate && daysTo(r.endDate) <= CONTRACT_SOON && placesOf(r).some(p => !place(p)?.disabled) && isCurrentContract(r))
+    .filter(r => r.endDate && daysTo(r.endDate) <= CONTRACT_SOON && placesOf(r).some(p => !place(p)?.disabled
+      && currentContract(p)?.id === r.id && !contractsAt(p).some(x => contractStart(x) > contractStart(r))))
     .sort(byDate('endDate'));
+  // 合約還沒簽回：拿走超過 CONTRACT_OUT 天還沒填簽回日；填了簽回日、提前結束就不算了；位置都停用了的不算；拿走最久的在最上面
+  const contractsOut = () => Store.list('contracts')
+    .filter(r => contractOutText(r)?.warn && placesOf(r).some(p => !place(p)?.disabled))
+    .sort(byDate('outDate'));
   // 保固 30 天內到期（過了就不列）；報廢這類（狀態勾「不用提醒」）的不算；依到期日排
   function warrantyDue() {
     const quiet = quietSet();
@@ -846,9 +877,21 @@ const Records = (() => {
   // 每個位置目前的合約（一次算好，位置頁用）：Map(位置編號 → 合約)；和 currentContract 一樣
   function currentContracts() {
     const by = new Map();
-    [...Store.list('contracts')].sort(byDate('signDate')).forEach(r => placesOf(r).forEach(p => by.set(key(p), r)));
+    Store.list('contracts').filter(contractStarted).sort(byStart).forEach(r => placesOf(r).forEach(p => by.set(key(p), r)));
     by.forEach((r, k) => { if (endedEarly(r)) by.delete(k); });
     return by;
+  }
+  // 每個位置還沒開始、還在簽的合約（一次算好，位置頁、客戶頁在沒有目前的合約時寫它）：Map(位置編號 → 合約)
+  function pendingContracts() {
+    const by = new Map();
+    Store.list('contracts').filter(r => contractStatus(r)?.pending).sort(byStart).forEach(r => placesOf(r).forEach(p => by.set(key(p), r)));
+    return by;
+  }
+  // 卡片上還沒開始、還在簽的合約：{ text, sub, warn }；沒有時是 null
+  function pendingShort(r) {
+    if (!r) return null;
+    const out = contractOutText(r);
+    return { text: contractStatus(r)?.label || '', sub: contractStart(r) ? U.fmtDate(contractStart(r)) : out?.text || '', warn: !!out?.warn };
   }
   // 位置卡片上的合約：{ text, sub, warn }（已到期、剩幾天到期標色）；沒有合約時是 null
   function contractShort(c) {
@@ -1403,9 +1446,10 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, contractsOut, warrantyDue, emptyPlaces, lastMoveAt,
     customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, noCustomerPlaces, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
+    contractStarted, contractDate, contractStatus, startText, contractTaker, contractOutText, pendingContracts, pendingShort,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,

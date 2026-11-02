@@ -28,6 +28,7 @@ function createCustomers() {
   // 全部的客戶和要寫在卡片上的東西：位置（停用的不算）、現在放著的機器、目前的合約、旗下公司
   function rows() {
     const contracts = Records.currentContracts();
+    const pending = Records.pendingContracts();
     const wrong = new Set(Records.statusMismatch().filter(x => x.place).map(x => norm(x.place.code)));
     return Store.list('customers')
       .map(c => {
@@ -36,6 +37,7 @@ function createCustomers() {
         return {
           c, places, n, kids: Records.childrenOf(c).length,
           contracts: [...new Set(places.map(p => contracts.get(norm(p.code))).filter(Boolean))],
+          pending: places.map(p => pending.get(norm(p.code))).find(Boolean) || null,
           wrong: places.some(p => wrong.has(norm(p.code))),
         };
       })
@@ -51,12 +53,13 @@ function createCustomers() {
     return parts.filter(Boolean).join('・') || '還沒有位置';
   }
 
-  // 合約：這些位置目前的合約（一份寫好幾個位置的算一份），有到期、快到期的寫幾份
+  // 合約：這些位置目前的合約（一份寫好幾個位置的算一份），有到期、快到期的寫幾份；都沒有時寫還在簽、還沒開始的
   function cellsHTML(x) {
     const ends = x.contracts.map(Records.contractShort);
     const over = ends.filter(e => e.text === '已到期').length;
     const soon = ends.filter(e => e.warn).length - over;
-    const contract = !x.contracts.length ? cell('合約', '沒有合約', '', 'muted')
+    const next = Records.pendingShort(x.pending);
+    const contract = !x.contracts.length ? (next ? cell('合約', U.esc(next.text), next.sub, next.warn ? 'warn' : '') : cell('合約', '沒有合約', '', 'muted'))
       : over || soon ? cell('合約', over ? `${over} 份已到期` : `${soon} 份快到期`, x.contracts.length > 1 ? `共 ${x.contracts.length} 份` : '', 'warn')
         : cell('合約', `${x.contracts.length} 份`, '');
     const sales = cell('主要業務員', x.c.sales ? U.esc(x.c.sales) : '—', '', x.c.sales ? '' : 'muted');

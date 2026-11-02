@@ -24,7 +24,8 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
   const lists = Object.fromEntries(rows.map(r => {
     const opts = { openForm: rid => Form.open(r.key, rid), rows: () => (current() ? r.records(current()) : []) };
     const aside = r.aside ? rec => r.aside(rec, current()) : null;
-    return [r.key, r.view ? r.view(opts) : createList(r.key, SCHEMAS[r.key], { ...opts, detail: true, aside })];
+    const status = r.status ? rec => r.status(rec, current()) : null;
+    return [r.key, r.view ? r.view(opts) : createList(r.key, SCHEMAS[r.key], { ...opts, detail: true, aside, status })];
   }));
   Object.values(lists).forEach(l => subBody.appendChild(l.el));
 
@@ -118,12 +119,18 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
 // 兩個詳情共用的列：合約（目前的合約到期日、合約內容第一行）、抄表（最近一次哪天抄、哪個月的帳）、保養和翻新（最近一次那天做了什麼）
 //   粗體那行有日期時，日期寫在最前面，不加括號
 const DetailRows = {
-  // c：目前的合約；all：這個位置所有的合約（提前結束、到期之後沒有新的，寫最後那一份怎麼結束的）
+  // c：目前的合約；all：這個位置所有的合約（還在簽、還沒開始的寫它；提前結束、到期之後沒有新的，寫最後那一份怎麼結束的）
   contract(c, all = []) {
-    if (!c && all.length) return { main: '沒有目前的合約', sub: Records.endText(all.at(-1))?.text || '' };
-    if (!c) return { main: '還沒有合約' };
+    if (!c) {
+      const next = all.filter(r => Records.contractStatus(r)?.pending).at(-1);
+      if (next) {
+        const short = Records.pendingShort(next);
+        return { main: short.text, sub: short.sub || Records.firstLine(next.content), warn: short.warn };
+      }
+      return all.length ? { main: '沒有目前的合約', sub: Records.endText(all.at(-1))?.text || '' } : { main: '還沒有合約' };
+    }
     const end = Records.endText(c);
-    return { main: end?.text || `${U.fmtDate(c.signDate)} 簽約`, sub: Records.firstLine(c.content), warn: !!end?.warn };
+    return { main: end?.text || Records.startText(c), sub: Records.firstLine(c.content), warn: !!end?.warn };
   },
 
   reading(list) {
@@ -308,8 +315,12 @@ const Detail = (() => {
     rows: [
       { key: 'moves', label: '位置', summary: locationRow, records: mine('moves'), preset: moveOf },
       // 合約綁位置：這台現在所在位置的合約
-      { key: 'contracts', label: '合約', summary: d => DetailRows.contract(Records.deviceContract(d.code), Records.contractsAt(d.location)),
-        records: d => Records.contractsAt(d.location), preset: d => ({ locations: d.location || '' }) },
+      //   機器搬走後合約留在原來的位置（位置、客戶、紀錄都看得到）；在倉庫、沒有位置的機器不屬於任何合約
+      { key: 'contracts', label: '合約', summary: d => (!d.location ? { main: '沒有位置，沒有合約' }
+        : Records.isStock(d.location) ? { main: `在${Records.placeName(d.location)}，沒有合約` }
+          : DetailRows.contract(Records.deviceContract(d.code), Records.contractsAt(d.location))),
+        records: d => Records.contractsAt(d.location), status: (r, d) => Records.contractStatus(r, d.location),
+        preset: d => ({ locations: Records.isStock(d.location) ? '' : d.location || '' }) },
       { key: 'readings', label: '抄表', summary: d => DetailRows.reading(Records.of('readings', d.code)), records: mine('readings'), preset: withDevice },
       { key: 'maintenance', label: '保養', summary: d => DetailRows.work(Records.of('maintenance', d.code), 'maintenance', r => r.item),
         records: mine('maintenance'), preset: withDevice },
@@ -505,7 +516,7 @@ const Place = (() => {
     rows: [
       { key: 'moves', label: '異動', summary: moveRow, records: p => Records.staysAt(p.code), preset: moveHere, view: staysView },
       { key: 'contracts', label: '合約', summary: p => DetailRows.contract(Records.currentContract(p.code), Records.contractsAt(p.code)),
-        records: p => Records.contractsAt(p.code), preset: p => ({ locations: p.code }) },
+        records: p => Records.contractsAt(p.code), status: (r, p) => Records.contractStatus(r, p.code), preset: p => ({ locations: p.code }) },
       { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, aside: machine },
       { key: 'maintenance', label: '保養', summary: p => DetailRows.work(at('maintenance')(p), 'maintenance', r => r.item),
         records: at('maintenance'), preset: theOne, aside: machine },
@@ -608,12 +619,12 @@ const Customer = (() => {
   function contracts(c) {
     const seen = new Set();
     return placesOf(c).flatMap(p => Records.contractsAt(p.code)).filter(r => !seen.has(r.id) && seen.add(r.id))
-      .sort((a, b) => String(a.signDate ?? '').localeCompare(String(b.signDate ?? '')) || String(a.id).localeCompare(String(b.id)));
+      .sort((a, b) => Records.contractDate(a).localeCompare(Records.contractDate(b)) || String(a.id).localeCompare(String(b.id)));
   }
   // 合約那一列：目前的合約有幾份，到期、快到期的有幾份
   function contractRow(c) {
     const now = [...new Set(placesOf(c).filter(p => !p.disabled).map(p => Records.currentContract(p.code)).filter(Boolean))];
-    if (!now.length) return { main: contracts(c).length ? '沒有目前的合約' : '還沒有合約' };
+    if (!now.length) return DetailRows.contract(null, contracts(c));
     const due = now.filter(r => Records.endText(r)?.warn).length;
     return { main: `目前 ${now.length} 份`, sub: due ? `${due} 份到期或快到期` : '', warn: !!due };
   }

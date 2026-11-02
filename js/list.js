@@ -13,7 +13,8 @@
 //   device(列)：卡片最上面那一排寫在哪裡、哪一台設備（底部「紀錄」分頁，和設備卡片一樣小標題在上、內容在下），下面才是紀錄的內容
 //     回傳 [{ label, value, warn }]（位置、設備）
 //   aside(列)：卡片標題右邊（標籤左邊）的灰字，{ text, warn } 或 null（位置詳情：放過好幾台的位置寫哪一台）；放不下時後面變「…」
-function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null }) {
+//   status(列)：這張清單的標籤，沒有時用 schema.status（位置、設備詳情的合約：只看這個位置目前的是哪一份）
+function createList(tableKey, schema, { openForm, rows = null, detail = false, device = null, aside = null, status = null }) {
   const fields = schema.fields;
   const byKey = Object.fromEntries(fields.map(f => [f.key, f]));
   const period = schema.period || null;
@@ -32,9 +33,11 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   try { savedGroup = localStorage.getItem(GROUP_KEY) || ''; } catch (_) {}
   const state = { period: null, keyword: '', flashId: null, filter: '', group: groups.some(([k]) => k === savedGroup) ? savedGroup : '' };
 
+  // 這一筆的日期：period.date 算的（合約：開始日空白照簽約日），沒有時是 period.key 那一欄
+  const dateOf = r => String((period.date ? period.date(r) : r[period.key]) ?? '');
   // key 空白時照 fallback 的欄位（抄表：結算月份空白的照抄表日期）
   const periodOf = r => {
-    const d = String(r[period.key] || (period.fallback && r[period.fallback]) || '');
+    const d = String(dateOf(r) || (period.fallback && r[period.fallback]) || '');
     return period.unit === 'month' ? d.slice(0, 7) : d;
   };
   // 篩選值可以是年（2025）、年月（2025-08）或單日（2025-06-30）
@@ -72,11 +75,13 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
   const tone = v => (badgeField?.type === 'ref'
     ? Refs.tone(badgeField.ref, Refs.find(badgeField, v))
     : badgeField?.toggle?.find(o => o.match.test(v))?.tone || '');
-  const statusOf = r => (schema.status ? schema.status(r) : null);
+  const statusFn = status || schema.status;
+  const statusOf = r => (statusFn ? statusFn(r) : null);
   const statusOnHead = detail && schema.statusHead;
-  // 日期旁邊的標籤：同一天有好幾筆時只寫一個，哪一筆看藍框
+  // 日期旁邊的標籤：同一天有好幾筆時只寫一個（目前的優先），哪一筆看藍框
   const headTag = rows => {
-    const st = statusOnHead && rows.map(statusOf).find(Boolean);
+    const list = statusOnHead ? rows.map(statusOf).filter(Boolean) : [];
+    const st = list.find(x => !x.pending) || list[0];
     return st ? `<span class="badge ${st.cls}">${U.esc(st.label)}</span>` : '';
   };
   const introHTML = schema.intro ? `<p class="list-intro">${U.esc(schema.intro)}</p>` : '';
@@ -174,7 +179,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
       `<small>使用量</small>${each(c => `<b class="${U.esc(c.tone || '')}">${U.esc(c.use)}</b>`)}` +
       `<small>計數器</small>${each(c => `<em>${U.esc(c.count)}</em>`)}</span>` : '';
     return `
-      <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}${statusOnHead && st ? ' marked' : ''}" data-id="${U.esc(r.id)}">
+      <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}${statusOnHead && st && !st.pending ? ' marked' : ''}" data-id="${U.esc(r.id)}">
         ${devCells ? `<span class="card-grid rec cols-${dev.length}">${devCells}</span>` : ''}
         <span class="card-top${as ? ' with-aside' : ''}${schema.statusHead ? ' tag-top' : ''}">
           <span class="card-title">${code && r[code] ? `<span class="card-code">${U.esc(r[code])}</span>` : ''}${U.esc(titleOf(r))}</span>
@@ -208,7 +213,8 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     if (!k) return 0;
     const x = period ? periodOf(a) : String(a[k] ?? ''), y = period ? periodOf(b) : String(b[k] ?? '');
     // 日期新到舊，同一天新增的在前（id 前段是新增的時間）；其他（編號）由小到大，數字照大小排（NB-2 在 NB-10 前面）
-    const then = period?.then ? desc(String(a[period.then] ?? ''), String(b[period.then] ?? '')) : 0;
+    const thenOf = r => (period.date ? dateOf(r) : String(r[period.then] ?? ''));
+    const then = period?.then ? desc(thenOf(a), thenOf(b)) : 0;
     return period ? desc(x, y) || then || desc(String(a.id), String(b.id)) : byText(x, y);
   });
 
@@ -228,7 +234,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     if (period) {
       const out = [];
       rows.forEach(r => {
-        const raw = String(r[period.key] ?? '');
+        const raw = dateOf(r);
         const g = raw || `empty:${periodOf(r)}`;
         const head = !raw ? period.emptyHead || '沒有日期' : byKey[period.key].type === 'month' ? U.fmtMonth(raw) : `${U.fmtDate(raw)} ${U.weekday(raw)}`;
         if (out.at(-1)?.key !== g) out.push({ key: g, head, rows: [] });

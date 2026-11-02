@@ -60,6 +60,7 @@
 //   （資料表）statusHead: 放在詳情裡時，標籤寫在日期旁邊、有標籤的卡片藍框；紀錄分頁留在卡片上（合約，見 list.js）
 //   （資料表）note:      卡片最下面的一行：note(列) 回傳 { text, warn } 或 null
 //   （資料表）period:    依日期篩選與分組：{ key, unit: 'month' | 'day', label }，新到舊；沒有時依 order 或 sort 排序
+//                       date(列)：日期要算的時候（合約：開始日空白照簽約日），沒有時是 key 那一欄
 //                       fallback：key 空白時照哪個欄位排（抄表：結算月份空白的照抄表日期）；emptyHead：空白的那一組的標題
 //   （資料表）order:     沒有 period 時的排序：order(a, b)，和陣列的 sort 一樣
 //   （資料表）sort:      沒有 period、order 時的排序欄位（由小到大）
@@ -404,17 +405,19 @@ const SCHEMAS = {
   },
 
   // 合約：綁位置、不綁機器（一次租三台是一份合約寫三個位置）；機器目前的合約＝它現在所在位置的合約，換機時不用改
-  //   一個位置目前的合約：包含它的合約裡簽約日最新的那一份（提前結束了的話沒有）
+  //   一個位置目前的合約：已經開始的裡面開始日最新的那一份（提前結束了的話沒有）；開始日空白照簽約日（見 records.js 的 contractStart）
+  //   不簽約的客戶簽約日空白；紙本拿出去還沒簽回的只填拿走日，標「簽約中」，簽回來填了日期才算目前的合約
+  //   文件（拿走的人、拿走日、簽回日）和目前的合約分開算：機器先裝了、紙本還在外面時，開始日到了就算目前，同時繼續提醒還沒簽回
   //   重簽、續約、改條件都按「重新簽約」新增一份；修改只用來改打錯的，改了什麼記在合約修改紀錄（見 records.js）
-  //   兩個日期、抄表週期之外都是自由輸入的文字
+  //   日期、抄表週期、拿走的人之外都是自由輸入的文字
   contracts: {
     title: '合約',
     once: true,
-    // 表單上：合約、抄表、其他三段；提前結束日很少用，放最後，只有編輯時有（新簽的合約不會提前結束）
-    formOrder: ['locations', 'signDate', 'endDate', 'content', 'billing', 'cycle', 'readDay', 'earlyEnd'],
-    period: recordMonth('signDate'),
+    // 表單上：位置與期間、內容與收費、抄表、文件四段；提前結束日只有編輯時有（新簽的合約不會提前結束）
+    formOrder: ['locations', 'signDate', 'startDate', 'endDate', 'earlyEnd', 'content', 'billing', 'deposit', 'cycle', 'readDay', 'taker', 'outDate', 'backDate'],
+    period: { ...recordMonth('signDate'), date: r => Records.contractDate(r) },
     card: { title: r => Records.firstLine(r.content) || '合約', grid: [] },
-    status: r => (Records.isCurrentContract(r) ? { label: '目前', cls: 'blue' } : null),
+    status: r => Records.contractStatus(r),
     statusHead: true,
     note: r => Records.contractNote(r),
     describe: r => Records.describe('contracts', r),
@@ -423,23 +426,32 @@ const SCHEMAS = {
     searchHint: '搜尋位置或合約內容',
     copy: {
       label: '重新簽約',
-      keys: ['locations', 'content', 'billing', 'readDay', 'cycle'],
-      watch: ['locations', 'signDate', 'endDate', 'billing'],
+      keys: ['locations', 'content', 'billing', 'deposit', 'readDay', 'cycle'],
+      watch: ['locations', 'signDate', 'startDate', 'endDate', 'billing'],
       note: '重新簽約、續約、改條件都按這裡，會新增一份；上面只用來改打錯的地方',
     },
     history: r => Records.contractHistory(r.id),
     afterSave: (before, after) => Records.logContract(before, after),
     afterRemove: r => Records.dropContractLog(r),
     fields: [
-      placeField('locations', '位置', { many: true, full: true, placeholder: '選擇或搜尋，可以選好幾個', section: '合約' }),
+      placeField('locations', '位置', { many: true, full: true, placeholder: '選擇或搜尋，可以選好幾個', section: '位置與期間' }),
       // 不預設今天：補登舊合約忘了改日期，會變成這個位置目前的合約
-      { key: 'signDate', label: '簽約日', type: 'date' },
+      { key: 'signDate', label: '簽約日', type: 'date', optional: true,
+        check: v => (v.signDate || v.startDate || v.outDate ? '' : '簽約日、開始日、拿走日至少填一個') },
       { key: 'endDate', label: '到期日', type: 'date', optional: true },
-      { key: 'earlyEnd', label: '提前結束日', type: 'date', optional: true, hint: '違約、提前結束時才填', section: '其他', showIf: v => !!v.id },
-      { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true },
+      { key: 'earlyEnd', label: '提前結束日', type: 'date', optional: true, hint: '違約、提前結束時才填', showIf: v => !!v.id },
+      { key: 'content', label: '合約內容', type: 'text', optional: true, full: true, multiline: true, section: '內容與收費' },
       { key: 'billing', label: '計費方式', type: 'text', optional: true, full: true, multiline: true },
       { key: 'readDay', label: '抄表日期', type: 'text', optional: true, full: true },
       { key: 'cycle', label: '抄表週期', type: 'text', optional: true, full: true, toggle: toggleOf(READ_CYCLES), hint: '空白＝每月', section: '抄表' },
+      // 後來加的欄：試算表上排在最後，表單上照 formOrder
+      { key: 'startDate', label: '開始日', type: 'date', optional: true, hint: '空白＝簽約日' },
+      { key: 'deposit', label: '押金', type: 'text', optional: true, full: true },
+      // 填了拿走日時先帶第一個位置的業務員（自己改過的不蓋掉）；拿走的不一定是業務員，人員都可以選
+      { key: 'taker', label: '拿走的人', type: 'ref', ref: 'people', optional: true, full: true, noAdd: true, section: '文件', calc: v => Records.contractTaker(v) },
+      { key: 'outDate', label: '拿走日', type: 'date', optional: true },
+      { key: 'backDate', label: '簽回日', type: 'date', optional: true,
+        note: v => (v.backDate && !v.signDate && !v.startDate ? { text: '還要填簽約日或開始日', warn: true } : '') },
     ],
   },
 

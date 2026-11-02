@@ -42,11 +42,12 @@ function createPlaces() {
     });
     const usage = Records.usageByPlace();
     const contracts = Records.currentContracts();
+    const pending = Records.pendingContracts();
     const wrong = new Set(Records.statusMismatch().filter(x => x.place).map(x => norm(x.place.code)));
     return Store.list('locations')
       .map(p => {
         const on = machines.get(norm(p.code)) || [];
-        return { p, on, kind: kindOf(p, on.length), usage: usage.get(norm(p.code)) || [], contract: contracts.get(norm(p.code)) || null,
+        return { p, on, kind: kindOf(p, on.length), usage: usage.get(norm(p.code)) || [], contract: contracts.get(norm(p.code)) || null, pending: pending.get(norm(p.code)) || null,
           wrong: wrong.has(norm(p.code)), sales: p.stock ? '' : String(p.sales ?? '').trim() };
       })
       .sort((a, b) => (b.kind === 'stock') - (a.kind === 'stock')
@@ -84,7 +85,7 @@ function createPlaces() {
 
   function cellsHTML(x) {
     if (x.p.stock) return '';
-    const c = Records.contractShort(x.contract);
+    const c = Records.contractShort(x.contract) || Records.pendingShort(x.pending);
     const u = Records.usageSummary(x.usage);
     const cell = (label, main, sub, cls = '') =>
       `<span class="cell"><small>${U.esc(label)}</small><span class="${cls}">${main}</span>${sub ? `<em>${U.esc(sub)}</em>` : ''}</span>`;
