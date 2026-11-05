@@ -131,7 +131,7 @@ const Records = (() => {
   // 一格一台，新增異動、設備表單選位置時擋：那天放著別台就不能存（沒有日期的看現在）；倉庫不擋
   //   看那天結束時在哪裡：換機同一天先撤再裝可以；補登比現在那台進來還早的不擋，存完提醒（見 crowdNote）
   //   沒有異動的機器不知道哪天放進來的，算一直在這裡
-  //   改舊異動、刪異動不擋（兩台打反才改得回來）；試算表裡改的擋不到；這些總覽「要處理」會列（見 crowdedPlaces）
+  //   改舊異動、刪異動不擋（兩台打反才改得回來）；試算表裡改的擋不到；這些總覽「資料錯誤」會列（見 crowdedPlaces）
   function slotCheck(code, deviceCode, date = '') {
     const p = place(code);
     if (!p || p.stock) return '';
@@ -353,7 +353,7 @@ const Records = (() => {
   // 存了異動之後，設備的狀態改成這一筆的狀態；回傳改到的設備 [{ table, id }]
   //   只有這台設備最新的一筆才改（補登以前的異動不會改）
   //   新增、改了狀態或設備時才改：只改備註時不會蓋掉後來自己改的狀態
-  //   刪掉異動時不會改回去（位置會），要自己改（對不上的總覽「要處理」會列，見 statusMismatch）
+  //   刪掉異動時不會改回去（位置會），要自己改（對不上的總覽「資料錯誤」會列，見 statusMismatch）
   function applyMoveStatus(before, after) {
     const s = String(after?.status ?? '').trim();
     if (!s) return [];
@@ -440,14 +440,23 @@ const Records = (() => {
   //   安裝、移機當天的張數是起點（結算月份可以空白）；撤機前最後一次抄表要結帳（填結算月份）
   //   stress：要強調的那一句，橘色粗體另起一行：裝機當天是算帳的起點；撤機要在歸零前抄（歸零後查不回來）
   const READING_AFTER = {
-    安裝: { note: '裝機', message: '已存好安裝。接著抄表：這天是裝機抄表，結算月份可以空白', stress: '裝機當天一定要抄，這是算帳的起點' },
-    撤機: { note: '撤機', message: '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份', stress: '歸零前一定要先抄，歸零後就查不回來' },
-    移機: { note: '移機', message: '已存好移機。接著抄表：這天是新位置的起點，結算月份可以空白' },
+    安裝: { note: '裝機', message: '已存好安裝。接著抄表：這天是裝機抄表，結算月份可以空白', stress: '裝機當天一定要抄，這是算帳的起點',
+      late: '補裝機抄表：晚抄的在備註寫實際哪天，結算月份可以空白' },
+    撤機: { note: '撤機', message: '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份', stress: '歸零前一定要先抄，歸零後就查不回來',
+      late: '補撤機抄表：填這次要結帳的結算月份', lateStress: '歸零前一定要先抄，歸零後就查不回來' },
+    移機: { note: '移機', message: '已存好移機。接著抄表：這天是新位置的起點，結算月份可以空白',
+      late: '補移機抄表：晚抄的在備註寫實際哪天，結算月份可以空白' },
   };
   function readingAfterMove(r) {
     const after = READING_AFTER[String(r.type ?? '').trim()];
     if (!after || !key(r.device)) return null;
     return { table: 'readings', preset: { device: r.device, date: r.date, note: after.note }, message: after.message, stress: after.stress || '' };
+  }
+  // 從總覽補當天沒抄的表（見 movesNoReading）：機器、日期帶好不能改（日期一定是那天，清單才會不見）
+  function readingForMove(m) {
+    const after = READING_AFTER[String(m.type ?? '').trim()];
+    if (!after || !key(m.device)) return null;
+    return { preset: { device: m.device, date: m.date, note: after.note }, fixed: ['device', 'date'], message: after.late, stress: after.lateStress || '' };
   }
   // 刪異動時：同一天的抄表不會一起刪（異動記錯，張數通常還是真的，也可能已經算帳），寫出來讓人決定要不要另外處理
   function moveRemoveNote(r) {
@@ -1304,6 +1313,20 @@ const Records = (() => {
       .sort(byPlaceName);
   }
 
+  // 裝機、撤機還沒抄表：最近 60 天的安裝、撤機、移機，這台那天沒有抄表；補上就不見（機器壞到讀不到的，過了 60 天自己消失）
+  //   業務員不列：他不管異動，打的張數比舊的少也存不了（歸零過的機器補不了）
+  //   [{ id, move, device, place: 位置名稱（撤機寫原位置，其他寫新位置） }]；越早的越上面
+  const NO_READING_DAYS = 60;
+  function movesNoReading() {
+    if (salesMode()) return [];
+    return Store.list('moves')
+      .filter(m => READING_AFTER[String(m.type ?? '').trim()] && device(m.device))
+      .filter(m => { const d = daysTo(m.date); return d <= 0 && d >= -NO_READING_DAYS; })
+      .filter(m => !of('readings', m.device).some(r => String(r.date ?? '') === String(m.date ?? '')))
+      .map(m => ({ id: m.id, move: m, device: device(m.device), place: placeName(String(m.type).trim() === '撤機' ? m.from : m.to) }))
+      .sort((a, b) => cmp(String(a.move.date), String(b.move.date)));
+  }
+
   // 該抄表了：照合約的抄表週期，該抄的結算月份過完再 10 天還沒有抄表（每月 5 日抄上個月的來得及）
   //   週期：這個位置目前的合約的抄表週期；空白、沒有合約的當每月
   //   該抄的結算月份：這個位置最後一次算帳的抄表（有結算月份的，哪一台機器抄的都算，確認過的張數信也算）＋週期
@@ -1615,7 +1638,7 @@ const Records = (() => {
     place, placeName, placeText, placeSub, machinesAt, slotNote, slotCheck, deviceSlotCheck, crowdNote, stockCheck, crowdedPlaces, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, moveRemoveNote, contractsDue, contractsOut, contractIssues, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, readingForMove, movesNoReading, moveRemoveNote, contractsDue, contractsOut, contractIssues, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,
     customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, noCustomerPlaces, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     contractStarted, contractDate, needsEnd, contractIssue, contractDueDate, compareContractDue, contractStatus, contractTag, contractEndFrom, startText, contractTaker, contractOutText, pendingContracts, pendingShort,

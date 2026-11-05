@@ -1868,6 +1868,54 @@ test('刪異動時寫出同一天的抄表（不會一起刪）：一筆寫張�
   assert.equal(note(m), '這天還有 2 筆抄表，不會一起刪');
 });
 
+test('要處理：裝機、撤機還沒抄表（最近 60 天的安裝、撤機、移機，當天沒抄）；補上就不見；業務員不列；日期、機器不能改', () => {
+  const { Store, Records, add } = withDevices(); // 今天 2026-10-11
+  const list = () => plain(Records.movesNoReading().map(x => [x.device.code, x.move.date, x.move.type, x.place]));
+  const m = (date, type, from, to, device = '24-0001') => add('moves', { device, date, type, from, to });
+  assert.deepEqual(list(), []);
+  const inst = m('2026-10-01', '安裝', WH, DH);
+  assert.deepEqual(list(), [['24-0001', '2026-10-01', '安裝', '大華貿易 3F']]);
+  // 別天的抄表、別台的抄表不算；當天那台有抄就不見（結算月份不看）
+  add('readings', { device: '24-0001', date: '2026-10-02', month: '', bw: 10 });
+  add('readings', { device: '25-0001', date: '2026-10-01', month: '', bw: 10 });
+  assert.equal(list().length, 1);
+  const r = add('readings', { device: '24-0001', date: '2026-10-01', month: '2026-09', bw: 5 });
+  assert.deepEqual(list(), []);
+  Store.remove('readings', r.id);
+  // 撤機寫原位置；移機寫新位置；越早的越上面；其他類型、沒有這台的不列
+  m('2026-09-20', '撤機', DH, WH);
+  m('2026-09-25', '移機', DH, AX);
+  m('2026-09-26', '其他', DH, AX);
+  m('2026-09-27', '安裝', WH, AX, '99-9999');
+  assert.deepEqual(list(), [
+    ['24-0001', '2026-09-20', '撤機', '大華貿易 3F'],
+    ['24-0001', '2026-09-25', '移機', '安心診所 櫃台'],
+    ['24-0001', '2026-10-01', '安裝', '大華貿易 3F'],
+  ]);
+  // 60 天內才列：第 60 天還在，第 61 天不見；今天之後的不列
+  m('2026-08-12', '安裝', WH, DH);
+  m('2026-08-11', '安裝', WH, DH);
+  m('2026-10-12', '安裝', WH, DH);
+  assert.equal(list()[0][1], '2026-08-12');
+  assert.equal(list().length, 4);
+  // 補的表單：機器、日期帶好不能改，備註先帶，撤機強調歸零前先抄
+  const open = Records.readingForMove(inst);
+  assert.deepEqual(plain(open.preset), { device: '24-0001', date: '2026-10-01', note: '裝機' });
+  assert.deepEqual(plain(open.fixed), ['device', 'date']);
+  assert.equal(open.message, '補裝機抄表：晚抄的在備註寫實際哪天，結算月份可以空白');
+  assert.equal(open.stress, '');
+  assert.equal(Records.readingForMove({ device: '24-0001', date: '2026-09-20', type: '撤機' }).stress, '歸零前一定要先抄，歸零後就查不回來');
+  assert.equal(Records.readingForMove({ device: '24-0001', date: '2026-09-20', type: '其他' }), null);
+});
+
+test('要處理：業務員不列裝機、撤機還沒抄表', () => {
+  const { Records, add } = app({ sales: true });
+  add('locations', { code: DH, name: '大華貿易 3F' });
+  add('devices', { code: '24-0001', name: '#1001', location: DH });
+  add('moves', { device: '24-0001', date: '2026-10-01', type: '安裝', from: '', to: DH });
+  assert.deepEqual(plain(Records.movesNoReading()), []);
+});
+
 test('一格一台，還沒補編號的機器（試算表手打）也算一台', () => {
   const { field, add, d2 } = withDevices();
   add('devices', { code: '', name: '#手打', status: '出租中', location: AX });

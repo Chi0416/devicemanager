@@ -1,8 +1,9 @@
-// 總覽：最上面寫共幾台、幾種機型；下面是狀態方塊、要處理、各機型有幾台（計算見 records.js）
+// 總覽：最上面寫共幾台、幾種機型；下面是狀態方塊、資料錯誤、待處理、各機型有幾台（計算見 records.js）
+//   資料錯誤和待處理分開：資料本身有問題、修好就不見的是錯誤（見 ERRORS）；資料沒問題、該去做的事是待處理；哪一區沒有就不寫
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
 //   要處理：合約到期、快到期，合約還沒簽回（拿走超過 14 天），合約狀態異常（行政狀態和日期對不上），保固 30 天內到期，耗材快到了（預估 14 天內），該抄表了，回報停了（超過 3 天），狀態和位置對不上，空著的位置；
 //     依資料算，處理掉就自己不見，沒有的那一列不列
-//     保固…：點一列打開那份清單（#todo-sheet），點一項打開那台設備（一格放好幾台打開那個位置）；空著的位置：到位置頁、篩好空著的（onPlaces）；合約：到合約頁，只列那一格（onContracts）
+//     保固…：點一列打開那份清單（#todo-sheet），點一項打開那台設備（一格放好幾台打開那個位置，裝機、撤機還沒抄表打開抄表表單）；空著的位置：到位置頁、篩好空著的（onPlaces）；合約：到合約頁，只列那一格（onContracts）
 //   機型：依世代分組（機型清單的「世代」，空白時照型號猜），標題寫「IM C 系列」和小計，下面一條線；組裡一行一個、照機型清單的順序，細長條是台數
 //     點一個到設備頁，篩好狀態和機型（onPick，見 app.js）
 function createOverview({ onPick, onPlaces, onContracts }) {
@@ -124,6 +125,16 @@ function createOverview({ onPick, onPlaces, onContracts }) {
       open: x => Place.open(x.id),
     },
     {
+      key: 'noReading', title: '裝機、撤機還沒抄表', icon: 'meter', tone: 'warn',
+      list: () => Records.movesNoReading(),
+      summary: () => '當天沒有抄表，點一筆補上',
+      row: x => ({ title: `${x.place} · ${Records.label(x.device)}`, sub: `${U.fmtDate(x.move.date)} ${x.move.type}` }),
+      open: x => {
+        const f = Records.readingForMove(x.move);
+        Form.open('readings', null, f.preset, f);
+      },
+    },
+    {
       key: 'places', title: '空著的位置', icon: 'pin', tone: 'blue',
       list: () => Records.emptyPlaces(),
       summary: () => '等安裝，或客戶不租了要停用',
@@ -131,6 +142,8 @@ function createOverview({ onPick, onPlaces, onContracts }) {
     },
   ];
   const todoOf = k => TODOS.find(t => t.key === k);
+  // 資料錯誤，照這個順序；其他的是待處理
+  const ERRORS = ['crowded', 'mismatch', 'contractIssues', 'noReading'];
 
   // 狀態方塊：全部、清單裡沒停用的狀態（停用了但還有設備在用的也列）、不在清單裡的狀態
   function options() {
@@ -154,12 +167,15 @@ function createOverview({ onPick, onPlaces, onContracts }) {
 
   function todoHTML() {
     const rows = TODOS.map(t => ({ t, list: t.list() })).filter(x => x.list.length);
-    return `<h3 class="section-head">要處理</h3>${rows.length ? `<ul class="member-list todo-list">${rows.map(({ t, list }) => `
+    if (!rows.length) return '<h3 class="section-head">待處理</h3><p class="todo-none">目前沒有要處理的事</p>';
+    const section = (title, items) => (items.length ? `<h3 class="section-head">${title}</h3><ul class="member-list todo-list">${items.map(({ t, list }) => `
       <li><button type="button" class="list-item todo-item" data-todo="${t.key}">
         <span class="todo-icon ${t.tone}">${icon(t.icon)}</span>
         <span class="member-info"><b>${U.esc(t.title)}</b><small>${U.esc(t.summary(list))}</small></span>
         <span class="todo-count ${t.tone}">${list.length}</span><span class="go" aria-hidden="true">›</span>
-      </button></li>`).join('')}</ul>` : '<p class="todo-none">目前沒有要處理的事</p>'}`;
+      </button></li>`).join('')}</ul>` : '');
+    return section('資料錯誤', ERRORS.map(k => rows.find(x => x.t.key === k)).filter(Boolean))
+      + section('待處理', rows.filter(x => !ERRORS.includes(x.t.key)));
   }
 
   // 機型：依世代分組（見 records.js 的 modelGroups），標題「IM C 系列」（其他就寫其他）和小計；組裡一行一個，名字、台數，下面細長條（和最多的那種比）

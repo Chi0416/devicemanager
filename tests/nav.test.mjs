@@ -79,3 +79,14 @@ test('連點：彈出的頁面剛開、剛關時不接受點擊，程式自己�
   // 更多沒有開關時不算（底部快速切換不會被擋）
   assert.match(app, /function setMore\(open\) \{\s+if \(morePanel\.hidden !== open\) return;\s+sheetMoved\(\);/);
 });
+
+test('總覽分成資料錯誤和待處理：資料錯誤的每一項都在清單裡，文字不再寫「要處理」', () => {
+  const overview = read('js/overview.js');
+  const errors = overview.match(/const ERRORS = \[([^\]]+)\]/)[1].match(/'[^']+'/g).map(k => k.slice(1, -1));
+  const keys = [...overview.matchAll(/key: '([^']+)', title:/g)].map(m => m[1]);
+  assert.deepEqual(errors, ['crowded', 'mismatch', 'contractIssues', 'noReading']);
+  errors.forEach(k => assert.ok(keys.includes(k), k));
+  assert.ok(keys.includes('reports') && !errors.includes('reports')); // 回報停了是待處理
+  assert.ok(overview.includes("section('資料錯誤'") && overview.includes("section('待處理'"));
+  assert.ok(!between(html, '<body', '</body>').replace(/<!--[\s\S]*?-->/g, '').includes('「要處理」'));
+});
