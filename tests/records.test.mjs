@@ -1592,7 +1592,10 @@ test('安裝、撤機、移機存好後接著抄表：機器和日期帶好；�
   assert.deepEqual(plain(next({ type: '安裝', device: '24-0001', date: '2026-10-06' })), {
     table: 'readings', preset: { device: '24-0001', date: '2026-10-06', note: '裝機' },
     message: '已存好安裝。接著抄表：這天是裝機抄表，結算月份可以空白',
+    stress: '裝機當天一定要抄，這是算帳的起點',
   });
+  assert.equal(next({ type: '撤機', device: '24-0001', date: '2026-10-06' }).stress, '歸零前一定要先抄，歸零後就查不回來');
+  assert.equal(next({ type: '移機', device: '24-0001', date: '2026-10-06' }).stress, '');
   assert.equal(next({ type: '撤機', device: '24-0001', date: '2026-10-06' }).message, '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份');
   assert.equal(next({ type: '移機', device: '24-0001', date: '2026-10-06' }).message, '已存好移機。接著抄表：這天是新位置的起點，結算月份可以空白');
   assert.equal(next({ type: '其他', device: '24-0001', date: '2026-10-06' }), null);

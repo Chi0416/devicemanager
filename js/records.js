@@ -438,15 +438,16 @@ const Records = (() => {
 
   // 存了安裝、撤機、移機之後接著抄表（見 form.js 的 schema.next）：機器、日期帶好，備註先寫是哪一種（可以改；系統不看備註）
   //   安裝、移機當天的張數是起點（結算月份可以空白）；撤機前最後一次抄表要結帳（填結算月份）
+  //   stress：要強調的那一句，橘色粗體另起一行：裝機當天是算帳的起點；撤機要在歸零前抄（歸零後查不回來）
   const READING_AFTER = {
-    安裝: { note: '裝機', message: '已存好安裝。接著抄表：這天是裝機抄表，結算月份可以空白' },
-    撤機: { note: '撤機', message: '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份' },
+    安裝: { note: '裝機', message: '已存好安裝。接著抄表：這天是裝機抄表，結算月份可以空白', stress: '裝機當天一定要抄，這是算帳的起點' },
+    撤機: { note: '撤機', message: '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份', stress: '歸零前一定要先抄，歸零後就查不回來' },
     移機: { note: '移機', message: '已存好移機。接著抄表：這天是新位置的起點，結算月份可以空白' },
   };
   function readingAfterMove(r) {
     const after = READING_AFTER[String(r.type ?? '').trim()];
     if (!after || !key(r.device)) return null;
-    return { table: 'readings', preset: { device: r.device, date: r.date, note: after.note }, message: after.message };
+    return { table: 'readings', preset: { device: r.device, date: r.date, note: after.note }, message: after.message, stress: after.stress || '' };
   }
   // 刪異動時：同一天的抄表不會一起刪（異動記錯，張數通常還是真的，也可能已經算帳），寫出來讓人決定要不要另外處理
   function moveRemoveNote(r) {

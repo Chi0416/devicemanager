@@ -599,6 +599,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
   color: var(--ok);
   font-size: 14px;
 }
+.sheet-status strong { display: block; margin-top: 4px; color: var(--warn); }
 
 /* ---------- 表單欄位 ---------- */
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; }

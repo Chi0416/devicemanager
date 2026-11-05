@@ -93,7 +93,7 @@
 //                       { key, label 按鈕上的字, show(這一筆) 要不要出現, note(這一筆) 按鈕下面的說明 }；按了交給 app.js（Form.init 的 action）
 //   （資料表）history:   編輯時表單最下面的修改紀錄：history(這一筆) 回傳 [{ date, text }]
 //   （資料表）once:      新增時沒有「儲存，再新增一筆」（異動、抄表、翻新、合約：一次一筆，連續輸入很容易同一台機器多存一筆）
-//   （資料表）next:      新增好按「儲存」後接著打開的表單：next(存好的那一筆) 回傳 { table, preset, message } 或 null（安裝、撤機後抄表）
+//   （資料表）next:      新增好按「儲存」後接著打開的表單：next(存好的那一筆) 回傳 { table, preset, message, stress（要強調的一句，可以沒有） } 或 null（安裝、撤機後抄表）
 //   （資料表）extra:     只在表單上、不是這張表的欄位（試算表沒有這一欄，設備的選配件）：寫法和 fields 一樣，formOrder 可以排它；目前只有複選
 //                       extraValues(這一筆) 編輯時帶入的值；saveExtra(改之前（新增時是 null）, 改之後, { 欄位: 選了的名字 }) 存好後交給它
 //   （資料表）removeNote: 按第一次刪除時，下面多寫一行：removeNote(這一筆) 回傳字或空字串（異動：同一天的抄表不會一起刪）

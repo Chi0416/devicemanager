@@ -71,7 +71,7 @@ const Form = (() => {
   //   在設備詳情裡新增紀錄時，設備先帶好（「儲存，再新增一筆」也照樣帶）
   // message：打開時寫在最上面的一行（安裝、撤機後接著抄表時說要填什麼）
   // fixed：帶好不能改的欄位（從設備詳情新增紀錄：記的就是這台，要記別台就退出去）
-  function open(tableKey, id, preset = {}, { message = '', fixed = [] } = {}) {
+  function open(tableKey, id, preset = {}, { message = '', stress = '', fixed = [] } = {}) {
     const sales = typeof Sync !== 'undefined' && Sync.isSales();
     if (sales && (id ? !Sync.salesSee(tableKey) : !Sync.salesCan(tableKey))) return;
     const schema = SCHEMAS[tableKey];
@@ -98,6 +98,11 @@ const Form = (() => {
     }
     renderHistory(rec);
     statusEl.textContent = message;
+    if (stress) {
+      const strong = document.createElement('strong');
+      strong.textContent = stress;
+      statusEl.append(strong);
+    }
     statusEl.hidden = !message;
     buildFields(rec && { ...rec, ...schema.extraValues?.(rec) }, preset);
     dlg.style.height = '';
