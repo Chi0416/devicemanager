@@ -346,18 +346,19 @@ const Place = (() => {
     return on.length === 1 ? { device: on[0].code } : {};
   };
   const at = key => p => Records.recordsAt(key, p.code);
-  // 新增異動：空的位置先選安裝、裝到這裡；放著一台時先選撤機、撤的是那一台；倉庫先選撤機、撤到這裡
+  // 新增異動：空的位置先選安裝、裝到這裡；放著一台時先選撤機、撤的是那一台；放著好幾台時先選撤機、機器自己選；倉庫先選撤機、撤到這裡
   const moveHere = p => {
     const on = Records.machinesAt(p.code);
+    if (!p.stock && on.length > 1) return { type: '撤機' };
     return !p.stock && on.length === 1 ? { device: on[0].code, type: '撤機' } : { to: p.code, type: Records.moveTypeAt(p) };
   };
-  // 現在放著的機器：三台以內一台一個按鈕（點了打開設備詳情），多的寫幾台
+  // 現在放著的機器：一台一個按鈕（點了打開設備詳情）；倉庫超過三台只寫幾台；客戶的位置放了好幾台全部列，才找得到要撤哪一台
   const MAX_LINKS = 3;
 
   function infoHTML(p) {
     const on = Records.machinesAt(p.code);
     const olds = String(p.oldNames ?? '').split('\n').map(x => x.trim()).filter(Boolean);
-    const links = on.length <= MAX_LINKS ? on.map(d =>
+    const links = !p.stock || on.length <= MAX_LINKS ? on.map(d =>
       `<button type="button" class="detail-link" data-device="${U.esc(d.id)}"><small>設備</small><span>${U.esc(Records.label(d))}</span><span class="go" aria-hidden="true">›</span></button>`).join('')
       : `<span class="card-note">現在放著 ${on.length} 台</span>`;
     return `
@@ -373,6 +374,7 @@ const Place = (() => {
         ${p.note ? `<span class="card-sub">${U.esc(Records.firstLine(p.note))}</span>` : ''}
         ${customerLink(p)}
         ${on.length ? links : '<span class="card-note">現在沒有機器</span>'}
+        ${!p.stock && on.length > 1 ? '<span class="card-note warn">一個位置只放一台：點機器，新增撤機或移機</span>' : ''}
       </div>
       ${p.stock ? '' : usageHTML(p)}`;
   }

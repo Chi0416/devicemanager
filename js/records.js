@@ -118,12 +118,33 @@ const Records = (() => {
     return on.length > 1 ? `${on.length} 台` : on.length ? label(on[0]) : '';
   }
 
-  // 一格一台：這個位置已經放著別台機器時提醒（換機時兩筆異動先輸入哪一筆都可以，所以只提醒）；倉庫不提醒
+  // 一格一台：這個位置已經放著別台機器時，選好就寫現在是哪台（存檔時 slotCheck 會擋）；倉庫不寫
   function slotNote(code, deviceCode) {
     const p = place(code);
     if (!p || p.stock) return '';
     const other = machinesAt(code).find(d => key(d.code) !== key(deviceCode));
     return other ? { text: `這裡現在是 ${label(other)}`, warn: true } : '';
+  }
+
+  // 一格一台，存檔時擋：那天放著別台就不能存（沒有日期的看現在）；倉庫不擋
+  //   看那天結束時在哪裡：換機同一天先撤再裝可以；補登以前的異動，不會被後來才放進來的機器擋住
+  //   沒有異動的機器不知道哪天放進來的，算一直在這裡（要補它的歷史：先在設備表單改回倉庫，再新增安裝）
+  //   試算表裡改的、以前存的擋不到，總覽「要處理」會列（見 crowdedPlaces）
+  function slotCheck(code, deviceCode, date = '') {
+    const p = place(code);
+    if (!p || p.stock) return '';
+    const k = key(code);
+    const mine = key(deviceCode);
+    const near = new Set([...machinesAt(code).map(d => key(d.code)), ...movesAt(code).map(m => key(m.device))]);
+    near.delete(mine);
+    const other = [...near].map(device).find(d => d && key(date ? placeBefore(d.code, date) : d.location) === k);
+    if (!other) return '';
+    return key(other.location) === k ? '一個位置只放一台，要先撤機' : `這裡 ${U.fmtDate(date)} 是 ${label(other)}，一個位置只放一台`;
+  }
+  // 設備表單的位置：沒改的不擋（已經放兩台的舊資料，別的欄位照常可以改）
+  function deviceSlotCheck(values) {
+    const old = values.id && Store.get('devices', values.id);
+    return old && key(old.location) === key(values.location) ? '' : slotCheck(values.location, values.code);
   }
 
   // 位置改名：舊名字加一行到「以前的名字」，寫到哪一天為止；回傳改到的 [{ table, id }]
@@ -379,12 +400,22 @@ const Records = (() => {
     if (rule[0] === 'stock') return key(from) && !isStock(from) ? '這台不在倉庫' : '';
     return !key(from) ? '這台還沒有位置' : isStock(from) ? '這台在倉庫' : '';
   }
-  // 新位置和類型對不上
+  // 這一筆沒有放新的機器進去：原位置就是新位置；編輯時新位置、日期都沒改（舊資料只改備註照常可以存）
+  const sameSlot = v => {
+    if (key(v.from) === key(v.to)) return true;
+    const old = v.id && Store.get('moves', v.id);
+    return !!old && key(old.to) === key(v.to) && String(old.date ?? '') === String(v.date ?? '');
+  };
+  // 新位置：和類型對不上；那天已經放著別台（一格一台）
   function moveToCheck(values) {
+    if (!key(values.to)) return '';
     const rule = ruleOf(values);
-    if (!rule || !key(values.to) || unchangedMove(values)) return '';
-    if (rule[1] === 'stock') return isStock(values.to) ? '' : '撤機要選倉庫';
-    return isStock(values.to) ? `${values.type}要選客戶的位置，不是倉庫` : '';
+    if (rule && !unchangedMove(values)) {
+      if (rule[1] === 'stock') {
+        if (!isStock(values.to)) return '撤機要選倉庫';
+      } else if (isStock(values.to)) return `${values.type}要選客戶的位置，不是倉庫`;
+    }
+    return sameSlot(values) ? '' : slotCheck(values.to, values.device, values.date);
   }
   // 原位置：報廢的機器不能安裝
   function moveDeviceCheck(values) {
@@ -1243,6 +1274,14 @@ const Records = (() => {
       .sort((a, b) => (!a.place - !b.place) || (a.place ? byPlaceName(a, b) : deviceOrder(a.device, b.device)));
   }
 
+  // 一格放好幾台：不是倉庫、沒停用的位置現在放著兩台以上（以前存的、試算表裡改的；新的存檔時會擋，見 slotCheck）；依名稱排
+  //   [{ id, place, machines }]
+  function crowdedPlaces() {
+    return Store.list('locations').filter(p => !p.stock && !p.disabled && machinesAt(p.code).length > 1)
+      .map(p => ({ id: p.id, place: p, machines: machinesAt(p.code).sort(deviceOrder) }))
+      .sort(byPlaceName);
+  }
+
   // 該抄表了：照合約的抄表週期，該抄的結算月份過完再 10 天還沒有抄表（每月 5 日抄上個月的來得及）
   //   週期：這個位置目前的合約的抄表週期；空白、沒有合約的當每月
   //   該抄的結算月份：這個位置最後一次算帳的抄表（有結算月份的，哪一台機器抄的都算，確認過的張數信也算）＋週期
@@ -1551,7 +1590,7 @@ const Records = (() => {
 
   return {
     TABLES, DEVICE_TABLES, firstLine, noteLine, workLine, countCheck, device, of, latest, label, serialOf, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
-    place, placeName, placeText, placeSub, machinesAt, slotNote, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
+    place, placeName, placeText, placeSub, machinesAt, slotNote, slotCheck, deviceSlotCheck, crowdedPlaces, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
     moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, contractsOut, contractIssues, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,

@@ -2,7 +2,7 @@
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
 //   要處理：合約到期、快到期，合約還沒簽回（拿走超過 14 天），合約狀態異常（行政狀態和日期對不上），保固 30 天內到期，耗材快到了（預估 14 天內），該抄表了，回報停了（超過 3 天），狀態和位置對不上，空著的位置；
 //     依資料算，處理掉就自己不見，沒有的那一列不列
-//     保固…：點一列打開那份清單（#todo-sheet），點一項打開那台設備；空著的位置：到位置頁、篩好空著的（onPlaces）；合約：到合約頁，只列那一格（onContracts）
+//     保固…：點一列打開那份清單（#todo-sheet），點一項打開那台設備（一格放好幾台打開那個位置）；空著的位置：到位置頁、篩好空著的（onPlaces）；合約：到合約頁，只列那一格（onContracts）
 //   機型：依世代分組（機型清單的「世代」，空白時照型號猜），標題寫「IM C 系列」和小計，下面一條線；組裡一行一個、照機型清單的順序，細長條是台數
 //     點一個到設備頁，篩好狀態和機型（onPick，見 app.js）
 function createOverview({ onPick, onPlaces, onContracts }) {
@@ -115,6 +115,13 @@ function createOverview({ onPick, onPlaces, onContracts }) {
         sub: `${x.status}，但${!x.place ? '沒有位置' : x.place.stock ? '在倉庫' : '在客戶那裡'}`,
       }),
       open: x => Detail.open(x.device.id),
+    },
+    {
+      key: 'crowded', title: '一格放好幾台', icon: 'pin', tone: 'warn',
+      list: () => Records.crowdedPlaces(),
+      summary: () => '一個位置只放一台，要撤機或移機',
+      row: x => ({ title: x.place.name, sub: `${x.machines.length} 台：${x.machines.map(d => Records.label(d)).join('、')}` }),
+      open: x => Place.open(x.id),
     },
     {
       key: 'places', title: '空著的位置', icon: 'pin', tone: 'blue',

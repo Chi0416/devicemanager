@@ -301,10 +301,10 @@ const SCHEMAS = {
       { key: 'model',    label: '機型',     was: ['型號'], type: 'ref', ref: 'options', list: '機型', optional: true, keep: true, caps: true },
       { key: 'serial',   label: '序號',     type: 'text', optional: true, caps: true, upper: true, section: '機器識別' },
       { key: 'board',    label: '主機板號碼', type: 'text', optional: true, caps: true, tight: true, clean: cleanBoard },
-      // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示；那裡已經有別台機器時提醒（倉庫不提醒）
+      // 有異動之後，位置＝最新一筆異動的新位置（見 records.js），表單上只顯示；那裡已經有別台機器時不能存（倉庫可以）
       // 新增時先放倉庫（剛買的機器）；連續新增時，倉庫才留著（客戶的位置一格一台）
       placeField('location', '位置', { optional: true, default: () => firstStock(), keep: v => Records.isStock(v.location), section: '放置與保管',
-        lock: r => (Records.hasMoves(r.code) ? '要換位置請新增異動' : ''), note: v => Records.slotNote(v.location, v.code) }),
+        lock: r => (Records.hasMoves(r.code) ? '要換位置請新增異動' : ''), note: v => Records.slotNote(v.location, v.code), check: v => Records.deviceSlotCheck(v) }),
       { key: 'keeper',   label: '保管人',   type: 'ref', ref: 'people', optional: true },
       { key: 'buyDate',  label: '購買日期', type: 'date', optional: true, keep: true, section: '購買與保固' },
       { key: 'price',    label: '購買金額', type: 'number', optional: true, keep: true },
@@ -315,7 +315,7 @@ const SCHEMAS = {
     ],
   },
 
-  // 位置：擺一台機器的一格（「大華公司 3F」），同一格同時只放一台；倉庫、維修中心勾「倉庫」，可以放好幾台（見 PLAN.md 第 4-3 節）
+  // 位置：擺一台機器的一格（「大華公司 3F」），同一格同時只放一台，存檔時擋；倉庫、維修中心勾「倉庫」，可以放好幾台（見 PLAN.md 第 4-3 節）
   //   編號（L0001）系統給的、不會變：設備、異動、合約存的都是編號，畫面上只顯示名稱
   //   改名時舊名字自動加一行到「以前的名字」（records.js 的 keepOldName）；搜尋時以前的名字也找得到
   locations: {
@@ -411,7 +411,7 @@ const SCHEMAS = {
       dateField('date', '日期', { note: v => Records.moveDateNote(v), noteLines: 2 }),
       { key: 'type', label: '類型', type: 'text', full: true, toggle: toggleOf(MOVE_TYPES), check: v => Records.moveTypeCheck(v) },
       placeField('from', '原位置', { optional: true, hidden: true, calc: v => Records.placeBefore(v.device, v.date, v.id) }),
-      // 一格一台：那裡已經有別台機器時提醒（換機時兩筆異動先輸入哪一筆都可以，所以只提醒）；撤機、安裝時提醒合約
+      // 一格一台：那天那裡已經有別台機器時不能存，換機先撤再裝（同一天可以）；撤機、安裝時提醒合約
       placeField('to', '新位置', { full: true, rank: () => Records.freeFirst(), only: v => Records.movePlaces(v),
         onlyNote: v => Records.movePlacesNote(v), check: v => Records.moveToCheck(v),
         note: v => Records.moveToNote(v), noteLines: 2 }),
