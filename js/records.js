@@ -118,26 +118,26 @@ const Records = (() => {
     return on.length > 1 ? `${on.length} 台` : on.length ? label(on[0]) : '';
   }
 
-  // 一格一台：這個位置已經放著別台機器時，選好就寫現在是哪台（存檔時 slotCheck 會擋）；倉庫不寫
+  // 這台是不是別台：deviceCode 空白是還沒存的新機器，每一台都算別台（試算表手打、還沒補編號的機器也算）
+  const isOther = (d, deviceCode) => !key(deviceCode) || key(d.code) !== key(deviceCode);
+  // 一格一台：這個位置已經放著別台機器時，選好就寫現在是哪台；倉庫不寫
   function slotNote(code, deviceCode) {
     const p = place(code);
     if (!p || p.stock) return '';
-    const other = machinesAt(code).find(d => key(d.code) !== key(deviceCode));
+    const other = machinesAt(code).find(d => isOther(d, deviceCode));
     return other ? { text: `這裡現在是 ${label(other)}`, warn: true } : '';
   }
 
-  // 一格一台，存檔時擋：那天放著別台就不能存（沒有日期的看現在）；倉庫不擋
-  //   看那天結束時在哪裡：換機同一天先撤再裝可以；補登以前的異動，不會被後來才放進來的機器擋住
-  //   沒有異動的機器不知道哪天放進來的，算一直在這裡（要補它的歷史：先在設備表單改回倉庫，再新增安裝）
-  //   試算表裡改的、以前存的擋不到，總覽「要處理」會列（見 crowdedPlaces）
+  // 一格一台，新增異動、設備表單選位置時擋：那天放著別台就不能存（沒有日期的看現在）；倉庫不擋
+  //   看那天結束時在哪裡：換機同一天先撤再裝可以；補登比現在那台進來還早的不擋，存完提醒（見 crowdNote）
+  //   沒有異動的機器不知道哪天放進來的，算一直在這裡
+  //   改舊異動、刪異動不擋（兩台打反才改得回來）；試算表裡改的擋不到；這些總覽「要處理」會列（見 crowdedPlaces）
   function slotCheck(code, deviceCode, date = '') {
     const p = place(code);
     if (!p || p.stock) return '';
     const k = key(code);
-    const mine = key(deviceCode);
-    const near = new Set([...machinesAt(code).map(d => key(d.code)), ...movesAt(code).map(m => key(m.device))]);
-    near.delete(mine);
-    const other = [...near].map(device).find(d => d && key(date ? placeBefore(d.code, date) : d.location) === k);
+    const near = new Set([...machinesAt(code), ...movesAt(code).map(m => device(m.device)).filter(Boolean)]);
+    const other = [...near].find(d => isOther(d, deviceCode) && key(date && key(d.code) ? placeBefore(d.code, date) : d.location) === k);
     if (!other) return '';
     return key(other.location) === k ? '一個位置只放一台，要先撤機' : `這裡 ${U.fmtDate(date)} 是 ${label(other)}，一個位置只放一台`;
   }
@@ -145,6 +145,20 @@ const Records = (() => {
   function deviceSlotCheck(values) {
     const old = values.id && Store.get('devices', values.id);
     return old && key(old.location) === key(values.location) ? '' : slotCheck(values.location, values.code);
+  }
+
+  // 異動存好、刪掉之後：這台現在的位置放了好幾台時寫出來（改舊的、刪掉、補登不擋，所以要提醒）
+  function crowdNote(r) {
+    const code = device(r.device)?.location;
+    const p = place(code);
+    const n = p && !p.stock ? machinesAt(code).length : 0;
+    return n > 1 ? `${p.name} 現在放 ${n} 台，總覽會列著` : '';
+  }
+  // 取消勾倉庫：還放著兩台以上不能取消；本來就沒勾的不擋
+  function stockCheck(values) {
+    if (values.stock === 'true' || !values.id || !Store.get('locations', values.id)?.stock) return '';
+    const n = machinesAt(values.code).length;
+    return n > 1 ? `這裡還放著 ${n} 台，先撤到剩一台` : '';
   }
 
   // 位置改名：舊名字加一行到「以前的名字」，寫到哪一天為止；回傳改到的 [{ table, id }]
@@ -282,6 +296,7 @@ const Records = (() => {
 
   // 依異動重新填設備的位置，順便把每一筆的原位置接上前一筆的新位置；回傳改到的 [{ table, id }]
   //   原位置：第一筆照原本的（開始記異動前在哪裡），之後每一筆＝前一筆的新位置
+  //     第一筆原本接在 lost 後面的（lost 刪掉了、或改日期排到後面去了）：改成 lost 的原位置，才不會以為機器以前就在那裡
   //     改了舊異動的新位置、日期，刪掉中間一筆，補登以前的，前後都接得起來
   //   lost：剛刪掉（或改到別台設備）的異動；那台設備沒有異動了的話，位置回到那一筆的原位置
   //   還沒有異動的設備不動（表單上填的位置是起點）
@@ -295,7 +310,9 @@ const Records = (() => {
     });
     const out = [];
     byDevice.forEach(list => list.forEach((m, i) => {
-      const from = i ? String(list[i - 1].to ?? '') : null;
+      const was = i ? null : lost.find(x => x.id !== m.id && key(x.device) === key(m.device)
+        && String(x.date ?? '') <= String(m.date ?? '') && String(x.to ?? '') === String(m.from ?? ''));
+      const from = i ? String(list[i - 1].to ?? '') : was ? String(was.from ?? '') : null;
       if (from === null || from === String(m.from ?? '')) return;
       Store.update('moves', m.id, { from });
       out.push({ table: 'moves', id: m.id });
@@ -400,13 +417,8 @@ const Records = (() => {
     if (rule[0] === 'stock') return key(from) && !isStock(from) ? '這台不在倉庫' : '';
     return !key(from) ? '這台還沒有位置' : isStock(from) ? '這台在倉庫' : '';
   }
-  // 這一筆沒有放新的機器進去：原位置就是新位置；編輯時新位置、日期都沒改（舊資料只改備註照常可以存）
-  const sameSlot = v => {
-    if (key(v.from) === key(v.to)) return true;
-    const old = v.id && Store.get('moves', v.id);
-    return !!old && key(old.to) === key(v.to) && String(old.date ?? '') === String(v.date ?? '');
-  };
-  // 新位置：和類型對不上；那天已經放著別台（一格一台）
+  // 新位置：和類型對不上；新增時那天已經放著別台（一格一台），原位置就是新位置的沒有放新的機器進去
+  //   改舊的不擋：兩台打反時，先改哪一筆都會碰到另一台；存完提醒（見 crowdNote）
   function moveToCheck(values) {
     if (!key(values.to)) return '';
     const rule = ruleOf(values);
@@ -415,7 +427,7 @@ const Records = (() => {
         if (!isStock(values.to)) return '撤機要選倉庫';
       } else if (isStock(values.to)) return `${values.type}要選客戶的位置，不是倉庫`;
     }
-    return sameSlot(values) ? '' : slotCheck(values.to, values.device, values.date);
+    return values.id || key(values.from) === key(values.to) ? '' : slotCheck(values.to, values.device, values.date);
   }
   // 原位置：報廢的機器不能安裝
   function moveDeviceCheck(values) {
@@ -424,15 +436,24 @@ const Records = (() => {
     return s && quietSet().has(key(s)) ? `這台是「${s}」，不能安裝` : '';
   }
 
-  // 存了安裝、撤機之後接著抄表（見 form.js 的 schema.next）：機器和日期帶好
-  //   安裝當天的張數是起點（結算月份可以空白）；撤機前最後一次抄表要結帳（填結算月份）
+  // 存了安裝、撤機、移機之後接著抄表（見 form.js 的 schema.next）：機器、日期帶好，備註先寫是哪一種（可以改；系統不看備註）
+  //   安裝、移機當天的張數是起點（結算月份可以空白）；撤機前最後一次抄表要結帳（填結算月份）
+  const READING_AFTER = {
+    安裝: { note: '裝機', message: '已存好安裝。接著抄表：這天是裝機抄表，結算月份可以空白' },
+    撤機: { note: '撤機', message: '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份' },
+    移機: { note: '移機', message: '已存好移機。接著抄表：這天是新位置的起點，結算月份可以空白' },
+  };
   function readingAfterMove(r) {
-    if (!['安裝', '撤機'].includes(r.type) || !key(r.device)) return null;
-    return {
-      table: 'readings',
-      preset: { device: r.device, date: r.date },
-      message: r.type === '安裝' ? '已存好安裝。接著抄表：這天是裝機抄表，結算月份可以空白' : '已存好撤機。接著抄表：最後一次，填這次要結帳的結算月份',
-    };
+    const after = READING_AFTER[String(r.type ?? '').trim()];
+    if (!after || !key(r.device)) return null;
+    return { table: 'readings', preset: { device: r.device, date: r.date, note: after.note }, message: after.message };
+  }
+  // 刪異動時：同一天的抄表不會一起刪（異動記錯，張數通常還是真的，也可能已經算帳），寫出來讓人決定要不要另外處理
+  function moveRemoveNote(r) {
+    const same = of('readings', r.device).filter(x => String(x.date ?? '') === String(r.date ?? ''));
+    if (!same.length) return '';
+    const counts = same.length === 1 ? countsText(same[0]) : '';
+    return `這天還有 ${same.length} 筆抄表${counts ? `（${counts}）` : ''}，不會一起刪`;
   }
 
   // 從詳情頁新增異動時先選好的類型：機器在倉庫（或還沒有位置）先選安裝，在客戶那裡先選撤機；報廢的不選
@@ -1274,10 +1295,10 @@ const Records = (() => {
       .sort((a, b) => (!a.place - !b.place) || (a.place ? byPlaceName(a, b) : deviceOrder(a.device, b.device)));
   }
 
-  // 一格放好幾台：不是倉庫、沒停用的位置現在放著兩台以上（以前存的、試算表裡改的；新的存檔時會擋，見 slotCheck）；依名稱排
+  // 一格放好幾台：不是倉庫的位置現在放著兩台以上，停用的也算（以前存的、改舊異動、刪異動、補登、試算表裡改的；新增時會擋，見 slotCheck）；依名稱排
   //   [{ id, place, machines }]
   function crowdedPlaces() {
-    return Store.list('locations').filter(p => !p.stock && !p.disabled && machinesAt(p.code).length > 1)
+    return Store.list('locations').filter(p => !p.stock && machinesAt(p.code).length > 1)
       .map(p => ({ id: p.id, place: p, machines: machinesAt(p.code).sort(deviceOrder) }))
       .sort(byPlaceName);
   }
@@ -1590,10 +1611,10 @@ const Records = (() => {
 
   return {
     TABLES, DEVICE_TABLES, firstLine, noteLine, workLine, countCheck, device, of, latest, label, serialOf, fullLabel, deviceNote, nameNote, locationAt, recordCells, deviceText, describe, deviceOrder,
-    place, placeName, placeText, placeSub, machinesAt, slotNote, slotCheck, deviceSlotCheck, crowdedPlaces, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
+    place, placeName, placeText, placeSub, machinesAt, slotNote, slotCheck, deviceSlotCheck, crowdNote, stockCheck, crowdedPlaces, keepOldName, placeByName, movesAt, staysAt, spanText, recordsAt,
     hasMoves, moveTitle, syncLocations, freeFirst, moveStatus, deviceStatus, applyMoveStatus, placeBefore,
     moveDevices, movePlaces, moveDevicesNote, movePlacesNote, moveTypeCheck, moveToCheck, moveDeviceCheck, moveTypeFor, moveTypeAt,
-    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, contractsDue, contractsOut, contractIssues, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,
+    moveDateNote, moveToNote, isStock, disableCheck, salesCheck, salesPeople, salesBad, salesLimited, readingAfterMove, moveRemoveNote, contractsDue, contractsOut, contractIssues, placesNoContract, warrantyDue, emptyPlaces, lastMoveAt,
     customer, customerOf, customerPlaces, childrenOf, customerSales, customerText, noCustomerPlaces, parentChoices, parentCheck,
     placesOf, contractPlaces, contractsAt, currentContract, deviceContract, isCurrentContract, contractNote, endText,
     contractStarted, contractDate, needsEnd, contractIssue, contractDueDate, compareContractDue, contractStatus, contractTag, contractEndFrom, startText, contractTaker, contractOutText, pendingContracts, pendingShort,

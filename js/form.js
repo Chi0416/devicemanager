@@ -571,14 +571,14 @@ const Form = (() => {
     return c === null || c === undefined ? '' : String(c);
   };
 
-  // 自動填的欄位：算出來的值變了（依的欄位改了），欄位空白、或還是上次填的值時，換成這次算的
+  // 自動填的欄位：算出來的值變了（依的欄位改了），欄位空白、或還是上次填的值時，換成這次算的；calcOver 為 true 時連自己填的也換
   function recalc() {
     ctx.fields.forEach((f, i) => {
       if (!f.calc || locked[i]) return;
       const c = calcText(f);
       if (c === calcked[i]) return;
       const cur = inputs[i].value.trim();
-      if (!cur || cur === calcked[i]) {
+      if (!cur || cur === calcked[i] || f.calcOver?.(formValues())) {
         inputs[i].value = c;
         if (c) setError(i, '');
         if (f.toggle || f.type === 'multi') renderToggles();
@@ -780,7 +780,7 @@ const Form = (() => {
       ctx.schema.saveExtra?.(before, after, extra);
       dlg.close();
       hooks.onChanged(ctx.tableKey, { ...rec, id: ctx.id });
-      hooks.toast(renamed.length ? `已儲存，用到舊名字的 ${renamed.length} 筆資料一起改了` : '已儲存');
+      tell(renamed.length ? `已儲存，用到舊名字的 ${renamed.length} 筆資料一起改了` : '已儲存', after, '已儲存');
       return;
     }
 
@@ -791,10 +791,10 @@ const Form = (() => {
     hooks.onChanged(ctx.tableKey, saved);
     if (!again) {
       dlg.close();
-      hooks.toast(ctx.count > 1 ? `已新增 ${ctx.count} 筆` : `已新增：${summary(saved)}`);
+      const warned = tell(ctx.count > 1 ? `已新增 ${ctx.count} 筆` : `已新增：${summary(saved)}`, saved, '已新增');
       // 接著打開下一張表單（安裝、撤機後抄表，見 schema 的 next）
       const next = ctx.schema.next?.(saved);
-      if (next) setTimeout(() => open(next.table, null, next.preset, next), 0);
+      if (next) setTimeout(() => { open(next.table, null, next.preset, next); if (warned) hooks.toast(warned, 'warn'); }, 0);
       return;
     }
     // 連續新增：保留 keep 欄位，其他換回預設值（編號跳下一號）；設備詳情裡帶入的設備照樣帶
@@ -819,6 +819,14 @@ const Form = (() => {
     } else if (document.activeElement) {
       document.activeElement.blur();
     }
+  }
+
+  // 存好、刪好之後的提示；有要提醒的（見 schema 的 warnAfter）換成橘色、留久一點，回傳那段字
+  function tell(text, rec, short = text) {
+    const warn = ctx.schema.warnAfter?.(rec);
+    const said = warn ? `${short}。${warn}` : '';
+    hooks.toast(said || text, warn ? 'warn' : '');
+    return said;
   }
 
   // 刪除按鈕下面的說明
@@ -851,9 +859,9 @@ const Form = (() => {
     if (Date.now() >= deleteUntil) {
       deleteUntil = Date.now() + DELETE_MS;
       delBtn.textContent = '再按一次，確定刪除';
-      showDeleteNote(uses.length
+      showDeleteNote([uses.length
         ? `${summary(rec)} 有 ${Refs.usesText(ctx.tableKey, rec)}，會一起刪除。不再使用的話，建議把狀態改成「報廢」，紀錄會留著。`
-        : `會刪除這筆${ctx.schema.title}：${summary(rec)}`);
+        : `會刪除這筆${ctx.schema.title}：${summary(rec)}`, ctx.schema.removeNote?.(rec)].filter(Boolean).join('\n'));
       clearTimeout(deleteTimer);
       deleteTimer = setTimeout(resetDelete, DELETE_MS);
       return;
@@ -863,7 +871,7 @@ const Form = (() => {
     ctx.schema.afterRemove?.(rec);
     dlg.close();
     hooks.onChanged(ctx.tableKey, null);
-    hooks.toast(uses.length ? `已刪除，連同 ${uses.length} 筆紀錄` : '已刪除');
+    tell(uses.length ? `已刪除，連同 ${uses.length} 筆紀錄` : '已刪除', rec, '已刪除');
   }
 
   function isDirty() {

@@ -36,6 +36,7 @@
 //   clean:       存檔前整理打的字：clean(打的字, values) 回傳要存的值（主機板號碼補上 RNP、轉大寫；機型轉大寫）
 //                清單的名字：下拉選單的「＋ 新增」也照它整理（見 refs.js 的 quickAdd）
 //   calc:        依表單目前填的內容先填好：calc(values) 回傳要填的值，沒有時回傳空字串
+//   calcOver:    算出來的值變了時，calcOver(values) 為 true 就連自己填的也換掉（切到撤機時，新位置還是客戶的）
 //                只在依的欄位改了、算出來的值跟著變時才填；欄位空白、或還是上次填的值時才換，自己改過的不蓋掉（見 form.js）
 //   lock:        舊資料不能在表單上改的原因：lock(這一筆) 回傳說明（有異動的設備，位置要新增異動），可以改時回傳空字串
 //   shown:       畫面上寫的字依其他欄位算的：shown(values)（異動的原位置寫那天機器在哪裡）；回傳空字串時照平常的寫法
@@ -95,6 +96,8 @@
 //   （資料表）next:      新增好按「儲存」後接著打開的表單：next(存好的那一筆) 回傳 { table, preset, message } 或 null（安裝、撤機後抄表）
 //   （資料表）extra:     只在表單上、不是這張表的欄位（試算表沒有這一欄，設備的選配件）：寫法和 fields 一樣，formOrder 可以排它；目前只有複選
 //                       extraValues(這一筆) 編輯時帶入的值；saveExtra(改之前（新增時是 null）, 改之後, { 欄位: 選了的名字 }) 存好後交給它
+//   （資料表）removeNote: 按第一次刪除時，下面多寫一行：removeNote(這一筆) 回傳字或空字串（異動：同一天的抄表不會一起刪）
+//   （資料表）warnAfter: 存好、刪掉之後要提醒的字（異動存完一格放了好幾台），提示換成橘色、留久一點；參數是那一筆
 //   （資料表）afterSave、afterRemove: 新增、修改、刪除之後要跟著改的（異動改了，設備的位置跟著算）：
 //                       afterSave(改之前（新增時是 null）, 改之後)、afterRemove(刪掉的那一筆)
 //   （資料表）seed:      全新的裝置上預先放的資料（id 用 seed- 開頭，沒改過時不算這台裝置的資料，見 storage.js）
@@ -315,7 +318,7 @@ const SCHEMAS = {
     ],
   },
 
-  // 位置：擺一台機器的一格（「大華公司 3F」），同一格同時只放一台，存檔時擋；倉庫、維修中心勾「倉庫」，可以放好幾台（見 PLAN.md 第 4-3 節）
+  // 位置：擺一台機器的一格（「大華公司 3F」），同一格同時只放一台，新增時擋（見 records.js 的 slotCheck）；倉庫、維修中心勾「倉庫」，可以放好幾台（見 PLAN.md 第 4-3 節）
   //   編號（L0001）系統給的、不會變：設備、異動、合約存的都是編號，畫面上只顯示名稱
   //   改名時舊名字自動加一行到「以前的名字」（records.js 的 keepOldName）；搜尋時以前的名字也找得到
   locations: {
@@ -334,7 +337,8 @@ const SCHEMAS = {
       { key: 'code',     label: '編號',       type: 'text', auto: nextLocationCode, hidden: true },
       { key: 'name',     label: '名稱',       type: 'text', full: true, hint: '寫到分得出是哪一格，例如「大華公司 3F」' },
       { key: 'oldNames', label: '以前的名字', type: 'text', optional: true, full: true, multiline: true, hint: '改名時自動記下來', showIf: v => !!v.id },
-      { key: 'stock',    label: '倉庫',       type: 'flag', optional: true, hint: '倉庫、維修中心這類，可以放好幾台' },
+      // 還放著兩台以上的不能取消（先撤到剩一台）
+      { key: 'stock',    label: '倉庫',       type: 'flag', optional: true, hint: '倉庫、維修中心這類，可以放好幾台', check: v => Records.stockCheck(v) },
       // 客戶：存客戶名稱；兩個位置以上的客戶在位置頁合成一張卡片（見 places.js）；倉庫沒有這一格
       { key: 'customer', label: '客戶',       type: 'ref', ref: 'customers', optional: true, full: true, showIf: v => v.stock !== 'true' },
       // 負責的業務員：只列勾了業務員的人員；選了客戶時先帶客戶的主要業務員（自己改過的不蓋掉）；倉庫只有管理員看，不用填
@@ -403,6 +407,8 @@ const SCHEMAS = {
     // 安裝、撤機存好後接著打開抄表
     next: r => Records.readingAfterMove(r),
     afterRemove: r => Records.syncLocations([r]),
+    removeNote: r => Records.moveRemoveNote(r),
+    warnAfter: r => Records.crowdNote(r),
     fields: [
       deviceField({ formLabel: '原位置', only: v => Records.moveDevices(v), onlyNote: v => Records.moveDevicesNote(v),
         check: v => Records.moveDeviceCheck(v), lock: () => '選錯機器的話，刪掉這筆重新新增',
@@ -411,9 +417,12 @@ const SCHEMAS = {
       dateField('date', '日期', { note: v => Records.moveDateNote(v), noteLines: 2 }),
       { key: 'type', label: '類型', type: 'text', full: true, toggle: toggleOf(MOVE_TYPES), check: v => Records.moveTypeCheck(v) },
       placeField('from', '原位置', { optional: true, hidden: true, calc: v => Records.placeBefore(v.device, v.date, v.id) }),
-      // 一格一台：那天那裡已經有別台機器時不能存，換機先撤再裝（同一天可以）；撤機、安裝時提醒合約
+      // 一格一台：新增時那天那裡已經有別台機器不能存，換機先撤再裝（同一天可以）；改舊的不擋，存完提醒；撤機、安裝時提醒合約
+      // 撤機先帶第一個倉庫，選單只列倉庫，可以改成別的倉庫（維修中心）；切到別的類型時帶的清掉
       placeField('to', '新位置', { full: true, rank: () => Records.freeFirst(), only: v => Records.movePlaces(v),
         onlyNote: v => Records.movePlacesNote(v), check: v => Records.moveToCheck(v),
+        calc: v => (String(v.type ?? '').trim() === '撤機' ? firstStock() : ''),
+        calcOver: v => String(v.type ?? '').trim() === '撤機' && !Records.isStock(v.to),
         note: v => Records.moveToNote(v), noteLines: 2 }),
       { key: 'status', label: '狀態', type: 'ref', ref: 'statuses', optional: true,
         calc: v => Records.moveStatus(v), hint: '存檔後設備改成這個狀態' },

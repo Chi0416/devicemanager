@@ -879,7 +879,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .wide-btn.another { margin-top: 24px; color: var(--accent-text); }
 .wide-btn.danger { margin-top: 28px; border-color: transparent; background: var(--invalid-bg); color: var(--danger); box-shadow: none; }
 /* 按了刪除之後，按鈕下面寫會刪掉什麼（再按一次才刪），或不能刪的原因 */
-.delete-note { margin: 10px 2px 0; font-size: 13px; line-height: 1.6; color: var(--danger); }
+.delete-note { margin: 10px 2px 0; font-size: 13px; line-height: 1.6; color: var(--danger); white-space: pre-line; }
 /* 以這筆為底新增（合約的「重新簽約」）和它的說明：改了位置、日期、計費方式時說明變橘色 */
 .wide-btn.copy { margin-top: 24px; color: var(--accent-text); }
 /* 以哪邊為主（見 app.js 的 choose）：按鈕上一行寫選哪邊，下面小字寫會做什麼 */
@@ -1419,6 +1419,7 @@ button.msg:active { background: var(--hover); }
 dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.error { background: var(--danger); color: #fff; }
+#toast.warn { background: var(--warn); color: var(--warn-bg); }
 
 /* ---------- 滑鼠移過去的回饋（只在電腦上） ---------- */
 @media (hover: hover) {

@@ -16,8 +16,16 @@
   // 連點兩下：彈出的頁面剛開、剛關時不接受點擊，第二下才不會點到下面的卡片，或剛打開那一頁裡的按鈕
   let sheetAt = 0;
   const sheetMoved = () => { sheetAt = performance.now(); };
-  new MutationObserver(list => { if (list.some(m => m.target.tagName === 'DIALOG')) sheetMoved(); })
-    .observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+  const sheets = []; // 開著的 sheet，後開的在後面（畫面上最上面的不一定是 HTML 裡最後一個：位置詳情在設備詳情後面，卻常常先開）
+  function sheetsMoved(list) {
+    list.filter(m => m.target.tagName === 'DIALOG').forEach(({ target }) => {
+      sheetMoved();
+      if (sheets.includes(target)) sheets.splice(sheets.indexOf(target), 1);
+      if (target.open) sheets.push(target);
+    });
+  }
+  const sheetWatch = new MutationObserver(sheetsMoved);
+  sheetWatch.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
   document.addEventListener('click', e => {
     if (!e.isTrusted || performance.now() - sheetAt >= 350) return;
     e.preventDefault();
@@ -28,11 +36,12 @@
   const toastEl = $('toast');
   let toastTimer;
   function toast(msg, kind = '') {
-    ([...document.querySelectorAll('dialog[open]')].at(-1) || document.body).appendChild(toastEl);
+    sheetsMoved(sheetWatch.takeRecords()); // 剛開、剛關的還沒通知到這裡
+    (sheets.filter(d => d.open).at(-1) || document.body).appendChild(toastEl);
     toastEl.textContent = msg;
     toastEl.className = `show ${kind}`;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toastEl.className = ''; }, kind === 'error' ? 3500 : 1800);
+    toastTimer = setTimeout(() => { toastEl.className = ''; }, kind === 'warn' ? 5000 : kind === 'error' ? 3500 : 1800);
   }
 
   // ---------- 頁面 ----------
