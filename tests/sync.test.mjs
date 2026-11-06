@@ -552,16 +552,16 @@ test('分頁被刪掉：補建回來並寫入這台裝置的資料', async () =>
 
 test('標題被改壞：App 的資料保留、修改留著，顯示要改回哪個標題', async () => {
   const { fake, d, id } = await linked();
-  fake.setCell(id, '設備', 1, COL.name, '品名'); // 「名稱」被改名
+  fake.setCell(id, '設備', 1, COL.status, '狀況'); // 「狀態」被改名（必填的欄）
   const dev = d.Store.list('devices')[0];
   d.Store.update('devices', dev.id, { status: '閒置' });
   await d.Sync.syncNow();
   const st = d.Sync.state();
   assert.equal(st.pending, 1);
   assert.equal(d.Store.list('devices')[0].status, '閒置');
-  assert.deepEqual(plain(st.problems).map(d.Sheet.problemText), ['設備第 1 列：找不到「名稱」欄，請把標題改回「名稱」']);
+  assert.deepEqual(plain(st.problems).map(d.Sheet.problemText), ['設備第 1 列：找不到「狀態」欄，請把標題改回「狀態」']);
   // 改回來之後就正常
-  fake.setCell(id, '設備', 1, COL.name, '名稱');
+  fake.setCell(id, '設備', 1, COL.status, '狀態');
   await d.Sync.syncNow();
   assert.equal(d.Sync.state().pending, 0);
   assert.deepEqual(plain(d.Sync.state().problems), []);
@@ -901,17 +901,17 @@ test('登出：沒有網路時不清資料，告訴使用者原因', async () =>
 
 test('登出：試算表的標題被改壞時不清資料（就算沒有待同步的修改），告訴使用者要改回哪個標題', async () => {
   const { fake, d, id } = await linked();
-  fake.setCell(id, '設備', 1, COL.name, '品名'); // 這張表 App 的資料比試算表完整
+  fake.setCell(id, '設備', 1, COL.status, '狀況'); // 這張表 App 的資料比試算表完整
   await d.Sync.logout();
   assert.equal(d.Sync.state().pending, 0);
   assert.equal(d.alerts.length, 1);
   assert.match(d.alerts[0], /「設備」的資料沒辦法寫回試算表/);
-  assert.match(d.alerts[0], /請把標題改回「名稱」/);
+  assert.match(d.alerts[0], /請把標題改回「狀態」/);
   assert.equal(d.loggedOut.count, 0);
   assert.equal(d.Store.list('devices')[0].name, '會議室筆電');
 
   // 改回來之後就可以登出
-  fake.setCell(id, '設備', 1, COL.name, '名稱');
+  fake.setCell(id, '設備', 1, COL.status, '狀態');
   await d.Sync.logout();
   assert.equal(d.loggedOut.count, 1);
 });

@@ -294,8 +294,8 @@ const SCHEMAS = {
     fields: [
       // 年份照購買日期（沒填用今年），給了就不會變；表單上不顯示
       { key: 'code',     label: '編號',     type: 'text', auto: nextDeviceCode, hidden: true, section: '基本資料' },
-      // 機身號碼（#1234）；同機型已經有一樣的名稱時提醒（還是可以存）
-      { key: 'name',     label: '名稱',     type: 'text', note: v => Records.nameNote(v) },
+      // 機身號碼（#1234）；可以空白（卡片寫機型，沒有機型時寫編號）；同機型已經有一樣的名稱時提醒（還是可以存）
+      { key: 'name',     label: '名稱',     type: 'text', optional: true, note: v => Records.nameNote(v) },
       // 跟著位置帶：倉庫帶庫存、客戶的位置帶出租中；自己改過的不蓋掉
       { key: 'status',   label: '狀態',     type: 'ref', ref: 'statuses', calc: v => Records.deviceStatus(v) },
       { key: 'category', label: '類別',     type: 'ref', ref: 'options', list: '類別', optional: true, keep: true },
