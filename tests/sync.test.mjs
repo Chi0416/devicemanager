@@ -1233,6 +1233,42 @@ test('在試算表裡改了合約：記在合約修改紀錄，同一次寫回�
   assert.equal(d.Store.list('contractLog').length, 1);
 });
 
+test('另一台裝置在 App 裡改了位置名稱、合約：已經記好了，這台同步時不再記一次', async () => {
+  const { fake, d, id } = await linked();
+  await d.Sync.syncNow();
+  const code = d.Store.list('devices')[0].location;
+  const c = d.Store.add('contracts', {
+    locations: code, signDate: '2026-01-05', endDate: '2028-12-31', earlyEnd: null, content: '', billing: '', readDay: '每月 25 號',
+  });
+  await d.Sync.syncNow();
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  // 手機上照表單的做法改：存好後記舊名字、修改紀錄
+  const p = phone.Store.list('locations').find(x => x.code === code);
+  let before = { ...p };
+  phone.Store.update('locations', p.id, { name: '3F 大會議室' });
+  phone.Records.keepOldName(before, phone.Store.get('locations', p.id));
+  before = { ...phone.Store.get('contracts', c.id) };
+  phone.Store.update('contracts', c.id, { readDay: '每月 5 號' });
+  phone.Records.logContract(before, phone.Store.get('contracts', c.id));
+  await phone.Sync.syncNow();
+  const oldNames = phone.Store.get('locations', p.id).oldNames;
+  assert.match(oldNames, /^3F 會議室（到 \d{4}\/\d{2}\/\d{2}）$/);
+  await d.Sync.syncNow();
+  await phone.Sync.syncNow();
+  for (const x of [d, phone]) {
+    assert.equal(x.Store.get('locations', p.id).oldNames, oldNames);
+    assert.deepEqual(plain(x.Store.list('contractLog').map(r => [r.field, r.before, r.after])), [['抄表日期', '每月 25 號', '每月 5 號']]);
+  }
+  const row = fake.values(id, '位置').findIndex(r => r[0] === code);
+  assert.equal(fake.values(id, '位置')[row][2], oldNames);
+  assert.equal(fake.values(id, '合約修改紀錄').length, 2);
+  // 之後在試算表裡直接改名（沒動以前的名字）：照樣記
+  fake.setCell(id, '位置', row + 1, 1, '3F 小會議室');
+  await d.Sync.syncNow();
+  assert.match(d.Store.get('locations', p.id).oldNames, /^3F 會議室（到 [^）]+）\n3F 大會議室（到 [^）]+）$/);
+});
+
 test('兩台裝置各新增一台、拿到同一個編號：換號的那台在這台裝置上新增的紀錄跟著換', async () => {
   const { fake, d } = await linked();
   const phone = device(fake);

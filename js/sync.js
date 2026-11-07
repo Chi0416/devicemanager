@@ -10,6 +10,7 @@
 //         在試算表裡改了設備、位置編號：用到它的資料一起改；在試算表裡加了異動：設備的位置跟著算（見 records.js），同一次寫回去
 //         在試算表裡打了位置的名字（不是編號）：換成編號，沒有這個位置就建一個（見 records.js 的 fixPlaceRefs）
 //         在試算表裡改了位置的名字：舊名字記在「以前的名字」；改了合約：記在合約修改紀錄（和在 App 裡改的一樣）
+//           其他裝置在 App 裡改的已經記好了，不再記一次
 //   時機：打開 App、從背景切回來、修改資料後（等幾秒一起送），登入還有效就自動同步
 //         登入過期時，修改資料的那一下順便跳出 Google 視窗（沒有網路時不跳）；沒成功就顯示「同步」按鈕讓使用者按
 //   登出：先同步一次，確定試算表已經有這台裝置的全部資料，才清掉這台裝置上的資料（換帳號時不會混在一起）
@@ -306,18 +307,25 @@ const Sync = (() => {
 
   // 在試算表或其他裝置上改了的位置、合約（同一個 id）：記下改之前的，合併之後記舊名字、修改紀錄
   //   這台裝置自己也改了的（還沒同步）以這台的為準，不算
+  //   logs：合併前已經有的合約修改紀錄，合併後多出來的是其他裝置記的
   function remoteEdits(parsed, skip, snap) {
     const pending = new Set(snap.items.map(i => `${i.table}:${i.id}`));
-    return ['locations', 'contracts'].filter(t => !skip.includes(t)).flatMap(t => parsed.data[t]
+    const list = ['locations', 'contracts'].filter(t => !skip.includes(t)).flatMap(t => parsed.data[t]
       .filter(after => Store.get(t, after.id) && !pending.has(`${t}:${after.id}`))
       .map(after => ({ t, id: after.id, before: { ...Store.get(t, after.id) } })));
+    return { list, logs: new Set(Store.list('contractLog').map(r => r.id)) };
   }
 
   // 改名的位置：舊名字加到「以前的名字」；改過的合約：記修改紀錄；改到的加進這次的快照
-  function keepEdits(edits, snap) {
-    addToSnap(edits.flatMap(({ t, id, before }) => (t === 'locations'
-      ? Records.keepOldName(before, Store.get(t, id))
-      : Records.logContract(before, Store.get(t, id)))), snap);
+  //   在其他裝置的 App 裡改的已經記好了，不再記一次：位置的「以前的名字」跟著變了、合約多了新的修改紀錄
+  function keepEdits({ list, logs }, snap) {
+    const logged = new Set(Store.list('contractLog').filter(r => !logs.has(r.id)).map(r => r.contract));
+    const same = (a, b) => String(a ?? '').trim() === String(b ?? '').trim();
+    addToSnap(list.flatMap(({ t, id, before }) => {
+      const now = Store.get(t, id);
+      if (t === 'locations') return same(before.oldNames, now?.oldNames) ? Records.keepOldName(before, now) : [];
+      return logged.has(id) ? [] : Records.logContract(before, now);
+    }), snap);
   }
 
   // 用到舊名字的資料一起改；改到的加進這次的快照，和其他修改一起寫回去
