@@ -545,8 +545,8 @@ const Records = (() => {
   const childrenOf = c => (c ? cached('children', () => groupBy(Store.list('customers'), 'parent', byName)).get(key(c.name)) || NONE : NONE);
   // 位置表單：選了客戶時業務員先帶客戶的主要業務員
   const customerSales = name => customer(name)?.sales || '';
-  // 搜尋用：名稱、代號、統編、母公司、聯絡人、電話、傳真；地址常寫樓層，不拿來比（打 3F 時鼎泰國際 4F、5F 會跟著出來）
-  const customerText = c => [c.name, c.code, c.taxId, c.parent, c.contact, c.phone, c.fax].filter(Boolean).join(' ');
+  // 搜尋用：名稱、簡稱、代號、統編、母公司、聯絡人、電話、傳真；地址常寫樓層，不拿來比（打 3F 時鼎泰國際 4F、5F 會跟著出來）
+  const customerText = c => [c.name, c.short, c.code, c.taxId, c.parent, c.contact, c.phone, c.fax].filter(Boolean).join(' ');
 
   // 還沒選客戶的位置（客戶空白，或打的名字不在客戶裡）：倉庫、停用的不算；客戶頁最下面列出來，方便補（見 customers.js）
   const noCustomerPlaces = () => Store.list('locations').filter(p => !p.stock && !p.disabled && !customerOf(p)).sort(byName);

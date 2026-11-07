@@ -339,17 +339,19 @@ test('設備：主機板號碼有填的話不能重複，搜尋找得到', () =>
   assert.ok(s.search.includes('board'));
 });
 
-test('客戶：代號有填的話不能重複、轉大寫，下拉選單的小字寫代號（打代號找得到）；付款備註可以換行', () => {
+test('客戶：代號、簡稱有填的話不能重複；代號轉大寫，下拉選單的小字寫代號（打代號找得到）；簡稱不寫在小字，打簡稱找得到；付款備註可以換行', () => {
   const { SCHEMAS, Refs, field } = app();
   const s = SCHEMAS.customers;
-  assert.deepEqual(plain(s.unique), [['name'], ['code']]);
+  assert.deepEqual(plain(s.unique), [['name'], ['code'], ['short']]);
   assert.equal(s.uniqueMsg({ name: '鼎泰國際', code: 'DT01' }, ['code']), '代號 DT01 已經用過了（鼎泰國際）');
   assert.equal(s.uniqueMsg({ name: '鼎泰國際', code: 'DT01' }, ['name']), '已經有「鼎泰國際」了');
+  assert.equal(s.uniqueMsg({ name: '台灣積體電路製造', short: '台積電' }, ['short']), '簡稱「台積電」已經用過了（台灣積體電路製造）');
+  assert.equal(Refs.targetOf('customers').also({ name: '台灣積體電路製造', short: '台積電' }), '台積電');
   assert.equal(field('customers', 'code').upper, true);
   assert.equal(field('customers', 'code').optional, true);
   assert.equal(field('customers', 'payNote').multiline, true);
   assert.equal(Refs.sub('customers', { name: '鼎泰國際', code: 'DT01', taxId: '01234567' }), '代號 DT01 · 統編 01234567');
-  assert.deepEqual(plain(s.formOrder.slice(0, 3)), ['name', 'code', 'taxId']);
+  assert.deepEqual(plain(s.formOrder.slice(0, 4)), ['name', 'short', 'code', 'taxId']);
 });
 
 test('排序：拖到第幾個，沒停用的重新編成 1、2、3…，停用的排在後面；新加的排在最後', () => {
