@@ -1,7 +1,8 @@
 // 回收桶：刪掉的資料放在「回收桶」表（試算表的回收桶分頁）90 天，可以還原
 //   放進來：在 App 裡刪的（連同一起刪的紀錄同一組，見 form.js），在試算表或其他裝置上刪的（同步時發現少了，一次同步的同一組，見 sync.js）
 //   還原：整組放回去（id 不變）；別的資料已經用了同樣的編號、名稱，或紀錄的設備不在了，就不還原，寫原因
-//   清掉：超過 90 天的打開 App 時自動清；總部可以永久刪除一組、清空；改全部的只能還原；業務員看不到
+//   清掉：超過 90 天的打開 App 時自動清；總部可以永久刪除一組、清空
+//   只有總部（和只存在這台的）看得到、能還原；改全部的、業務員看不到（改全部的刪的照樣放進來）
 //   回收桶本身的資料不會再放進回收桶
 const Trash = (() => {
   const DAYS = 90;
@@ -110,9 +111,8 @@ const Trash = (() => {
     return old.length;
   }
 
-  // ---------- 設定的「回收桶」頁 ----------
-  //   canDrop：總部（和只存在這台的）可以永久刪除、清空；改全部的只能還原
-  function render(el, { canDrop }) {
+  // ---------- 設定的「回收桶」頁（只有總部打得開，見 app.js） ----------
+  function render(el) {
     const all = groups();
     const items = all.map(g => {
       const more = g.list.length - 1;
@@ -122,14 +122,14 @@ const Trash = (() => {
         <span class="member-info"><b>${U.esc(g.head.what || SCHEMAS[g.head.table]?.title || '')}</b><small>${U.esc(sub)}</small></span>
         <span class="trash-btns">
           <button type="button" class="text-btn" data-restore="${U.esc(g.id)}">還原</button>
-          ${canDrop ? `<button type="button" class="text-btn danger" data-drop="${U.esc(g.id)}">永久刪除</button>` : ''}
+          <button type="button" class="text-btn danger" data-drop="${U.esc(g.id)}">永久刪除</button>
         </span>
       </li>`;
     }).join('');
     el.innerHTML = `
       <p class="note muted cloud-intro">刪掉的資料放在這裡 ${DAYS} 天，過了自動清掉。還原時連同一起刪的紀錄放回去。</p>
       ${all.length ? `<ul class="member-list">${items}</ul>` : '<p class="muted">回收桶是空的</p>'}
-      ${canDrop && all.length ? '<button type="button" class="wide-btn danger" data-act="clear-trash">清空回收桶</button>' : ''}`;
+      ${all.length ? '<button type="button" class="wide-btn danger" data-act="clear-trash">清空回收桶</button>' : ''}`;
   }
 
   return { DAYS, SHEET, remove, put, fromSheet, groups, restore, drop, clear, purge, render };

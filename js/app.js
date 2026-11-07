@@ -219,7 +219,7 @@
         : { title: '自動抄表', note: st.meterReadAt ? `上次讀信 ${U.fmtDateTime(st.meterReadAt)}` : '' }],
       ['backup', st.linked ? { title: '資料備份', ...dailyBackup(st) } : { title: '資料備份', note: t ? `上次匯出：${U.fmtDateTime(t)}` : '尚未匯出過備份' }],
       ['trash', { title: '回收桶', note: trashN ? '' : '是空的', uses: trashN ? `${trashN} 筆` : '' }],
-    ].filter(([k]) => !st.edit || k === 'lists' || k === 'trash') // 改全部的只有清單、回收桶：總部程式、自動抄表、資料備份是總部的
+    ].filter(([k]) => !st.edit || k === 'lists') // 改全部的只有清單：總部程式、自動抄表、資料備份、回收桶是總部的
       .map(([k, row]) => menuRow(`data-open="${k}"`, row)).join('');
   }
 
@@ -308,7 +308,7 @@
     if (e.target === dlg || e.target.closest('[data-act="close"]')) dlg.close();
   }));
 
-  // ---------- 回收桶（見 trash.js）：還原；總部可以永久刪除、清空（要按兩次，不用瀏覽器的確認視窗） ----------
+  // ---------- 回收桶（見 trash.js）：只有總部看得到；還原、永久刪除、清空（要按兩次，不用瀏覽器的確認視窗） ----------
   let armed = null; // 按了第一次的按鈕：{ btn, text, timer }
   function disarm() {
     if (!armed) return;
@@ -318,7 +318,7 @@
   }
   function renderTrash() {
     disarm();
-    Trash.render(pages.trash.querySelector('.sheet-body'), { canDrop: !Sync.state().sales });
+    Trash.render(pages.trash.querySelector('.sheet-body'));
   }
   pages.trash.addEventListener('click', e => {
     const back = e.target.closest('[data-restore]');
@@ -974,6 +974,11 @@
         if (url) window.open(url, '_blank', 'noopener');
         else toast('還沒有連結 Google 試算表');
       } else if (a.type === 'trash') {
+        // 改全部的看不到回收桶（舊的提醒還留著打開回收桶）
+        if (Sync.isEditor()) {
+          toast('回收桶只有總部看得到');
+          return;
+        }
         openMenu();
         openPage('trash');
       } else if (a.type === 'sync') {

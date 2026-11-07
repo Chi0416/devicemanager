@@ -264,6 +264,7 @@ const Sync = (() => {
   //   別台在 App 裡刪的已經在試算表的回收桶裡（見 trash.js）：跟著刪，不再放一份、不問
   //   在試算表裡刪的：放進回收桶（一次同步的同一組）；一次少了很多筆（可能是不小心選取一大片刪掉）時先問要跟著刪除，還是保留並寫回試算表
   //   選保留時，這幾筆標成待同步並加進這次的快照，接下來和其他修改一起寫回去
+  //   改全部的看不到回收桶：提醒不寫「可以到回收桶還原」，點了也不打開
   //   回收桶本身少了的（別台還原、清掉的）直接跟著拿掉，不問、不提醒
   function keepOrDelete(parsed, skip, snap) {
     const pending = new Set(snap.items.map(i => `${i.table}:${i.id}`));
@@ -277,13 +278,14 @@ const Sync = (() => {
     const binned = new Set((skip.includes('trash') ? [] : parsed.data.trash).map(e => `${e.table}:${e.rid}`));
     const loose = gone.filter(g => !binned.has(`${g.table}:${g.id}`));
     const toTrash = () => addToSnap(Trash.fromSheet(loose), snap);
-    const undo = '不小心刪的話，可以到「設定 → 回收桶」還原。';
+    const bin = !isEditor();
+    const undo = bin ? '\n不小心刪的話，可以到「設定 → 回收桶」還原。' : '';
     if (loose.length < MASS_DELETE) {
       toTrash();
       hooks.notify({
         title: `試算表刪了 ${gone.length} 筆，這台也跟著刪了`,
-        body: `在試算表或其他裝置上刪掉的：\n${listed(gone).join('\n')}\n${undo}`,
-        action: { type: 'trash' },
+        body: `在試算表或其他裝置上刪掉的：\n${listed(gone).join('\n')}${undo}`,
+        action: bin ? { type: 'trash' } : null,
       });
       return;
     }
@@ -292,8 +294,8 @@ const Sync = (() => {
       + '按「確定」：這台裝置也跟著刪除，放進回收桶。\n按「取消」：保留這些資料，並寫回試算表。');
     hooks.notify({
       title: `試算表裡少了 ${loose.length} 筆資料`,
-      body: `${lines}。你選擇：${del ? '這台裝置也跟著刪除' : '保留，並寫回試算表'}。\n${listed(loose).join('\n')}${del ? `\n${undo}` : ''}`,
-      action: del ? { type: 'trash' } : null,
+      body: `${lines}。你選擇：${del ? '這台裝置也跟著刪除' : '保留，並寫回試算表'}。\n${listed(loose).join('\n')}${del ? undo : ''}`,
+      action: del && bin ? { type: 'trash' } : null,
     });
     if (del) toTrash();
     else keepLocal(loose, snap);

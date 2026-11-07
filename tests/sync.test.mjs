@@ -1825,6 +1825,30 @@ test('回收桶：一台在 App 刪的，另一台同步時跟著刪、不再放
   assert.deepEqual(d.asked.messages, []);
 });
 
+test('回收桶只有總部看得到：總部在 App 刪的，改全部的同步時跟著刪、不問，提醒不寫「到回收桶還原」、點了不打開', async () => {
+  const { fake, d } = await hq();
+  const amin = d.Store.list('people').find(p => p.name === '阿明');
+  d.Store.update('people', amin.id, { edit: true });
+  await d.Sync.syncNow();
+  fake.salesEmail = 'a@gmail.com';
+  const s = device(fake, { token: false });
+  await s.Sync.join(HQ);
+  const dev = d.Store.list('devices').find(x => x.code === '26-0002');
+  assert.ok(s.Store.get('devices', dev.id));
+  d.Trash.remove('devices', dev);
+  await d.Sync.syncNow();
+  await s.Sync.syncNow();
+  assert.equal(s.Sync.state().error, '');
+  assert.deepEqual(s.asked.messages, []);
+  assert.equal(s.Store.get('devices', dev.id), undefined);
+  assert.equal(s.Store.list('trash').length, d.Store.list('trash').length); // 回收桶照樣跟著試算表，只是畫面上看不到
+  const m = s.inbox.at(-1);
+  assert.match(m.title, /^試算表刪了 \d+ 筆，這台也跟著刪了$/);
+  assert.match(m.body, /設備：/);
+  assert.doesNotMatch(m.body, /回收桶/);
+  assert.ok(!m.action);
+});
+
 test('回收桶：同樣的編號已經有別的設備、紀錄的設備不在了：不還原，寫原因，回收桶不動', async () => {
   const { d, pr } = await withReadings();
   d.Trash.remove('readings', d.Store.list('readings')[0]);
