@@ -214,7 +214,7 @@
       ['meter', !st.linked ? { title: '自動抄表', note: needLink }
         : st.meterNoSender ? { title: '自動抄表', note: '還沒填寄信用 Gmail', warn: true }
         : { title: '自動抄表', note: st.meterReadAt ? `上次讀信 ${U.fmtDateTime(st.meterReadAt)}` : '' }],
-      ['backup', { title: '資料備份', note: t ? `上次匯出：${U.fmtDateTime(t)}` : '尚未匯出過備份' }],
+      ['backup', st.linked ? { title: '資料備份', ...dailyBackup(st) } : { title: '資料備份', note: t ? `上次匯出：${U.fmtDateTime(t)}` : '尚未匯出過備份' }],
     ].filter(([k]) => !st.edit || k === 'lists') // 改全部的只有清單：總部程式、自動抄表、資料備份是總部的
       .map(([k, row]) => menuRow(`data-open="${k}"`, row)).join('');
   }
@@ -244,7 +244,27 @@
     if (btn) Lists.open(btn.dataset.list);
   });
 
+  // 每天備份（總部程式複製整份試算表，見 apps-script/meter.gs 的 backup）：連結 Google 時設定目錄、資料備份頁寫上次備份
+  //   還沒設定總部程式：不算問題；設定了卻沒有備份時間（舊版程式）、超過兩天沒備份：紅字
+  const BACKUP_LATE = 2 * 864e5;
+  function dailyBackup(st) {
+    if (!st.meterUrl) return { note: '設定總部程式後，每天自動備份' };
+    if (!st.backupAt) return { note: '總部程式要更新，才會每天備份', warn: true };
+    const at = U.fmtDateTime(st.backupAt);
+    return Date.now() - Date.parse(st.backupAt) > BACKUP_LATE ? { note: `超過兩天沒備份，上次 ${at}`, warn: true } : { note: `上次每天備份 ${at}` };
+  }
+
+  function renderDailyBackup(st) {
+    const el = $('daily-backup');
+    el.hidden = !st.linked || st.sales; // 業務員（包括改全部的）沒有這一頁
+    if (el.hidden) return;
+    const { note, warn } = dailyBackup(st);
+    el.innerHTML = `<b class="${warn ? 'warn-text' : ''}">${U.esc(note)}</b><br>`
+      + '總部程式每天把試算表複製一份到雲端硬碟「設備管理 備份」，留 30 天。要找回資料：打開那天的備份，把要的列複製貼回試算表。';
+  }
+
   function renderBackupInfo() {
+    renderDailyBackup(Sync.state());
     $('stats').innerHTML = Object.entries(SCHEMAS).map(([k, s]) =>
       `<div><dt>${s.title}</dt><dd>${Store.list(k).length}</dd></div>`).join('');
     const t = Store.lastExportAt();
@@ -547,7 +567,7 @@
     loadMeterCode().catch(() => {});
     const copy = '<button type="button" class="link-btn" data-act="copy-meter">複製程式</button>';
     hqEl.innerHTML = `
-      <p class="note muted cloud-intro">總部試算表上的小程式。自動抄表讀信、客戶電腦上的抄表程式、業務員拿資料，都用它的網址。</p>
+      <p class="note muted cloud-intro">總部試算表上的小程式。自動抄表讀信、客戶電腦上的抄表程式、業務員拿資料，都用它的網址。它也每天備份一次試算表。</p>
       <details class="steps-box" ${st.meterUrl ? '' : 'open'}>
         <summary>設定步驟（用電腦做一次）</summary>
         <ol class="steps muted">
@@ -1012,6 +1032,7 @@
       renderSyncBar(st);
       renderCloud(st);
       if (menu.open) renderSettingsMenu();
+      renderDailyBackup(st);
       renderHq(st);
       renderMeter(st);
       renderMeterLine(st);

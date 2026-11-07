@@ -1647,3 +1647,78 @@ test('業務員更新時讀信和拿資料同時做；打開 App（自動）時 
   await again.Sync.syncNow();
   assert.deepEqual(fake.calls.slice(before), ['GET /macros/s/hq/exec', 'POST /macros/s/hq/exec']);
 });
+
+// 試算表裡把 n 台印表機的名稱清空（第 3 列開始，第 2 列是 DEVICE）
+const blankNames = (fake, id, n) => { for (let row = 3; row < 3 + n; row++) fake.setCell(id, '設備', row, COL.name, ''); };
+const printers = (d, name = '印表機') => d.Store.list('devices').filter(r => r.name === name).length;
+
+test('試算表一次 5 筆以上被清空了欄位：先詢問，選「取消」就保留這台的並寫回試算表', async () => {
+  const { fake, d, id } = await withDevices();
+  blankNames(fake, id, 5);
+  d.asked.answer = false;
+  await d.Sync.syncNow();
+  assert.equal(d.asked.messages.length, 1);
+  assert.match(d.asked.messages[0], /有 5 筆資料的欄位被清空了（設備 5 筆）/);
+  assert.equal(printers(d), 5);
+  assert.equal(fake.values(id, '設備').filter(r => r[COL.name] === '印表機').length, 5);
+  assert.equal(d.Sync.state().pending, 0);
+  const m = d.inbox.at(-1);
+  assert.equal(m.title, '試算表裡有 5 筆資料被清空');
+  assert.match(m.body, /保留，並寫回試算表/);
+  assert.match(m.body, /\n設備：印表機（名稱）/);
+  assert.doesNotMatch(m.body, /版本記錄/);
+  // 再同步一次不會再問
+  await d.Sync.syncNow();
+  assert.equal(d.asked.messages.length, 1);
+});
+
+test('試算表一次 5 筆以上被清空了欄位：選「確定」就跟著清空，提醒寫怎麼找回來', async () => {
+  const { fake, d, id } = await withDevices();
+  blankNames(fake, id, 5);
+  d.asked.answer = true;
+  await d.Sync.syncNow();
+  assert.equal(d.asked.messages.length, 1);
+  assert.equal(printers(d), 0);
+  const m = d.inbox.at(-1);
+  assert.match(m.body, /這台裝置也跟著清空/);
+  assert.match(m.body, /不小心清掉的話，可以在試算表的「檔案 → 版本記錄」找回來/);
+  assert.doesNotMatch(m.body, /設備管理 備份/); // 總部程式還沒在每天備份
+  assert.equal(m.action.type, 'sheet');
+});
+
+test('被清空的少於 5 筆、清掉的是勾選欄或業務員回報、這台自己也改了的：不詢問，照平常同步', async () => {
+  const { fake, d, id } = await withDevices();
+  blankNames(fake, id, 4);
+  for (let i = 0; i < 5; i++) d.Store.add('people', person(d, { name: `人${i}`, sales: true }));
+  const dev = d.Store.list('devices')[0];
+  for (let i = 0; i < 5; i++) d.Store.add('readings', { ...d.Refs.blankRecord('readings'), device: dev.code, date: `2026-10-0${i + 1}`, bw: 100 + i, report: '張數不對' });
+  await d.Sync.syncNow();
+  const people = fake.values(id, '人員');
+  people.slice(1).forEach((r, i) => fake.setCell(id, '人員', i + 2, people[0].indexOf('業務員'), false));
+  const readings = fake.values(id, '抄表');
+  readings.slice(1).forEach((r, i) => fake.setCell(id, '抄表', i + 2, readings[0].indexOf('業務員回報'), ''));
+  // 這台也改了第 5 台的名稱（還沒同步），試算表那邊清空：以這台的為準，不算
+  const fifth = d.Store.list('devices').find(r => r.code === 'PR-104');
+  d.Store.update('devices', fifth.id, { ...fifth, name: '新名字' });
+  fake.setCell(id, '設備', 7, COL.name, '');
+  await d.Sync.syncNow();
+  assert.deepEqual(d.asked.messages, []);
+  assert.equal(printers(d), 0);
+  assert.equal(printers(d, '新名字'), 1);
+  assert.equal(d.Store.list('people').filter(r => r.sales).length, 0);
+  assert.equal(d.Store.list('readings').filter(r => r.report).length, 0);
+});
+
+test('上次每天備份的時間：試算表上的程式寫在 _meta 第 5 列，同步、連結時讀回來；有在備份時，跟著刪的提醒也寫備份資料夾', async () => {
+  const { fake, d, id } = await linked();
+  assert.equal(d.Sync.state().backupAt, '');
+  const at = '2026-11-06T19:00:00.000Z';
+  fake.write(id, "'_meta'!A5", [['backupAt', at]]);
+  fake.sheet(id, '設備').grid.splice(1, 1);
+  await d.Sync.syncNow();
+  assert.equal(d.Sync.state().backupAt, at);
+  assert.match(d.inbox.at(-1).body, /「檔案 → 版本記錄」或雲端硬碟「設備管理 備份」找回來/);
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  assert.equal(phone.Sync.state().backupAt, at);
+});

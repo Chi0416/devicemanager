@@ -17,6 +17,7 @@ const Sheet = (() => {
   const METER_KEY = 'meterUrl'; // _meta 第 2 列：自動抄表的讀信網址（Apps Script 部署成網頁應用程式的網址，見 sync.js 的 setMeterUrl）
   const METER_AT_KEY = 'meterReadAt'; // _meta 第 3 列：試算表上的程式上次看完信箱的時間（ISO 文字，程式寫的，見 apps-script/meter.gs）
   const SENDER_KEY = 'senderMail'; // _meta 第 4 列：機器寄信用的 Gmail（機器設定那頁填的，見 sync.js 的 setSenderMail）
+  const BACKUP_AT_KEY = 'backupAt'; // _meta 第 5 列：試算表上的程式上次每天備份的時間（ISO 文字，程式寫的，見 apps-script/meter.gs 的 backup）
   const TONER = '最新回報'; // 試算表上的程式寫的分頁（張數、碳粉）；沒有這個分頁時不讀（見 sync.js 的 pull）
   const CONFIRM = '待確認抄表'; // 試算表上的程式寫的分頁（張數信、客戶提交的張數，確認了才寫進抄表）；沒有這個分頁時不讀
   const TABLES = Object.keys(SCHEMAS);
@@ -276,7 +277,7 @@ const Sheet = (() => {
   const readConfirm = values => readReports(values, get => ({ source: String(get('來源') ?? '').trim() }));
 
   // byTitle：{ 分頁名稱: values }，由 readRanges() 的範圍讀回，有 _meta、最新回報、待確認抄表分頁時也一起讀
-  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, toner, toConfirm }
+  // 回傳 { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, backupAt, toner, toConfirm }
   //   data 和 data.json 同樣的結構
   //   rowOf[分頁][id] 是那一筆在第幾列；headers[分頁] 是標題列（補上 id 欄之後）
   //   broken 是缺分頁或缺欄位的資料表：讀到的資料不完整，同步時不要拿來取代 App 裡的資料
@@ -294,9 +295,10 @@ const Sheet = (() => {
     const meterUrl = String(metaValue(byTitle[META.title], METER_KEY) ?? '').trim();
     const meterReadAt = String(metaValue(byTitle[META.title], METER_AT_KEY) ?? '').trim();
     const senderMail = String(metaValue(byTitle[META.title], SENDER_KEY) ?? '').trim();
+    const backupAt = String(metaValue(byTitle[META.title], BACKUP_AT_KEY) ?? '').trim();
     const toner = readToner(byTitle[TONER]);
     const toConfirm = readConfirm(byTitle[CONFIRM]);
-    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, toner, toConfirm };
+    return { data, problems, idFixes, addIdHeader, addColumns, missing, rowOf, headers, broken, version, rewrites, junk, meterUrl, meterReadAt, senderMail, backupAt, toner, toConfirm };
   }
 
   // 一格的值（補上的欄用）

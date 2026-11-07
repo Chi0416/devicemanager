@@ -1280,6 +1280,7 @@ button.model-cell:active .model-name { color: var(--accent-text); }
 
 /* ---------- Google 雲端硬碟 ---------- */
 .cloud-intro { margin-top: 0; }
+#daily-backup { margin: 0 0 12px; }
 .cloud-info b { font-weight: 500; overflow-wrap: anywhere; }
 .cloud-info b.warn, .warn-text { color: var(--danger); }
 a.wide-btn { display: flex; align-items: center; justify-content: center; text-decoration: none; }

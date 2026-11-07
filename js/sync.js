@@ -22,6 +22,7 @@ const Sync = (() => {
   const MARK = 'devicemanager'; // 試算表上的標記（雲端硬碟的 appProperties），用來找回這份試算表
   const NAME = '設備管理';      // 試算表的檔名，也是訊息裡的稱呼
   const MASS_DELETE = 5; // 試算表裡一次少了這麼多筆時，先問使用者再跟著刪除
+  const MASS_BLANK = 5;  // 試算表裡一次這麼多筆被清空了欄位時，先問使用者再跟著清空
   const LIST_MAX = 10;   // 跟著刪除時，提醒裡最多列出幾筆
   const TABLES = Object.keys(SCHEMAS);
   const api = Google.api;
@@ -33,12 +34,13 @@ const Sync = (() => {
   // 試算表上有幾筆資料（預先放的類別不算：只有那幾筆時，當作雲端還沒有資料）
   const countRecords = d => TABLES.reduce((n, t) => n + (d[t] || []).filter(r => !String(r.id).startsWith('seed-')).length, 0);
 
-  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, senderMail, toner, toConfirm } ----------
+  // ---------- 連結狀態：{ email, spreadsheetId, url, lastSyncAt, meterUrl, meterReadAt, senderMail, backupAt, toner, toConfirm } ----------
   //   業務員：{ sales: true, hq: 總部試算表上的程式的網址, email, name: 人員表上的姓名, perms: 權限, all: 看全部, admin: 總部的帳號,
   //           denied: 不是業務員了, heads: { 抄表, 保養 } 總部試算表的標題列（新增時照它排）, lastSyncAt, toner }
   //   meterUrl：自動抄表的讀信網址，存在試算表的 _meta 分頁，同步時讀回來（其他裝置貼的也看得到）
   //   senderMail：機器寄信用的 Gmail（機器設定那頁填的），和讀信網址一樣存在 _meta
   //   meterReadAt：試算表上的程式上次看完信箱的時間（程式寫在 _meta，同步時讀回來；同步前叫它讀信時也直接回傳）
+  //   backupAt：試算表上的程式上次每天備份的時間（程式寫在 _meta，同步時讀回來）
   //   toner：「最新回報」分頁（抄表程式每台最新一次的張數、碳粉，試算表上的程式寫的），同步時讀回來；沒有這個分頁時是 null
   //   toConfirm：「待確認抄表」分頁（張數信、客戶提交的張數，一台最新一次），和 toner 一樣讀回來
   let cloud = null;
@@ -78,6 +80,7 @@ const Sync = (() => {
       url: cloud?.url || '',
       meterUrl: cloud?.meterUrl || '',
       meterReadAt: cloud?.meterReadAt || '',
+      backupAt: cloud?.backupAt || '',
       senderMail: cloud?.senderMail || '',
       meterNoSender: !!cloud?.meterNoSender,
       toner: cloud?.toner || null,
@@ -269,9 +272,8 @@ const Sync = (() => {
         .map(r => ({ table: t, id: r.id, text: describe(t, r) }));
     });
     if (!gone.length) return;
-    const shown = gone.slice(0, LIST_MAX).map(g => g.text);
-    if (gone.length > LIST_MAX) shown.push(`…等 ${gone.length} 筆`);
-    const undo = '不小心刪的話，可以在試算表的「檔案 → 版本記錄」找回來，下次同步就會回來。';
+    const shown = listed(gone);
+    const undo = undoText('刪');
     if (gone.length < MASS_DELETE) {
       hooks.notify({
         title: `試算表刪了 ${gone.length} 筆，這台也跟著刪了`,
@@ -280,8 +282,7 @@ const Sync = (() => {
       });
       return;
     }
-    const lines = TABLES.map(t => [t, gone.filter(g => g.table === t).length])
-      .filter(([, n]) => n).map(([t, n]) => `${SCHEMAS[t].title} ${n} 筆`).join('、');
+    const lines = countText(gone);
     const del = confirm(`試算表裡少了 ${gone.length} 筆資料（${lines}），可能是在試算表或其他裝置上刪除了。\n\n`
       + '按「確定」：這台裝置也跟著刪除。\n按「取消」：保留這些資料，並寫回試算表。');
     hooks.notify({
@@ -290,9 +291,53 @@ const Sync = (() => {
       action: del ? { type: 'sheet' } : null,
     });
     if (del) return;
-    Store.markPending(gone);
-    const items = new Map(Store.pendingSnapshot().items.map(i => [`${i.table}:${i.id}`, i]));
-    gone.forEach(g => snap.items.push(items.get(`${g.table}:${g.id}`)));
+    keepLocal(gone, snap);
+  }
+
+  // 試算表裡被清空的欄（這台有值、試算表變空白）：一次很多筆（可能有人把一大片清掉）時先問要跟著清空，還是保留這台的並寫回試算表
+  //   少於 MASS_BLANK 筆照收，不問；勾選欄、業務員回報（處理好就清空）不算；試算表上沒有的欄不算（見 sheet.js 的 missing）
+  //   這台自己也改了的（還沒同步）以這台的為準，不算
+  const isBlank = v => v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
+  function keepBlanks(parsed, skip, snap) {
+    const pending = new Set(snap.items.map(i => `${i.table}:${i.id}`));
+    const cleared = TABLES.filter(t => !skip.includes(t)).flatMap(t => {
+      const fields = SCHEMAS[t].fields.filter(f => f.type !== 'flag' && f.key !== 'report');
+      return parsed.data[t].flatMap(r => {
+        const local = Store.get(t, r.id);
+        if (!local || pending.has(`${t}:${r.id}`)) return [];
+        const keys = fields.filter(f => f.key in r && isBlank(r[f.key]) && !isBlank(local[f.key]));
+        return keys.length ? [{ table: t, id: r.id, text: `${describe(t, local)}（${keys.map(f => f.label).join('、')}）` }] : [];
+      });
+    });
+    if (cleared.length < MASS_BLANK) return;
+    const lines = countText(cleared);
+    const blank = confirm(`試算表裡有 ${cleared.length} 筆資料的欄位被清空了（${lines}），可能是在試算表或其他裝置上清掉的。\n\n`
+      + '按「確定」：這台裝置也跟著清空。\n按「取消」：保留這台的資料，並寫回試算表。');
+    hooks.notify({
+      title: `試算表裡有 ${cleared.length} 筆資料被清空`,
+      body: `${lines}。你選擇：${blank ? '這台裝置也跟著清空' : '保留，並寫回試算表'}。\n${listed(cleared).join('\n')}${blank ? `\n${undoText('清掉')}` : ''}`,
+      action: blank ? { type: 'sheet' } : null,
+    });
+    if (!blank) keepLocal(cleared, snap);
+  }
+
+  // 提醒裡列出的幾筆：最多 LIST_MAX 筆，其餘寫「等幾筆」
+  function listed(items) {
+    const shown = items.slice(0, LIST_MAX).map(g => g.text);
+    if (items.length > LIST_MAX) shown.push(`…等 ${items.length} 筆`);
+    return shown;
+  }
+  // 「設備 3 筆、位置 2 筆」
+  const countText = items => TABLES.map(t => [t, items.filter(g => g.table === t).length])
+    .filter(([, n]) => n).map(([t, n]) => `${SCHEMAS[t].title} ${n} 筆`).join('、');
+  // 總部程式有在每天備份（見 apps-script/meter.gs 的 backup）才寫備份資料夾
+  const undoText = verb => `不小心${verb}的話，可以在試算表的「檔案 → 版本記錄」${cloud?.backupAt ? '或雲端硬碟「設備管理 備份」' : ''}找回來，下次同步就會回來。`;
+
+  // 保留這台的：標成待同步並加進這次的快照，接下來和其他修改一起寫回去（合併時也以這台的為準）
+  function keepLocal(items, snap) {
+    Store.markPending(items);
+    const map = new Map(Store.pendingSnapshot().items.map(i => [`${i.table}:${i.id}`, i]));
+    items.forEach(g => snap.items.push(map.get(`${g.table}:${g.id}`)));
   }
 
   // 在試算表或其他裝置上改了名字的清單（選項、人員、廠商）、設備編號：同一個 id，名字不一樣
@@ -366,6 +411,7 @@ const Sync = (() => {
     cloud.meterUrl = parsed.meterUrl;
     cloud.meterReadAt = parsed.meterReadAt;
     cloud.senderMail = parsed.senderMail;
+    cloud.backupAt = parsed.backupAt;
     cloud.toner = parsed.toner;
     cloud.toConfirm = parsed.toConfirm;
     // 手動輸入、沒有 id 的列：剛給的 id 先寫回試算表，寫好了才放進這台裝置
@@ -389,6 +435,7 @@ const Sync = (() => {
     problems = problems.filter(p => !empty.some(t => titleOf(t) === p.tab));
     const skip = [...new Set([...parsed.broken, ...empty])];
     keepOrDelete(parsed, skip, snap);
+    keepBlanks(parsed, skip, snap);
     const renames = remoteRenames(parsed, skip, snap);
     const edits = remoteEdits(parsed, skip, snap);
     Store.mergeRemote(parsed.data, skip, parsed.missing);
@@ -705,6 +752,7 @@ const Sync = (() => {
       let meterUrl = '';
       let meterReadAt = '';
       let senderMail = '';
+      let backupAt = '';
       let toner = null;
       let toConfirm = null;
       const found = await findSpreadsheet();
@@ -725,7 +773,7 @@ const Sync = (() => {
       } else {
         await ensureTabs(meta);
         const parsed = Sheet.fromValues(await pull(meta));
-        ({ meterUrl, meterReadAt, senderMail, toner, toConfirm } = parsed);
+        ({ meterUrl, meterReadAt, senderMail, backupAt, toner, toConfirm } = parsed);
         const remoteCount = countRecords(parsed.data);
         if (!remoteCount) {
           if (!await upload()) return;
@@ -756,7 +804,7 @@ const Sync = (() => {
           }
         }
       }
-      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt, senderMail, toner, toConfirm };
+      cloud = { email, spreadsheetId: meta.id, url: meta.url, lastSyncAt: new Date().toISOString(), meterUrl, meterReadAt, senderMail, backupAt, toner, toConfirm };
       saveCloud();
       hooks.toast('已連結 Google 帳號');
     } catch (e) {

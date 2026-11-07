@@ -16,29 +16,38 @@
 //     客戶在視窗按「提交計數器」的（manual）也寫進「待確認抄表」，背景自己回報的不寫
 //   業務員的 App 也 POST 到同一個網址拿資料（見 salesData_）、新增抄表和保養（見 salesAdd_）：帶 Google 登入的權杖，不用密語，只碰得到他負責的客戶
 //   勾了改全部的業務員：讀寫整份試算表都請這裡代做（見 sheetFor_），和管理員一樣
+//   每天備份：整份試算表複製一份到雲端硬碟「設備管理 備份」資料夾（見 backup）
 
 const QUERY = 'subject:"Page Counter" newer_than:7d';
 const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const NEED = ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註'];
 
-// 第一次執行這個：授權、設定每小時跑一次 checkMail，並馬上看一次信箱（重複執行不會多出觸發條件）
+// 第一次執行這個：授權、設定每小時跑一次 checkMail、每天備份一次，並馬上備份、看一次信箱（重複執行不會多出觸發條件）
 //   Google 只問這次執行用到的權限：業務員拿資料要問 Google 是誰（連到外部服務），這裡先用一下，執行 install 時一起問
+//   備份要用雲端硬碟（複製試算表、建資料夾），馬上備份一次，權限也一起問
 function install() {
   UrlFetchApp.getRequest('https://www.google.com');
   ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'checkMail')
+    .filter(t => ['checkMail', 'backup'].includes(t.getHandlerFunction()))
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('checkMail').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('backup').timeBased().everyDays(1).atHour(3).create();
+  backup();
   checkMail();
 }
 
 // 打開試算表時在上方加「自動抄表」選單：急著看的時候按「現在讀信」，不用等每小時那一次（只有電腦的瀏覽器看得到）
 //   「密語」：抄表腳本要填的密語
+//   另一個「備份」選單：要大改之前，先按「現在備份」
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('自動抄表')
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('自動抄表')
     .addItem('現在讀信', 'readNow')
     .addItem('密語', 'showKey')
+    .addToUi();
+  ui.createMenu('備份')
+    .addItem('現在備份', 'backupNow')
     .addToUi();
 }
 
@@ -264,12 +273,59 @@ function senderOf_(msg) {
 }
 
 // 看完信箱的時間記在 _meta 分頁第 3 列（第 1、2 列是 App 的格式版本、讀信網址）；存成文字，試算表不會改成日期
-function stamp_(ss) {
+function stamp_(ss, row = 3, key = 'meterReadAt') {
   const at = new Date().toISOString();
   const meta = ss.getSheetByName('_meta');
-  if (meta) meta.getRange('A3:B3').setNumberFormat('@').setValues([['meterReadAt', at]]);
+  if (meta) meta.getRange(`A${row}:B${row}`).setNumberFormat('@').setValues([[key, at]]);
   return at;
 }
+
+// ---------- 每天備份 ----------
+//   install 設每天一次（大約半夜 3 點），把整份試算表複製到雲端硬碟「設備管理 備份」資料夾，檔名「設備管理 備份 2026-11-07 0300」
+//   留 BACKUP_DAYS 天，更舊的丟到垃圾桶；只動這個資料夾裡、名字是「試算表名稱 備份 」開頭的
+//   資料夾的 id 記在指令碼屬性；資料夾被刪掉、丟到垃圾桶時再建一個
+//   改全部的業務員碰不到備份（sheetFor_ 只代打這份試算表）
+//   備份完的時間記在 _meta 分頁第 5 列（第 4 列是寄信用 Gmail），App 在「設定 → 資料備份」寫上次備份
+//   要找回資料：打開那天的備份，把要的列複製貼回這份試算表，App 同步後就回來
+const BACKUP_FOLDER = '設備管理 備份';
+const BACKUP_DAYS = 30;
+
+function backup() {
+  const ss = SpreadsheetApp.getActive();
+  const folder = backupFolder_();
+  const prefix = `${ss.getName()} 備份 `;
+  DriveApp.getFileById(ss.getId()).makeCopy(prefix + Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd HHmm'), folder);
+  const files = [];
+  const it = folder.getFiles();
+  while (it.hasNext()) files.push(it.next());
+  const old = expired_(files, prefix, Date.now());
+  old.forEach(f => f.setTrashed(true));
+  stamp_(ss, 5, 'backupAt');
+  return { removed: old.length };
+}
+
+function backupNow() {
+  const { removed } = backup();
+  SpreadsheetApp.getActive().toast(`已備份到雲端硬碟「${BACKUP_FOLDER}」${removed ? `，超過 ${BACKUP_DAYS} 天的 ${removed} 份丟到垃圾桶` : ''}`);
+}
+
+function backupFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('backupFolder');
+  if (id) {
+    try {
+      const folder = DriveApp.getFolderById(id);
+      if (!folder.isTrashed()) return folder;
+    } catch (_) { /* 資料夾被刪掉了：下面再建一個 */ }
+  }
+  const folder = DriveApp.createFolder(BACKUP_FOLDER);
+  props.setProperty('backupFolder', folder.getId());
+  return folder;
+}
+
+// 超過 BACKUP_DAYS 天的備份：名字是 prefix 開頭的（資料夾裡別的檔案不動）
+const expired_ = (files, prefix, now) => files.filter(f =>
+  String(f.getName()).startsWith(prefix) && now - f.getDateCreated().getTime() > BACKUP_DAYS * 864e5);
 
 // 之前對不到設備的列（設備空白、備註寫「序號 X 對不到設備」）：「設備」分頁現在有這個序號了，就補上設備、拿掉那句；回傳補了幾筆
 function fillDevices_(sheet, col, codeOf) {

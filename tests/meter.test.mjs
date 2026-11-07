@@ -323,3 +323,53 @@ test('讀信：寄信用 Gmail 寄來的張數信寫進待確認抄表（一台�
   assert.deepEqual(Object.keys(JSON.parse(g.props.done)).sort(), ['m1', 'm2', 'm4']);
   g.done();
 });
+
+test('每天備份：複製整份試算表到備份資料夾（沒有就建一個、記下 id），丟掉超過 30 天的，時間記在 _meta 第 5 列；下次用同一個資料夾', () => {
+  const now = Date.now();
+  const props = {};
+  const made = [];
+  const trashed = [];
+  const meta = [];
+  const file = (name, days) => ({ getName: () => name, getDateCreated: () => new Date(now - days * 864e5), setTrashed: v => trashed.push([name, v]) });
+  const files = [file('設備管理 備份 2026-09-01 0300', 40), file('設備管理 備份 2026-10-08 0300', 29), file('自己放的檔案', 90)];
+  const folder = { created: 0, getId: () => 'f1', isTrashed: () => false, getFiles: () => {
+    const list = [...files, ...made];
+    let i = 0;
+    return { hasNext: () => i < list.length, next: () => list[i++] };
+  } };
+  Object.assign(ctx, {
+    SpreadsheetApp: { getActive: () => ({
+      getName: () => '設備管理', getId: () => 'ss1', getSpreadsheetTimeZone: () => 'Asia/Taipei',
+      getSheetByName: n => (n === '_meta' ? { getRange: a1 => ({ setNumberFormat() { return this; }, setValues: v => meta.push([a1, v]) }) } : null),
+    }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
+    DriveApp: {
+      createFolder: name => { folder.created++; folder.name = name; return folder; },
+      getFolderById: id => { if (id !== 'f1') throw new Error('找不到'); return folder; },
+      getFileById: id => ({ makeCopy: (name, to) => {
+        assert.equal(id, 'ss1');
+        assert.equal(to, folder);
+        made.push(file(name, 0));
+      } }),
+    },
+    Utilities: { formatDate: () => '2026-11-07 0300' },
+  });
+  try {
+    const backup = vm.runInContext('backup', ctx);
+    assert.deepEqual(plain(backup()), { removed: 1 });
+    assert.equal(folder.name, '設備管理 備份');
+    assert.equal(props.backupFolder, 'f1');
+    assert.equal(made[0].getName(), '設備管理 備份 2026-11-07 0300');
+    assert.deepEqual(trashed, [['設備管理 備份 2026-09-01 0300', true]]); // 29 天的、別的檔案、剛複製的都不動
+    assert.equal(meta[0][0], 'A5:B5');
+    assert.equal(meta[0][1][0][0], 'backupAt');
+    backup();
+    assert.equal(folder.created, 1);
+    // 資料夾被刪掉了：再建一個
+    props.backupFolder = 'gone';
+    backup();
+    assert.equal(folder.created, 2);
+  } finally {
+    ['SpreadsheetApp', 'PropertiesService', 'DriveApp', 'Utilities'].forEach(k => delete ctx[k]);
+  }
+});
