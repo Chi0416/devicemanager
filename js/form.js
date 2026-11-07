@@ -17,6 +17,7 @@
 //   刪除：按第一次在按鈕下面寫會刪掉什麼，再按一次才刪；不用瀏覽器的確認視窗（有些環境不會跳出來，按了就像沒反應）
 //     設備有紀錄的：寫出有幾筆、建議改成報廢，真的要刪就連同紀錄一起刪（schema 的 target.cascade）
 //     位置有合約的：合約一起刪，寫了別的位置的只拿掉這一個；放著、放過設備的擋下來
+//     刪掉的（連同一起刪的）同一組放進回收桶，可以還原（見 trash.js）
 const Form = (() => {
   const dlg = document.getElementById('form-sheet');
   const titleEl = dlg.querySelector('.sheet-title');
@@ -877,12 +878,11 @@ const Form = (() => {
       deleteTimer = setTimeout(resetDelete, DELETE_MS);
       return;
     }
-    Refs.removeWith(ctx.tableKey, rec, along);
-    Store.remove(ctx.tableKey, ctx.id);
-    ctx.schema.afterRemove?.(rec);
+    // 連同一起刪的、合約的修改紀錄一起放進回收桶（見 trash.js）
+    Trash.remove(ctx.tableKey, rec, along);
     dlg.close();
     hooks.onChanged(ctx.tableKey, null);
-    tell(gone.length ? `已刪除，連同 ${gone.length} 筆紀錄` : '已刪除', rec, '已刪除');
+    tell(gone.length ? `已刪除，連同 ${gone.length} 筆紀錄，放在回收桶` : '已刪除，放在回收桶', rec, '已刪除');
   }
 
   function isDirty() {

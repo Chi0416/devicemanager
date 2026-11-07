@@ -188,7 +188,7 @@ class FakeGoogle {
 
 // ---------- 載入 App ----------
 const ROOT = new URL('../', import.meta.url);
-const FILES = ['util', 'schema', 'storage', 'refs', 'records', 'config', 'google', 'sheet', 'sync'];
+const FILES = ['util', 'schema', 'storage', 'refs', 'records', 'config', 'google', 'sheet', 'sync', 'trash'];
 const TOKEN_KEY = 'devmgr.google.token';
 
 // 每個測試一個全新的裝置：localStorage、權杖、Google 都是新的
@@ -250,7 +250,7 @@ function device(fake, { storage = {}, token = true, confirmAnswer = true, clock 
     vm.runInContext(readFileSync(new URL(`js/${f}.js`, ROOT), 'utf8'), ctx, { filename: `${f}.js` });
     if (f === 'config') vm.runInContext(`CONFIG.googleClientId = '${configured ? 'test-client' : ''}'; CONFIG.hq = '${hq}'`, ctx);
   }
-  const app = vm.runInContext('({ Store, Sync, Sheet, Refs, Records, Google })', ctx);
+  const app = vm.runInContext('({ Store, Sync, Sheet, Refs, Records, Google, Trash })', ctx);
   app.Sync.init({
     toast: (msg, kind) => toasts.push(kind ? `${kind}:${msg}` : msg),
     // 以哪邊為主的小視窗：answer 是 true 選第一個、false 是不選（先不連結）、字串是選那一個
@@ -386,12 +386,18 @@ test('在試算表刪掉一列，App 也跟著刪除（少量刪除不詢問）'
   await d.Sync.syncNow();
   assert.equal(d.Store.list('devices').length, 0);
   assert.deepEqual(d.asked.messages, []);
-  // 提醒留一則，列出是哪一筆，點了打開試算表
+  // 提醒留一則，列出是哪一筆，點了打開回收桶
   const m = d.inbox.at(-1);
   assert.equal(m.title, '試算表刪了 1 筆，這台也跟著刪了');
   assert.match(m.body, /設備：會議室筆電/);
-  assert.match(m.body, /檔案 → 版本記錄/);
-  assert.equal(m.action.type, 'sheet');
+  assert.match(m.body, /到「設定 → 回收桶」還原/);
+  assert.equal(m.action.type, 'trash');
+  // 放進回收桶，刪除的人寫試算表；同一次同步就寫回試算表的回收桶分頁
+  const g = d.Trash.groups();
+  assert.equal(g.length, 1);
+  assert.equal(g[0].head.what, '設備：會議室筆電');
+  assert.equal(g[0].by, '試算表');
+  assert.equal(fake.values(id, '回收桶').length, 2);
   // 再同步一次不會再留
   await d.Sync.syncNow();
   assert.equal(d.inbox.filter(x => x.title.startsWith('試算表刪了')).length, 1);
@@ -429,7 +435,8 @@ test('試算表一次少了 5 筆以上：先詢問，選「取消」就保留�
   assert.equal(d.Sync.state().pending, 0);
   assert.ok(d.notes.includes('試算表裡少了 5 筆資料'));
   assert.match(d.inbox.at(-1).body, /保留，並寫回試算表/);
-  assert.doesNotMatch(d.inbox.at(-1).body, /版本記錄/);
+  assert.doesNotMatch(d.inbox.at(-1).body, /回收桶/);
+  assert.equal(d.Store.list('trash').length, 0);
   // 再同步一次不會重複寫入，也不會再問
   await d.Sync.syncNow();
   assert.equal(fake.values(id, '設備').length, 7);
@@ -446,8 +453,11 @@ test('試算表一次少了 5 筆以上：選「確定」就跟著刪除', async
   const m = d.inbox.at(-1);
   assert.equal(m.title, '試算表裡少了 5 筆資料');
   assert.equal(m.body.split('\n').filter(l => l.startsWith('設備：')).length, 5);
-  assert.match(m.body, /版本記錄/);
-  assert.equal(m.action.type, 'sheet');
+  assert.match(m.body, /回收桶/);
+  assert.equal(m.action.type, 'trash');
+  // 一次同步發現的同一組
+  assert.equal(d.Trash.groups().length, 1);
+  assert.equal(d.Trash.groups()[0].list.length, 5);
 });
 
 test('試算表一次少了 10 筆以上：提醒最多列 10 筆，其餘寫「等幾筆」', async () => {
@@ -1735,16 +1745,140 @@ test('被清空的少於 5 筆、清掉的是勾選欄或業務員回報、這�
   assert.equal(d.Store.list('readings').filter(r => r.report).length, 0);
 });
 
-test('上次每天備份的時間：試算表上的程式寫在 _meta 第 5 列，同步、連結時讀回來；有在備份時，跟著刪的提醒也寫備份資料夾', async () => {
-  const { fake, d, id } = await linked();
+test('上次每天備份的時間：試算表上的程式寫在 _meta 第 5 列，同步、連結時讀回來；有在備份時，跟著清空的提醒也寫備份資料夾', async () => {
+  const { fake, d, id } = await withDevices();
   assert.equal(d.Sync.state().backupAt, '');
   const at = '2026-11-06T19:00:00.000Z';
   fake.write(id, "'_meta'!A5", [['backupAt', at]]);
-  fake.sheet(id, '設備').grid.splice(1, 1);
+  blankNames(fake, id, 5);
+  d.asked.answer = true;
   await d.Sync.syncNow();
   assert.equal(d.Sync.state().backupAt, at);
   assert.match(d.inbox.at(-1).body, /「檔案 → 版本記錄」或雲端硬碟「設備管理 備份」找回來/);
   const phone = device(fake);
   await phone.Sync.startLink();
   assert.equal(phone.Sync.state().backupAt, at);
+});
+
+// ---------- 回收桶（見 trash.js） ----------
+// 連結後加一台印表機 PR-200、兩筆抄表並同步
+async function withReadings() {
+  const ctx = await linked();
+  const { d } = ctx;
+  const pr = d.Store.add('devices', { ...PRINTER, code: 'PR-200' });
+  ['2026-09-01', '2026-10-01'].forEach((date, i) => d.Store.add('readings', { ...d.Refs.blankRecord('readings'), device: 'PR-200', date, bw: 100 + i }));
+  await d.Sync.syncNow();
+  return { ...ctx, pr };
+}
+const byId = (a, b) => (a.id < b.id ? -1 : 1);
+
+test('回收桶：在 App 刪設備，連同抄表同一組放進回收桶（設備排第一），寫回試算表；還原整組放回去、id 不變，回收桶拿掉', async () => {
+  const { fake, d, id, pr } = await withReadings();
+  const readings = plain(d.Store.list('readings')).sort(byId);
+  d.Trash.remove('devices', d.Store.get('devices', pr.id));
+  assert.equal(d.Store.get('devices', pr.id), undefined);
+  assert.equal(d.Store.list('readings').length, 0);
+  const groups = d.Trash.groups();
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].head.table, 'devices');
+  assert.equal(groups[0].head.rid, pr.id);
+  assert.equal(groups[0].head.what, '設備：印表機');
+  assert.equal(groups[0].list.length, 3);
+  assert.equal(groups[0].by, 'test@example.com');
+  await d.Sync.syncNow();
+  assert.equal(fake.values(id, '回收桶').length, 4);
+  assert.equal(fake.values(id, '抄表').length, 1);
+
+  assert.deepEqual(plain(d.Trash.restore(groups[0].id)), { count: 3 });
+  assert.equal(d.Store.get('devices', pr.id).code, 'PR-200');
+  assert.deepEqual(plain(d.Store.list('readings')).sort(byId), readings);
+  assert.equal(d.Store.list('trash').length, 0);
+  await d.Sync.syncNow();
+  assert.equal(fake.values(id, '回收桶').length, 1);
+  assert.equal(fake.values(id, '抄表').length, 3);
+  assert.equal(d.inbox.filter(x => /刪了|少了/.test(x.title)).length, 0);
+});
+
+test('回收桶：一台在 App 刪的，另一台同步時跟著刪、不再放一份、不問；另一台還原後，第一台同步也回來，回收桶跟著空', async () => {
+  const { fake, d, pr } = await withReadings();
+  for (let i = 0; i < 4; i++) d.Store.add('readings', { ...d.Refs.blankRecord('readings'), device: 'PR-200', date: `2026-0${i + 1}-01`, bw: i });
+  await d.Sync.syncNow();
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  assert.equal(phone.Store.list('readings').length, 6);
+  d.Trash.remove('devices', d.Store.get('devices', pr.id));
+  await d.Sync.syncNow();
+  await phone.Sync.syncNow();
+  // 一次少了 7 筆，都在回收桶裡：不問
+  assert.deepEqual(phone.asked.messages, []);
+  assert.equal(phone.Store.get('devices', pr.id), undefined);
+  assert.equal(phone.Trash.groups().length, 1);
+  assert.equal(phone.Store.list('trash').length, 7);
+  assert.equal(phone.notes.at(-1), '試算表刪了 7 筆，這台也跟著刪了');
+
+  assert.equal(phone.Trash.restore(phone.Trash.groups()[0].id).count, 7);
+  await phone.Sync.syncNow();
+  await d.Sync.syncNow();
+  assert.equal(d.Store.get('devices', pr.id).code, 'PR-200');
+  assert.equal(d.Store.list('readings').length, 6);
+  assert.equal(d.Store.list('trash').length, 0);
+  assert.deepEqual(d.asked.messages, []);
+});
+
+test('回收桶：同樣的編號已經有別的設備、紀錄的設備不在了：不還原，寫原因，回收桶不動', async () => {
+  const { d, pr } = await withReadings();
+  d.Trash.remove('readings', d.Store.list('readings')[0]);
+  d.Trash.remove('devices', d.Store.get('devices', pr.id));
+  const group = t => d.Trash.groups().find(g => g.head.table === t);
+  assert.equal(d.Trash.groups()[0].head.table, 'devices'); // 同一分鐘刪的：後刪的在前
+  assert.deepEqual(plain(d.Trash.restore(group('readings').id)), { error: '設備 PR-200 已經不在了，要先還原那台設備' });
+  d.Store.add('devices', { ...PRINTER, code: 'pr-200' });
+  assert.deepEqual(plain(d.Trash.restore(group('devices').id)), { error: '設備已經有「PR-200」了，不能還原' });
+  assert.equal(d.Store.list('trash').length, 3);
+  assert.equal(d.Store.list('readings').length, 0);
+});
+
+test('回收桶：超過 90 天的清掉；別台清掉、永久刪除的，這台跟著拿掉，不問、不提醒；回收桶的資料不會再放進回收桶', async () => {
+  const { fake, d } = await withDevices(6);
+  const phone = device(fake);
+  await phone.Sync.startLink();
+  d.Store.list('devices').filter(r => r.code.startsWith('PR-')).forEach(r => d.Trash.remove('devices', r));
+  await d.Sync.syncNow();
+  await phone.Sync.syncNow();
+  assert.equal(phone.Trash.groups().length, 6);
+  const [g1, g2, ...rest] = d.Trash.groups();
+  d.Store.update('trash', g1.id, { at: '2026/08/08 08:00' });
+  d.Store.update('trash', g2.id, { at: '2026/08/10 08:00' });
+  assert.equal(d.Trash.purge(new Date('2026/11/07 12:00').getTime()), 1);
+  assert.equal(d.Trash.groups().length, 5);
+  await d.Sync.syncNow();
+  await phone.Sync.syncNow();
+  assert.equal(phone.Trash.groups().length, 5);
+  d.Trash.drop(g2.id);
+  d.Trash.drop(rest[0].id);
+  await d.Sync.syncNow();
+  await phone.Sync.syncNow();
+  assert.equal(phone.Trash.groups().length, 3);
+  d.Trash.clear();
+  await d.Sync.syncNow();
+  await phone.Sync.syncNow();
+  assert.equal(phone.Store.list('trash').length, 0);
+  assert.deepEqual(phone.asked.messages, []);
+  assert.equal(phone.notes.filter(t => /少了/.test(t)).length, 0);
+  assert.deepEqual(plain(d.Trash.put([{ table: 'trash', rec: { id: 'x' } }])), []);
+});
+
+test('回收桶：刪合約連同修改紀錄放進去，還原時一起回來；刪抄表這種沒有連同的也能刪', async () => {
+  const { d } = await linked();
+  const c = d.Store.add('contracts', { ...d.Refs.blankRecord('contracts'), signDate: '2026-01-01', endDate: '2027-12-31' });
+  d.Store.add('contractLog', { contract: c.id, date: '2026-06-01', field: '到期日', before: '2026/12/31', after: '2027/12/31' });
+  d.Trash.remove('contracts', d.Store.get('contracts', c.id));
+  assert.equal(d.Store.list('contractLog').length, 0);
+  const [g] = d.Trash.groups();
+  assert.deepEqual(plain(g.list.map(e => e.table)), ['contracts', 'contractLog']);
+  assert.equal(d.Trash.restore(g.id).count, 2);
+  assert.equal(d.Store.list('contractLog')[0].contract, c.id);
+  const r = d.Store.add('readings', { ...d.Refs.blankRecord('readings'), device: 'NB-001', date: '2026-10-01', bw: 1 });
+  d.Trash.remove('readings', r);
+  assert.equal(d.Store.list('readings').length, 0);
 });

@@ -732,4 +732,21 @@ const SCHEMAS = {
       { key: 'note',     label: '備註',   type: 'text', optional: true, full: true, multiline: true },
     ],
   },
+
+  // 回收桶：刪掉的資料放在這裡 90 天，可以還原（見 trash.js）；一筆一列，內容是整筆資料的 JSON
+  //   同一次刪的（設備連同紀錄、在試算表裡刪的一次同步發現的）同一組：組寫第一筆的 id
+  //   刪除的人：登入的帳號（業務員寫姓名），在試算表裡刪的寫「試算表」；只存在這台的空白
+  trash: {
+    title: '回收桶',
+    noList: true,
+    fields: [
+      { key: 'at',    label: '刪除時間', type: 'text' },
+      { key: 'what',  label: '說明',     type: 'text', optional: true },
+      { key: 'by',    label: '刪除的人', type: 'text', optional: true },
+      { key: 'table', label: '表',       type: 'text' },
+      { key: 'rid',   label: '原本的 id', type: 'text' },
+      { key: 'group', label: '同一次',   type: 'text' },
+      { key: 'data',  label: '內容',     type: 'text' },
+    ],
+  },
 };

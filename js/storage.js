@@ -88,6 +88,7 @@ const Store = (() => {
 
   const listeners = [];
   let version = 0;
+  let captured = null; // capture() 期間刪掉的
   const changed = () => { version++; listeners.forEach(fn => fn()); };
 
   return {
@@ -118,6 +119,8 @@ const Store = (() => {
     },
 
     remove(table, id) {
+      const rec = data[table].find(r => r.id === id);
+      if (captured && rec) captured.push({ table, rec });
       data[table] = data[table].filter(r => r.id !== id);
       mark(table, id, true);
       persist();
@@ -126,6 +129,18 @@ const Store = (() => {
 
     get(table, id) {
       return data[table].find(r => r.id === id);
+    },
+
+    // 記下 fn 裡刪掉的每一筆（放進回收桶用，見 trash.js）：回傳 [{ table, rec }]，照刪的順序
+    capture(fn) {
+      const outer = captured;
+      captured = [];
+      try {
+        fn();
+        return captured;
+      } finally {
+        captured = outer;
+      }
     },
 
     // 預先放的資料（seed- 開頭的 id），而且還沒改過：不算這台裝置的資料（連結雲端時不會因此詢問要不要存過去）

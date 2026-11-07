@@ -1,9 +1,11 @@
-// 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份
+// 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份、回收桶
 //   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜更多；更多裡一格一個：合約、保養、翻新、異動、人員、設定（見 IN_MORE）
 //   電腦版的側欄全部展開，不用更多，設定在最下面
 (() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
   Records.upgrade();
+  // 回收桶超過 90 天的清掉（見 trash.js）
+  Trash.purge();
   const TAB_KEY = `${Store.PREFIX}tab`;
   const LOGOUT_KEY = `${Store.PREFIX}loggedOut`; // 登出後重新載入頁面時顯示「已登出」（sessionStorage，登出清資料時不會被清掉）
   const $ = id => document.getElementById(id);
@@ -206,6 +208,7 @@
     const miss = ls.reduce((n, x) => n + x.miss, 0);
     const t = Store.lastExportAt();
     const needLink = '連結 Google 帳號後才能設定';
+    const trashN = Trash.groups().length;
     settingsMenu.innerHTML = [
       ['lists', { title: '清單', note: miss ? `${miss} 個不在清單裡` : '', warn: true, uses: `${ls.length} 種` }],
       ['hq', !st.linked ? { title: '總部程式', note: needLink }
@@ -215,7 +218,8 @@
         : st.meterNoSender ? { title: '自動抄表', note: '還沒填寄信用 Gmail', warn: true }
         : { title: '自動抄表', note: st.meterReadAt ? `上次讀信 ${U.fmtDateTime(st.meterReadAt)}` : '' }],
       ['backup', st.linked ? { title: '資料備份', ...dailyBackup(st) } : { title: '資料備份', note: t ? `上次匯出：${U.fmtDateTime(t)}` : '尚未匯出過備份' }],
-    ].filter(([k]) => !st.edit || k === 'lists') // 改全部的只有清單：總部程式、自動抄表、資料備份是總部的
+      ['trash', { title: '回收桶', note: trashN ? '' : '是空的', uses: trashN ? `${trashN} 筆` : '' }],
+    ].filter(([k]) => !st.edit || k === 'lists' || k === 'trash') // 改全部的只有清單、回收桶：總部程式、自動抄表、資料備份是總部的
       .map(([k, row]) => menuRow(`data-open="${k}"`, row)).join('');
   }
 
@@ -276,6 +280,7 @@
     renderSettingsMenu();
     renderListsMenu();
     renderBackupInfo();
+    renderTrash();
   }
 
   function openMenu() {
@@ -289,8 +294,9 @@
   menu.addEventListener('click', e => { if (e.target === menu) menu.close(); }); // 點背景關閉
 
   // 設定的子頁（index.html 的 .settings-page）：疊在設定上面打開，返回、點背景回到設定
-  const pages = { lists: $('lists-page'), hq: $('hq-page'), meter: $('meter-page'), backup: $('backup-page') };
+  const pages = { lists: $('lists-page'), hq: $('hq-page'), meter: $('meter-page'), backup: $('backup-page'), trash: $('trash-page') };
   function openPage(key) {
+    if (key === 'trash') renderTrash();
     pages[key].showModal();
     pages[key].querySelector('.sheet-body').scrollTop = 0;
   }
@@ -301,6 +307,44 @@
   Object.values(pages).forEach(dlg => dlg.addEventListener('click', e => {
     if (e.target === dlg || e.target.closest('[data-act="close"]')) dlg.close();
   }));
+
+  // ---------- 回收桶（見 trash.js）：還原；總部可以永久刪除、清空（要按兩次，不用瀏覽器的確認視窗） ----------
+  let armed = null; // 按了第一次的按鈕：{ btn, text, timer }
+  function disarm() {
+    if (!armed) return;
+    clearTimeout(armed.timer);
+    armed.btn.textContent = armed.text;
+    armed = null;
+  }
+  function renderTrash() {
+    disarm();
+    Trash.render(pages.trash.querySelector('.sheet-body'), { canDrop: !Sync.state().sales });
+  }
+  pages.trash.addEventListener('click', e => {
+    const back = e.target.closest('[data-restore]');
+    if (back) {
+      const r = Trash.restore(back.dataset.restore);
+      if (r.error) toast(r.error, 'error');
+      else {
+        toast(`已還原 ${r.count} 筆`);
+        onChanged(null, null);
+      }
+      renderTrash();
+      return;
+    }
+    const btn = e.target.closest('[data-drop], [data-act="clear-trash"]');
+    if (!btn) return;
+    if (armed?.btn !== btn) {
+      disarm();
+      armed = { btn, text: btn.textContent, timer: setTimeout(disarm, 5000) };
+      btn.textContent = btn.dataset.drop ? '再按一次，永久刪除' : '再按一次，清空回收桶';
+      return;
+    }
+    if (btn.dataset.drop) Trash.drop(btn.dataset.drop);
+    else Trash.clear();
+    toast(btn.dataset.drop ? '已永久刪除' : '已清空回收桶');
+    renderMenu();
+  });
 
   function download(file) {
     const url = URL.createObjectURL(file);
@@ -905,7 +949,7 @@
   } catch (_) {}
 
   // ---------- 提醒（見 inbox.js） ----------
-  // 點提醒：打開那一筆資料、打開試算表、切到相關頁面或同步
+  // 點提醒：打開那一筆資料、打開試算表、切到相關頁面、打開回收桶或同步
   Inbox.init({
     onAction(a) {
       if (a.type === 'record') {
@@ -929,6 +973,9 @@
         const url = Sync.state().url;
         if (url) window.open(url, '_blank', 'noopener');
         else toast('還沒有連結 Google 試算表');
+      } else if (a.type === 'trash') {
+        openMenu();
+        openPage('trash');
       } else if (a.type === 'sync') {
         Sync.syncNow();
       } else if (a.type === 'list-import') {

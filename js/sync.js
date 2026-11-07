@@ -260,38 +260,43 @@ const Sync = (() => {
     return `${SCHEMAS[t].title}：${parts.filter(Boolean).join(' ')}`;
   }
 
-  // 試算表裡少了的資料（在試算表或其他裝置上刪掉了）：這台也跟著刪除，在提醒留一則，列出是哪幾筆
-  //   一次少了很多筆（可能是不小心選取一大片刪掉）：先問要跟著刪除，還是保留並寫回試算表
+  // 試算表裡少了的資料（在試算表或其他裝置上刪掉了）：這台也跟著刪除，在提醒留一則，列出是哪幾筆，點了打開回收桶
+  //   別台在 App 裡刪的已經在試算表的回收桶裡（見 trash.js）：跟著刪，不再放一份、不問
+  //   在試算表裡刪的：放進回收桶（一次同步的同一組）；一次少了很多筆（可能是不小心選取一大片刪掉）時先問要跟著刪除，還是保留並寫回試算表
   //   選保留時，這幾筆標成待同步並加進這次的快照，接下來和其他修改一起寫回去
+  //   回收桶本身少了的（別台還原、清掉的）直接跟著拿掉，不問、不提醒
   function keepOrDelete(parsed, skip, snap) {
     const pending = new Set(snap.items.map(i => `${i.table}:${i.id}`));
-    const gone = TABLES.filter(t => !skip.includes(t)).flatMap(t => {
+    const gone = TABLES.filter(t => !skip.includes(t) && t !== 'trash').flatMap(t => {
       const remote = new Set(parsed.data[t].map(r => r.id));
       return Store.list(t)
         .filter(r => !remote.has(r.id) && !pending.has(`${t}:${r.id}`) && !blankRec(t, r))
-        .map(r => ({ table: t, id: r.id, text: describe(t, r) }));
+        .map(r => ({ table: t, id: r.id, rec: r, text: describe(t, r) }));
     });
     if (!gone.length) return;
-    const shown = listed(gone);
-    const undo = undoText('刪');
-    if (gone.length < MASS_DELETE) {
+    const binned = new Set((skip.includes('trash') ? [] : parsed.data.trash).map(e => `${e.table}:${e.rid}`));
+    const loose = gone.filter(g => !binned.has(`${g.table}:${g.id}`));
+    const toTrash = () => addToSnap(Trash.fromSheet(loose), snap);
+    const undo = '不小心刪的話，可以到「設定 → 回收桶」還原。';
+    if (loose.length < MASS_DELETE) {
+      toTrash();
       hooks.notify({
         title: `試算表刪了 ${gone.length} 筆，這台也跟著刪了`,
-        body: `在試算表或其他裝置上刪掉的：\n${shown.join('\n')}\n${undo}`,
-        action: { type: 'sheet' },
+        body: `在試算表或其他裝置上刪掉的：\n${listed(gone).join('\n')}\n${undo}`,
+        action: { type: 'trash' },
       });
       return;
     }
-    const lines = countText(gone);
-    const del = confirm(`試算表裡少了 ${gone.length} 筆資料（${lines}），可能是在試算表或其他裝置上刪除了。\n\n`
-      + '按「確定」：這台裝置也跟著刪除。\n按「取消」：保留這些資料，並寫回試算表。');
+    const lines = countText(loose);
+    const del = confirm(`試算表裡少了 ${loose.length} 筆資料（${lines}），可能是在試算表或其他裝置上刪除了。\n\n`
+      + '按「確定」：這台裝置也跟著刪除，放進回收桶。\n按「取消」：保留這些資料，並寫回試算表。');
     hooks.notify({
-      title: `試算表裡少了 ${gone.length} 筆資料`,
-      body: `${lines}。你選擇：${del ? '這台裝置也跟著刪除' : '保留，並寫回試算表'}。\n${shown.join('\n')}${del ? `\n${undo}` : ''}`,
-      action: del ? { type: 'sheet' } : null,
+      title: `試算表裡少了 ${loose.length} 筆資料`,
+      body: `${lines}。你選擇：${del ? '這台裝置也跟著刪除' : '保留，並寫回試算表'}。\n${listed(loose).join('\n')}${del ? `\n${undo}` : ''}`,
+      action: del ? { type: 'trash' } : null,
     });
-    if (del) return;
-    keepLocal(gone, snap);
+    if (del) toTrash();
+    else keepLocal(loose, snap);
   }
 
   // 試算表裡被清空的欄（這台有值、試算表變空白）：一次很多筆（可能有人把一大片清掉）時先問要跟著清空，還是保留這台的並寫回試算表
@@ -300,7 +305,7 @@ const Sync = (() => {
   const isBlank = v => v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
   function keepBlanks(parsed, skip, snap) {
     const pending = new Set(snap.items.map(i => `${i.table}:${i.id}`));
-    const cleared = TABLES.filter(t => !skip.includes(t)).flatMap(t => {
+    const cleared = TABLES.filter(t => !skip.includes(t) && t !== 'trash').flatMap(t => {
       const fields = SCHEMAS[t].fields.filter(f => f.type !== 'flag' && f.key !== 'report');
       return parsed.data[t].flatMap(r => {
         const local = Store.get(t, r.id);
@@ -1024,5 +1029,5 @@ const Sync = (() => {
     emit();
   }
 
-  return { init, state, isSales, isEditor, salesAll, salesCan, salesSee, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail };
+  return { init, state, isSales, isEditor, salesAll, salesCan, salesSee, startLink, join, leave, syncNow, loginByRedirect, logout, setMeterUrl, setSenderMail, describe };
 })();

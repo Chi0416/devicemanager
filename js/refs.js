@@ -143,7 +143,9 @@ const Refs = (() => {
 
   // 連同處理：keep 的拿掉這一個（合約記一筆修改紀錄），其他的整筆刪（合約的修改紀錄跟著刪）
   //   要在刪掉這一筆之前做：修改紀錄寫的位置名稱還查得到
+  //   沒有要連同處理的（抄表、保養這些不會被引用的表也是）就不用做
   function removeWith(t, rec, along = removeAlong(t, rec)) {
+    if (!along.length) return;
     const n = norm(nameOf(t, rec));
     along.forEach(({ table, id, key, keep }) => {
       const before = Store.get(table, id);

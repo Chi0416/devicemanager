@@ -917,6 +917,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .member-info b { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .member-info small { display: block; font-size: 12px; color: var(--muted); }
 .text-btn.danger { color: var(--danger); }
+.trash-btns { display: flex; flex-shrink: 0; }
 
 /* 設定的「清單」、一份清單裡的每一項（見 lists.js）：整列可以點 */
 .list-item {
