@@ -15,6 +15,7 @@ class FakeGoogle {
     this.files = {}; // id → { title, appProperties, trashed, sheets: [{ sheetId, title, grid, rows }] }（rows：分頁的列數，沒設是 1000 列）
     this.n = 0;
     this.calls = [];
+    this.requests = []; // spreadsheets.batchUpdate 收到的 requests（格式、檢查、刪列…）
     this.onBatchGet = null; // 讀取時插入的動作（模擬同步途中使用者又改了資料）
     this.meter = null;      // 讀信網址被叫的時候（模擬試算表上的程式讀信）：() => 回傳的 { count, fixed, at }；沒設是讀信失敗
   }
@@ -125,6 +126,7 @@ class FakeGoogle {
       });
     }
     if (rest === ':batchUpdate') {
+      this.requests.push(...body.requests);
       const replies = body.requests.map(r => {
         if (r.addSheet) {
           const sheetId = 1000 + (++this.n);
@@ -332,6 +334,30 @@ test('新增、修改、刪除都寫回試算表的同一列', async () => {
   await d.Sync.syncNow();
   assert.equal(fake.values(id, '設備').length, 2);
   assert.equal(d.Sync.state().pending, 0);
+});
+
+test('同步新增的列：加了列的分頁每一欄的格式再設一次（日期才不會顯示成 46328），只改的不設', async () => {
+  const { fake, d, id } = await linked();
+  const sheetId = fake.sheet(id, '設備').sheetId;
+  const formats = () => fake.requests.filter(r => r.repeatCell?.fields === 'userEnteredFormat.numberFormat');
+  const formatOf = col => formats().find(r => r.repeatCell.range.sheetId === sheetId && r.repeatCell.range.startColumnIndex === col)
+    ?.repeatCell.cell.userEnteredFormat.numberFormat;
+
+  fake.requests.length = 0;
+  const p = d.Store.add('devices', PRINTER);
+  await d.Sync.syncNow();
+  assert.deepEqual(formatOf(COL.buyDate), { type: 'DATE', pattern: 'yyyy/mm/dd' });
+  assert.equal(formatOf(COL.price).type, 'NUMBER');
+  assert.equal(formatOf(COL.code).type, 'TEXT');
+  // 整欄從第 2 列開始（已經顯示成數字的舊列一起改回來）；其他分頁沒加列，不設
+  assert.equal(formats().find(r => r.repeatCell.range.startColumnIndex === COL.buyDate).repeatCell.range.startRowIndex, 1);
+  assert.ok(formats().every(r => r.repeatCell.range.sheetId === sheetId));
+
+  // 只改既有的列：不設格式
+  fake.requests.length = 0;
+  d.Store.update('devices', p.id, { status: '維修中' });
+  await d.Sync.syncNow();
+  assert.deepEqual(formats(), []);
 });
 
 test('在試算表裡修改、新增（沒有 id），同步後 App 也有', async () => {

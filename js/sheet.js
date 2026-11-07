@@ -358,6 +358,17 @@ const Sheet = (() => {
     return columnRequests(sheetId, c, TAB[t].fields.find(f => f.key === key));
   }
 
+  // 同步新增的列不會帶整欄的格式（日期顯示成 46328）：照試算表目前的標題列，每一欄的格式再設一次
+  //   只設格式，不動值和檢查；自己加的欄不動
+  function formatRequests(sheetId, t, header = TAB[t].headers) {
+    const byLabel = new Map(TAB[t].fields.map(f => [f.label, f]));
+    return header.flatMap((h, c) => {
+      const f = byLabel.get(String(h ?? '').trim());
+      const nf = f && numberFormat(f);
+      return nf ? [format(column(sheetId, c), nf)] : [];
+    });
+  }
+
   // 格式、下拉選單、保護（spreadsheets.batchUpdate 的 requests）
   //   下拉選單和日期檢查只提醒、不擋（和 App 的快選按鈕一樣）；標題列和 id 欄修改時跳出警告
   //   sheetIds：{ 分頁名稱: sheetId }，只設定有列出的分頁（補建單一分頁時用）
@@ -391,6 +402,6 @@ const Sheet = (() => {
     VERSION, ID, META, METER_KEY, SENDER_KEY, TONER, CONFIRM, TAB,
     toSerial, fromSerial, colLetter,
     encodeRow, encodeCell, toValues, fromValues, problemText,
-    createBody, setupRequests, addColumnRequests, metaValues, readRanges,
+    createBody, setupRequests, addColumnRequests, formatRequests, metaValues, readRanges,
   };
 })();

@@ -546,6 +546,12 @@ const Sync = (() => {
         body: { values: rows },
       });
     }
+    // 新增的列沒有整欄的日期、數字格式（日期顯示成 46328）：加了列的分頁，每一欄的格式再設一次
+    const formats = TABLES.filter(t => appends[titleOf(t)])
+      .flatMap(t => Sheet.formatRequests(meta.sheetIds[titleOf(t)], t, parsed.headers[titleOf(t)]));
+    if (formats.length) {
+      await sheetApi(meta.id, ':batchUpdate', { method: 'POST', body: { requests: formats } });
+    }
     // 每張表都讀得到、改好了，才記成新的格式版本
     if (parsed.version < Sheet.VERSION && TABLES.every(t => done.includes(t))) {
       await sheetApi(meta.id, '/values:batchUpdate', {
