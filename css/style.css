@@ -321,6 +321,8 @@ body:has(dialog[open]) { overflow: hidden; }
 }
 .card-grid.rec.cols-1 { grid-template-columns: 1fr; }
 .cell > span.warn { color: var(--warn); font-weight: 600; }
+/* 好幾行的文字照打的換行寫（客戶的付款備註） */
+.cell > span.lines { white-space: pre-line; }
 /* 只有標題、標籤和最下面一行的卡片（紀錄）：上下緊一點 */
 .card-top + .card-note { margin-top: 6px; }
 /* 抄表、保養卡片的小表格：最上面一列黑白、彩色，下面使用量粗體、計數器灰字，左邊寫是哪一列（高度和以前的兩格一樣，三行）

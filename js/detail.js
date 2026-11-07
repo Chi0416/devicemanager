@@ -529,7 +529,7 @@ const Place = (() => {
 
 // ---------- 客戶詳情 ----------
 //   客戶頁點一張卡片（見 customers.js）、位置詳情點客戶打開；標題寫客戶名稱
-//   資訊卡：統編、主要業務員、電話、傳真、聯絡人、帳單地址、送貨地址、備註；有母公司的點了打開母公司
+//   資訊卡：代號（名稱前面灰字）、統編、主要業務員、電話、傳真、聯絡人、帳單地址、付款備註（整段）、送貨地址、備註；有母公司的點了打開母公司
 //   旗下公司（母公司才有）：一間一列，寫幾個位置，點了打開那間
 //   位置：一個位置一列，名稱下面寫現在放的機器（停用的灰字），點了打開位置詳情；母公司自己沒有位置的不寫
 //   最新回報：現在放著的機器一台一列（母公司連旗下公司的），寫張數、碳粉，點了打開設備詳情；一台都沒回報過時不放
@@ -545,13 +545,13 @@ const Customer = (() => {
     </button>`;
 
   function infoHTML(c) {
-    const cell = ([label, v, wide]) => `<span class="cell${wide ? ' wide' : ''}"><small>${label}</small><span>${U.esc(v) || '—'}</span></span>`;
+    const cell = ([label, v, wide, cls]) => `<span class="cell${wide ? ' wide' : ''}"><small>${label}</small><span${cls ? ` class="${cls}"` : ''}>${U.esc(v) || '—'}</span></span>`;
     const cells = [['統一編號', c.taxId], ['主要業務員', c.sales], ['電話', c.phone], ['傳真', c.fax], ['聯絡人', c.contact, true],
-      ['帳單地址', c.billAddress, true], ['送貨地址', c.shipAddress, true]].map(cell).join('');
+      ['帳單地址', c.billAddress, true], ['付款備註', String(c.payNote ?? '').trim(), true, 'lines'], ['送貨地址', c.shipAddress, true]].map(cell).join('');
     const parent = Records.customer(c.parent);
     return `
       <div class="detail-card">
-        <span class="card-top"><span class="card-title">${U.esc(c.name)}</span></span>
+        <span class="card-top"><span class="card-title">${c.code ? `<span class="card-code">${U.esc(c.code)}</span>` : ''}${U.esc(c.name)}</span></span>
         <span class="card-grid">${cells}</span>
         ${c.note ? `<span class="card-sub">${U.esc(Records.firstLine(c.note))}</span>` : ''}
         ${parent ? link('customer', parent.id, '母公司', parent.name) : c.parent ? `<span class="card-sub">母公司：${U.esc(c.parent)}</span>` : ''}

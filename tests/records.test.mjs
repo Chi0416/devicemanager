@@ -436,7 +436,7 @@ function withCustomers() {
   const a = app();
   a.add('people', { name: '阿明', sales: true });
   a.add('people', { name: '小華' });
-  const dt = a.add('customers', { name: '鼎泰國際', taxId: '01234567', sales: '阿明', phone: '02-2345-6789' });
+  const dt = a.add('customers', { name: '鼎泰國際', code: 'DT01', taxId: '01234567', sales: '阿明', phone: '02-2345-6789' });
   const hy = a.add('customers', { name: '宏遠集團', billAddress: '台北市信義區松仁路 100 號' });
   const hc = a.add('customers', { name: '宏遠建設', parent: '宏遠集團', billAddress: '台北市信義區松仁路 100 號' });
   a.add('locations', { code: WH, name: '公司倉庫', stock: true });
@@ -455,6 +455,7 @@ test('客戶：位置的客戶存名稱；客戶的位置（倉庫不算）、�
   assert.deepEqual(plain(Records.customerPlaces(hy)), []);
   assert.ok(Records.placeText('L0002').includes('鼎泰國際'));
   assert.ok(Records.customerText(dt).includes('01234567'));
+  assert.ok(Records.customerText(dt).includes('DT01')); // 代號也找得到
   // 用到的位置、旗下公司：不能刪
   assert.match(Refs.removeBlock('customers', dt), /還有 2 個位置用到「鼎泰國際」，不能刪除/);
   assert.match(Refs.removeBlock('customers', hy), /還有 1 個客戶用到「宏遠集團」/);
@@ -521,7 +522,7 @@ test('母公司只分一層：選單不列自己、已經有母公司的；底�
   assert.equal(Records.parentCheck({ id: dt.id, name: '鼎泰國際', parent: '宏遠建設' }), '「宏遠建設」也有母公司，選最上面的「宏遠集團」');
   assert.equal(Records.parentCheck({ id: null, name: '新公司', parent: '宏遠集團' }), '');
   assert.equal(Refs.sub('customers', hc), '母公司 宏遠集團');
-  assert.equal(Refs.sub('customers', dt), '統編 01234567');
+  assert.equal(Refs.sub('customers', dt), '代號 DT01 · 統編 01234567');
 });
 
 test('「儲存，再新增一筆」：異動、合約、抄表、翻新沒有（一次一筆）；設備連續新增時，位置是倉庫才留著', () => {

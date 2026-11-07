@@ -362,16 +362,17 @@ const SCHEMAS = {
   //   位置的「客戶」存客戶名稱（跟人員一樣，改名時位置跟著改）
   //   主要業務員：主要接洽的人，位置選了這個客戶時業務員先帶他；業務員看得到哪些機器還是照位置的業務員
   //   母公司：集團旗下各自有統編、地址的公司，只分一層（見 records.js 的 parentCheck）
+  //   代號：自己填（例如會計系統的客戶代號），有填的話不能重複；客戶卡片、詳情寫在名稱前面，搜尋找得到
   customers: {
     title: '客戶',
     unit: '個客戶',
     noList: true,
     // 表單上：公司資料、聯絡方式、其他（主要業務員是我們這邊的人，放在後面）
-    formOrder: ['name', 'taxId', 'parent', 'contact', 'phone', 'fax', 'billAddress', 'shipAddress', 'sales', 'note'],
-    target: { name: 'name', sub: r => [r.taxId && `統編 ${r.taxId}`, r.parent && `母公司 ${r.parent}`].filter(Boolean).join(' · '),
+    formOrder: ['name', 'code', 'taxId', 'parent', 'contact', 'phone', 'fax', 'billAddress', 'payNote', 'shipAddress', 'sales', 'note'],
+    target: { name: 'name', sub: r => [r.code && `代號 ${r.code}`, r.taxId && `統編 ${r.taxId}`, r.parent && `母公司 ${r.parent}`].filter(Boolean).join(' · '),
       removeHint: '先把用到它的位置改掉' },
-    unique: [['name']],
-    uniqueMsg: dup => `已經有「${dup.name}」了`,
+    unique: [['name'], ['code']],
+    uniqueMsg: (dup, keys) => (keys[0] === 'code' ? `代號 ${dup.code} 已經用過了（${dup.name}）` : `已經有「${dup.name}」了`),
     describe: r => r.name,
     fields: [
       { key: 'name',        label: '名稱',       type: 'text', full: true, section: '公司資料' },
@@ -386,6 +387,9 @@ const SCHEMAS = {
       { key: 'phone',       label: '電話',       type: 'tel', optional: true },
       { key: 'fax',         label: '傳真',       type: 'tel', optional: true },
       noteField(),
+      // 後來加的欄：試算表上排在最後，表單上照 formOrder
+      { key: 'code',        label: '代號',       type: 'text', optional: true, caps: true, upper: true, hint: '有填的話不能重複' },
+      { key: 'payNote',     label: '付款備註',   type: 'text', optional: true, full: true, multiline: true },
     ],
   },
 
