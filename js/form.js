@@ -16,6 +16,7 @@
 //   修改紀錄（schema 的 history，合約）：編輯時列在下面
 //   刪除：按第一次在按鈕下面寫會刪掉什麼，再按一次才刪；不用瀏覽器的確認視窗（有些環境不會跳出來，按了就像沒反應）
 //     設備有紀錄的：寫出有幾筆、建議改成報廢，真的要刪就連同紀錄一起刪（schema 的 target.cascade）
+//     位置有合約的：合約一起刪，寫了別的位置的只拿掉這一個；放著、放過設備的擋下來
 const Form = (() => {
   const dlg = document.getElementById('form-sheet');
   const titleEl = dlg.querySelector('.sheet-title');
@@ -852,31 +853,36 @@ const Form = (() => {
   function remove() {
     const rec = Store.get(ctx.tableKey, ctx.id);
     const tg = ctx.schema.target;
-    // 設備：有紀錄的建議改成報廢；真的要刪就連同紀錄一起刪
-    const uses = tg?.cascade ? [...new Map(Refs.usesOf(ctx.tableKey, rec).map(u => [`${u.table}:${u.id}`, u])).values()] : [];
-    // 清單裡有人在用的不能刪（見 refs.js）
-    const block = Refs.isTarget(ctx.tableKey) && !tg.cascade ? Refs.removeBlock(ctx.tableKey, rec) : '';
+    // 清單裡有人在用的不能刪；target 有 cascade 的那幾張表不擋，連同處理（設備：紀錄一起刪；位置：合約一起刪，見 refs.js）
+    const block = tg ? Refs.removeBlock(ctx.tableKey, rec) : '';
     if (block) {
       showDeleteNote(block);
       return;
     }
+    const along = tg ? Refs.removeAlong(ctx.tableKey, rec) : [];
+    const gone = along.filter(u => !u.keep);
+    const kept = along.filter(u => u.keep);
     // 第一次：寫會刪掉什麼，等第二次
     if (Date.now() >= deleteUntil) {
       deleteUntil = Date.now() + DELETE_MS;
       delBtn.textContent = '再按一次，確定刪除';
-      showDeleteNote([uses.length
-        ? `${summary(rec)} 有 ${Refs.usesText(ctx.tableKey, rec)}，會一起刪除。不再使用的話，建議把狀態改成「報廢」，紀錄會留著。`
+      const what = [
+        gone.length && `${Refs.usesText(ctx.tableKey, rec, gone)}，會一起刪除`,
+        kept.length && `${Refs.usesText(ctx.tableKey, rec, kept)}還寫了別的${ctx.schema.title}，只拿掉這一個`,
+      ].filter(Boolean).join('；');
+      showDeleteNote([what
+        ? `${summary(rec)} 有 ${what}。${tg.cascadeHint || ''}`
         : `會刪除這筆${ctx.schema.title}：${summary(rec)}`, ctx.schema.removeNote?.(rec)].filter(Boolean).join('\n'));
       clearTimeout(deleteTimer);
       deleteTimer = setTimeout(resetDelete, DELETE_MS);
       return;
     }
-    uses.forEach(u => Store.remove(u.table, u.id));
+    Refs.removeWith(ctx.tableKey, rec, along);
     Store.remove(ctx.tableKey, ctx.id);
     ctx.schema.afterRemove?.(rec);
     dlg.close();
     hooks.onChanged(ctx.tableKey, null);
-    tell(uses.length ? `已刪除，連同 ${uses.length} 筆紀錄` : '已刪除', rec, '已刪除');
+    tell(gone.length ? `已刪除，連同 ${gone.length} 筆紀錄` : '已刪除', rec, '已刪除');
   }
 
   function isDirty() {

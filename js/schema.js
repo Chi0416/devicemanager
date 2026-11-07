@@ -86,7 +86,9 @@
 //                       also(列) 下拉選單裡打字時另外找得到的字（位置：以前的名字）
 //                       removeHint 有人在用、不能刪除時的建議
 //                       noAdd 下拉選單裡不能「＋ 新增」、不列在「不在清單裡」（設備：紀錄的設備欄只能選已經有的設備）
-//                       cascade 刪除時連同用到它的紀錄一起刪（先問），不是擋下來（設備）
+//                       cascade 刪除時連同用到它的紀錄一起處理（先問），不是擋下來：true 是全部（設備），或列出哪幾張表（位置：合約）
+//                         可以選好幾個的欄位還寫了別的（合約還有別的位置），只拿掉這一個；其他的整筆刪（見 refs.js 的 removeAlong）
+//                       cascadeHint 連同處理時，刪除說明最後的建議
 //   （資料表）copy:      編輯時表單下面的「以這筆為底新增」按鈕（合約的「重新簽約」）：
 //                       { label 按鈕上的字, keys 帶過去的欄位, watch 改了這些欄位時 note 變橘色, note 按鈕下面的說明 }
 //   （資料表）action:    編輯時表單下面另一個按鈕（和 copy 同一個位置，人員的「複製邀請連結」）：
@@ -284,7 +286,7 @@ const SCHEMAS = {
     // 業務員模式：選單只列放在他位置的（以前放過、已經搬走的不列，見 records.js 的 isShown）
     //   小字寫機型、名稱、序號；沒填位置的機型、名稱已經寫在上面，小字只寫序號
     target: { name: 'code', label: r => Records.placeName(r.location) || Records.label(r), sub: r => (Records.placeName(r.location) ? Records.fullLabel(r) : Records.serialOf(r)), noAdd: true, cascade: true,
-      active: r => Records.isShown(r) },
+      cascadeHint: '不再使用的話，建議把狀態改成「報廢」，紀錄會留著。', active: r => Records.isShown(r) },
     empty: '還沒有設備<br>點右上角「＋ 新增」開始記錄',
     // 選配件：一排按鈕，選了什麼就是這台目前裝什麼；存在選配件那張表，設備表沒有這一欄（見 records.js 的 saveDeviceParts）
     extra: [{ key: 'parts', label: '選配件', type: 'multi', choices: d => Records.partChoices(d), rows: true, optional: true, full: true, keep: true,
@@ -327,8 +329,11 @@ const SCHEMAS = {
     noList: true,
     // 表單上：先選客戶（業務員跟著帶），再寫名稱、地址；倉庫很少新增，放在下面；停用、以前的名字只有編輯時有
     formOrder: ['code', 'customer', 'name', 'address', 'sales', 'note', 'stock', 'disabled', 'oldNames'],
+    // 刪除：放著、放過設備的（設備、異動用到）擋下來，先刪設備；合約一起刪，寫了別的位置的只拿掉這一個
     target: { name: 'code', addAs: 'name', label: r => r.name || r.code, sub: r => Records.placeSub(r), also: r => r.oldNames,
-      active: notDisabled, off: '停用', removeHint: '不再使用的話，可以勾「停用」' },
+      active: notDisabled, off: '停用', cascade: ['contracts'],
+      removeHint: '要刪的話，先刪掉放過這裡的設備；不再使用的話，可以勾「停用」',
+      cascadeHint: '不再使用的話，可以勾「停用」，合約會留著。' },
     unique: [['code'], ['name']],
     uniqueMsg: (dup, keys) => (keys[0] === 'name' ? `已經有「${dup.name}」了` : `編號 ${dup.code} 已經用過了`),
     describe: r => r.name,

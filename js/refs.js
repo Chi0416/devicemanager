@@ -106,19 +106,57 @@ const Refs = (() => {
         .map(r => ({ table, id: r.id, key: field.key })));
   }
 
-  // 「3 台設備」；同一台設備在兩個欄位用到只算一次
-  function usesText(t, rec) {
-    const list = usesOf(t, rec);
+  // 「3 台設備」；同一台設備在兩個欄位用到只算一次；list 有給時只算這些
+  function usesText(t, rec, list = usesOf(t, rec)) {
     return TABLES.map(table => [table, new Set(list.filter(u => u.table === table).map(u => u.id)).size])
       .filter(([, n]) => n)
       .map(([table, n]) => `${n} ${SCHEMAS[table].unit || `筆${SCHEMAS[table].title}`}`)
       .join('、');
   }
 
-  // 刪除前檢查：有人在用就不能刪，回傳原因；可以刪時回傳空字串
+  // 刪除時連同處理、不擋下來的表：target 的 cascade 是 true（全部，設備）或列出幾張表（位置：合約）
+  const cascades = (t, table) => {
+    const c = targetOf(t).cascade;
+    return c === true || (Array.isArray(c) && c.includes(table));
+  };
+
+  // 刪除前檢查：有人在用就不能刪，回傳原因；可以刪時回傳空字串（連同處理的表不算）
   function removeBlock(t, rec) {
-    const text = usesText(t, rec);
+    const text = usesText(t, rec, usesOf(t, rec).filter(u => !cascades(t, u.table)));
     return text ? `還有 ${text}用到「${labelOf(t, rec)}」，不能刪除。${targetOf(t).removeHint || ''}` : '';
+  }
+
+  // 刪除這一筆時連同處理的：[{ table, id, key, keep }]，一筆只列一次
+  //   keep：可以選好幾個的欄位還寫了別的（合約還有別的位置），只拿掉這一個，那筆留著；其他的整筆刪
+  function removeAlong(t, rec) {
+    const n = norm(nameOf(t, rec));
+    const along = new Map();
+    usesOf(t, rec).filter(u => cascades(t, u.table)).forEach(u => {
+      const k = `${u.table}:${u.id}`;
+      if (along.has(k)) return;
+      const f = SCHEMAS[u.table].fields.find(x => x.key === u.key);
+      const keep = !!f.many && valuesOf(f, Store.get(u.table, u.id)[u.key]).some(v => norm(v) !== n);
+      along.set(k, { ...u, keep });
+    });
+    return [...along.values()];
+  }
+
+  // 連同處理：keep 的拿掉這一個（合約記一筆修改紀錄），其他的整筆刪（合約的修改紀錄跟著刪）
+  //   要在刪掉這一筆之前做：修改紀錄寫的位置名稱還查得到
+  function removeWith(t, rec, along = removeAlong(t, rec)) {
+    const n = norm(nameOf(t, rec));
+    along.forEach(({ table, id, key, keep }) => {
+      const before = Store.get(table, id);
+      if (!before) return;
+      if (!keep) {
+        Store.remove(table, id);
+        SCHEMAS[table].afterRemove?.(before);
+        return;
+      }
+      const f = SCHEMAS[table].fields.find(x => x.key === key);
+      Store.update(table, id, { [key]: valuesOf(f, before[key]).filter(v => norm(v) !== n).join('、') });
+      SCHEMAS[table].afterSave?.(before, Store.get(table, id));
+    });
   }
 
   // 改名：用到舊名字的資料一起改成新名字；回傳改到的 [{ table, id }]
@@ -206,6 +244,6 @@ const Refs = (() => {
 
   return {
     isTarget, targetOf, norm, multi, inScope, items, find, nameOf, labelOf, valuesOf, active, sub, pickSub, tone, blankRecord, quickAdd,
-    refsTo, usesOf, usesText, removeBlock, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, moveTo, listOfScope,
+    refsTo, usesOf, usesText, removeBlock, removeAlong, removeWith, renameRefs, missing, importMissing, scopeKey, scopeName, lists, listItems, moveTo, listOfScope,
   };
 })();

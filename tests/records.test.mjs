@@ -1312,6 +1312,52 @@ test('紀錄的設備欄：表單上寫「位置」、選單顯示位置、存�
   assert.equal(Records.of('moves', '24-0009').length, 1);
 });
 
+test('刪除設備：不擋，異動、抄表、保養連同刪除，別台的不動', () => {
+  const { Store, Refs, add, d1 } = withDevices();
+  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: DH });
+  add('readings', { device: '24-0001', date: '2026-03-01', bw: 100 });
+  add('maintenance', { device: '24-0001', date: '2026-04-01', item: '碳粉 K' });
+  add('readings', { device: '25-0001', date: '2026-03-01', bw: 5 });
+  assert.equal(Refs.removeBlock('devices', d1), '');
+  const along = Refs.removeAlong('devices', d1);
+  assert.deepEqual(plain(along.map(u => [u.table, u.keep])), [['moves', false], ['readings', false], ['maintenance', false]]);
+  Refs.removeWith('devices', d1, along);
+  Store.remove('devices', d1.id);
+  assert.equal(Store.list('moves').length, 0);
+  assert.deepEqual(plain(Store.list('readings').map(r => r.device)), ['25-0001']);
+  assert.equal(Store.list('maintenance').length, 0);
+});
+
+test('刪除位置：放著、放過設備的擋下來；合約一起刪（修改紀錄跟著刪），寫了別的位置的只拿掉這一個', () => {
+  const { Store, Refs, add, d1, d2 } = withDevices();
+  const dh = Store.list('locations').find(p => p.code === DH);
+  const ax = Store.list('locations').find(p => p.code === AX);
+  add('moves', { device: '24-0001', date: '2026-03-01', type: '安裝', from: WH, to: DH });
+  add('moves', { device: '24-0001', date: '2026-06-01', type: '撤機', from: DH, to: WH });
+  const only = add('contracts', { locations: DH, signDate: '2026-03-01', rent: 1000 });
+  add('contractLog', { contract: only.id, date: '2026-03-05', field: '月租費', before: '900', after: '1000' });
+  const shared = add('contracts', { locations: `${DH}、${AX}`, signDate: '2026-03-01' });
+  // 以前放過（異動用到）：擋下來，合約不算在裡面
+  assert.match(Refs.removeBlock('locations', dh), /^還有 2 筆異動用到「大華貿易 3F」，不能刪除。要刪的話，先刪掉放過這裡的設備/);
+  // 現在放著：也擋
+  Store.update('devices', d2.id, { location: AX });
+  assert.match(Refs.removeBlock('locations', ax), /^還有 1 台設備用到「安心診所 櫃台」，不能刪除/);
+  // 設備刪掉後可以刪：只寫這個位置的合約整份刪，寫了別的位置的只拿掉這一個
+  Refs.removeWith('devices', d1);
+  Store.remove('devices', d1.id);
+  assert.equal(Refs.removeBlock('locations', dh), '');
+  const along = Refs.removeAlong('locations', dh);
+  assert.deepEqual(plain(along.map(u => [u.id, u.keep])), [[only.id, false], [shared.id, true]]);
+  assert.equal(Refs.usesText('locations', dh, along.filter(u => !u.keep)), '1 筆合約');
+  Refs.removeWith('locations', dh, along);
+  Store.remove('locations', dh.id);
+  assert.deepEqual(plain(Store.list('contracts').map(c => c.id)), [shared.id]);
+  assert.equal(Store.get('contracts', shared.id).locations, AX);
+  // 整份刪的修改紀錄跟著刪；只拿掉位置的記一筆
+  assert.deepEqual(plain(Store.list('contractLog').map(r => [r.contract, r.field, r.before, r.after])),
+    [[shared.id, '位置', '大華貿易 3F、安心診所 櫃台', '安心診所 櫃台']]);
+});
+
 test('編號重複換號：這台裝置上新增的紀錄跟著這台裝置上新增的設備；分不出來時留在沒換號的那台', () => {
   const { Store, Records, add } = withDevices();
   const remote = add('devices', { id: 'a1', code: '26-0001', name: '別台裝置新增的' });

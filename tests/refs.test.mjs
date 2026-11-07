@@ -124,7 +124,7 @@ test('幾台在用：同一台設備在兩個欄位用到只算一次；不能�
   Store.add('devices', { code: 'NB-002', name: '筆電', location: 'l0001', keeper: '', brand: 'asus' });
   const room = Store.list('locations').find(o => o.name === '3F 會議室');
   assert.equal(Refs.usesText('locations', room), '2 台設備');
-  assert.match(Refs.removeBlock('locations', room), /^還有 2 台設備用到「3F 會議室」，不能刪除。不再使用的話，可以勾「停用」$/);
+  assert.match(Refs.removeBlock('locations', room), /^還有 2 台設備用到「3F 會議室」，不能刪除。要刪的話，先刪掉放過這裡的設備；不再使用的話，可以勾「停用」$/);
   const asus = Store.list('options').find(o => o.name === 'ASUS');
   assert.equal(Refs.usesText('options', asus), '2 台設備');
   const ming = Store.list('people').find(p => p.name === '王小明');
@@ -195,7 +195,9 @@ test('可以選好幾個的欄位（合約的位置）：每一個各自算在�
   const c = Store.add('contracts', { locations: 'L0001、L0002', signDate: '2026-01-05' });
   const room = Store.list('locations').find(o => o.code === 'L0002');
   assert.equal(Refs.usesText('locations', room), '1 筆合約');
-  assert.match(Refs.removeBlock('locations', room), /^還有 1 筆合約用到「2F 辦公室」/);
+  // 合約不擋刪除：還寫了別的位置，只拿掉這一個
+  assert.equal(Refs.removeBlock('locations', room), '');
+  assert.deepEqual(plain(Refs.removeAlong('locations', room).map(u => [u.id, u.keep])), [[c.id, true]]);
   // 在試算表裡改了位置的編號：合約裡的那一個跟著換
   const before = { ...room };
   Store.update('locations', room.id, { code: 'L0020' });
