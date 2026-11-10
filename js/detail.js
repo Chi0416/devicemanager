@@ -166,6 +166,14 @@ const ReportCells = {
       return `<span class="cell"><small>${c}</small><span class="${cls}">${v === null ? '—' : `${v}%`}</span>${bar}</span>`;
     }).join('');
   },
+  // 廢粉盒：碳粉下面一行「廢粉盒 已裝 40%」，90% 以上紅字加「快滿」；沒有回報的不寫；only：客戶詳情只寫快滿的
+  //   用 span 不用 p：客戶詳情的一列是按鈕，裡面只能放 span
+  waste(t, only = false) {
+    const v = t?.waste;
+    const full = Records.wasteIsFull(v);
+    if (typeof v !== 'number' || (only && !full)) return '';
+    return `<span class="waste-line">廢粉盒<span class="${full ? 'low' : ''}">已裝 ${v}%${full ? '・快滿' : ''}</span></span>`;
+  },
 };
 
 const Detail = (() => {
@@ -199,6 +207,7 @@ const Detail = (() => {
   // 最新回報：抄表程式最新一次回報的張數、碳粉（找哪一筆、多久以前見 records.js 的 latestReport）
   //   右上角回報的日期時間和幾天前（今天、昨天、N 天前），抄表跟客戶確認日期時一眼看得出多舊；今天、昨天綠字，超過 3 天橘字，中間灰字（跟設備卡片一樣）
   //   黑白、彩色張數兩格一行；K Y M C 四格一行（黑白機 Y M C 都沒有時只有 K，讀不到的「—」）；20% 以下紅字；百分比下面一條碳粉顏色的細條（讀不到的只有灰色底條）
+  //   碳粉下面一行廢粉盒已裝幾 %（見 ReportCells.waste）
   //   有 IP 時碳粉下面一行小字寫回報時的 IP（回報停了時看得出是不是 IP 換了）
   //   有張數時最下面一個「抄表」：打開抄表表單，帶入這台、回報的日期和張數，結算月份自己選
   //   沒回報過的也顯示：張數、四格「—」、灰色底條，右上角「還沒有回報」
@@ -213,6 +222,7 @@ const Detail = (() => {
         <span class="uc-head"><b>最新回報</b><span class="${Records.reportTone(days)}">${U.esc(when)}</span></span>
         <span class="card-grid latest-counts">${ReportCells.counts(t)}</span>
         <span class="card-grid toner-grid">${ReportCells.toner(t)}</span>
+        ${ReportCells.waste(t)}
         ${t?.ip ? `<p class="toner-ip">IP ${U.esc(t.ip)}</p>` : ''}
         ${read}
       </div>`;
@@ -590,7 +600,7 @@ const Customer = (() => {
       </div>`;
   }
 
-  // 一台一列：機器、多久以前、位置，下面張數、碳粉的格子和設備詳情一樣（見 ReportCells），沒有 IP，抄表到設備詳情按
+  // 一台一列：機器、多久以前、位置，下面張數、碳粉的格子和設備詳情一樣（見 ReportCells），廢粉盒只寫快滿的，沒有 IP，抄表到設備詳情按
   function reportRowHTML({ device: d, place: p, report: t }) {
     const note = Records.reportNote(d);
     const when = note ? `<em class="${note.tone}">${U.esc(note.text)}</em>` : `<em>${t ? '—' : '還沒有回報'}</em>`;
@@ -599,7 +609,7 @@ const Customer = (() => {
         <span class="cust-main">
           <span class="report-top"><b>${U.esc(Records.label(d))}</b>${when}</span>
           <small>${U.esc(p.name || p.code)}</small>
-          ${t ? `<span class="card-grid latest-counts">${ReportCells.counts(t)}</span><span class="card-grid toner-grid">${ReportCells.toner(t)}</span>` : ''}
+          ${t ? `<span class="card-grid latest-counts">${ReportCells.counts(t)}</span><span class="card-grid toner-grid">${ReportCells.toner(t)}</span>${ReportCells.waste(t, true)}` : ''}
         </span>
         <span class="go" aria-hidden="true">›</span>
       </button>`;
@@ -609,9 +619,10 @@ const Customer = (() => {
     const list = Records.customerReports(c);
     if (!list.some(x => x.report)) return '';
     const low = list.filter(x => x.report && ['K', 'Y', 'M', 'C'].some(k => Records.tonerIsLow(x.report[k]))).length;
+    const full = list.filter(x => Records.wasteIsFull(x.report?.waste)).length;
     return `
       <div class="detail-card cust-card">
-        <span class="uc-head"><b>最新回報</b><span>${list.length} 台${low ? `・碳粉低 ${low} 台` : ''}</span></span>
+        <span class="uc-head"><b>最新回報</b><span>${list.length} 台${low ? `・碳粉低 ${low} 台` : ''}${full ? `・廢粉盒快滿 ${full} 台` : ''}</span></span>
         ${list.map(reportRowHTML).join('')}
       </div>`;
   }

@@ -264,13 +264,12 @@ const Sheet = (() => {
     });
   }
 
-  // 「最新回報」分頁：多 K、Y、M、C（碳粉 0～100，讀不到的 null）、ip
+  // 「最新回報」分頁：多 K、Y、M、C（碳粉剩 0～100，讀不到的 null）、ip、waste（廢粉盒已裝 0～100，沒有的 null，以前的分頁沒有這欄）
+  const pct = v => (typeof v === 'number' && v >= 0 && v <= 100 ? v : null);
   const readToner = values => readReports(values, get => ({
-    ...Object.fromEntries(['K', 'Y', 'M', 'C'].map(c => {
-      const v = get(`碳粉${c}`);
-      return [c, typeof v === 'number' && v >= 0 && v <= 100 ? v : null];
-    })),
+    ...Object.fromEntries(['K', 'Y', 'M', 'C'].map(c => [c, pct(get(`碳粉${c}`))])),
     ip: String(get('IP') ?? '').trim(),
+    waste: pct(get('廢粉')),
   }));
 
   // 「待確認抄表」分頁：多 source（張數信、客戶提交，測試的後面加（測試））

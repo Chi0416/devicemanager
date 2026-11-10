@@ -265,6 +265,8 @@ const TONER = [
   ['24-0007', 0, '08:18', 50, 60, 70, 60], ['26-0003', 0, '08:27', 10, null, null, null], ['26-0004', 0, '08:33', 60, null, null, null],
   ['25-0008', 0, '08:41', 80, null, 60, 70], ['26-0005', 7, '11:05', 40, 30, 50, 20], ['25-0012', 0, '08:22', 60, 70, 70, 60],
 ];
+// 廢粉盒已裝幾 %：沒寫的 30%；兩台快滿（列在總覽的耗材快到了）、一台舊機器沒有回報（null）
+const WASTE = { '25-0001': 92, '23-0003': 100, '26-0004': null, '24-0001': 60 };
 const NOW = iso(new Date(Date.now() - new Date().getTimezoneOffset() * 60000));
 data.toner = TONER.map(([device, ago, time, K, Y, M, C]) => {
   const d = data.devices.find(x => x.code === device);
@@ -272,7 +274,7 @@ data.toner = TONER.map(([device, ago, time, K, Y, M, C]) => {
   const last = data.readings.filter(r => r.device === device).sort((a, b) => a.date.localeCompare(b.date)).at(-1);
   const bw = last ? Number(last.bw) + 1200 - ago * 60 : null;
   const color = last && Y !== null ? Number(last.color || 0) + 300 - ago * 15 : null;
-  return { serial: d.serial, device, date: addDays(NOW, -ago), time, bw, color, K, Y, M, C };
+  return { serial: d.serial, device, date: addDays(NOW, -ago), time, bw, color, K, Y, M, C, waste: WASTE[device] === undefined ? 30 : WASTE[device] };
 });
 
 // 待確認抄表：兩台有張數信、一台客戶按了提交，日期照產生那天往回推；張數接著最新回報再多一點

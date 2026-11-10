@@ -486,6 +486,39 @@ test('客戶的最新回報：現在放著的機器照位置排；停用的位�
   assert.equal(Records.tonerIsLow(20), true);
   assert.equal(Records.tonerIsLow(21), false);
   assert.equal(Records.tonerIsLow(null), false);
+  // 廢粉盒是已裝幾 %：90% 以上算快滿
+  assert.equal(Records.wasteIsFull(90), true);
+  assert.equal(Records.wasteIsFull(89), false);
+  assert.equal(Records.wasteIsFull(null), false);
+  assert.equal(Records.wasteIsFull(undefined), false);
+});
+
+test('耗材快到了：抄表程式回報廢粉盒 90% 以上的也列，裝滿的算超過排前面；同一台的廢粉盒用回報的、不列預估的；倉庫、停用的位置、沒回報的不列', () => {
+  const { Store, Records, add } = withDevices(); // 今天 2026-10-11
+  add('locations', { code: 'L0004', name: '停用的位置', disabled: true });
+  add('moves', { device: '24-0001', date: '2026-06-01', type: '安裝', from: WH, to: DH });
+  Records.syncLocations();
+  add('devices', { code: '25-0002', name: '#1003', serial: 'B2', status: '出租中', location: AX });
+  add('devices', { code: '25-0003', name: '#1004', serial: 'C3', status: '出租中', location: 'L0004' });
+  add('devices', { code: '25-0004', name: '#1005', serial: 'D4', status: '庫存', location: WH });
+  // 24-0001 的廢粉盒設定壽命 1 萬張，已經印超過：預估的會列「已經超過了」
+  add('readings', { device: '24-0001', date: '2026-06-01', month: '', bw: 100000, color: 0 });
+  add('readings', { device: '24-0001', date: '2026-10-01', month: '2026-09', bw: 120000, color: 0 });
+  const opt = Store.list('options').find(o => o.list === '保養項目' && o.name === '廢粉盒');
+  Store.update('options', opt.id, { life: 10000 });
+  const due = () => Records.consumablesDue().map(x => [x.place.code, x.device.code, x.item, x.over, x.waste ?? '預估']);
+  assert.deepEqual(plain(due()), [[DH, '24-0001', '廢粉盒', true, '預估']]);
+  const report = (serial, waste) => ({ serial, device: '', date: '2026-10-11', time: '08:30', bw: 1, color: null, K: 80, Y: null, M: null, C: null, waste });
+  const set = list => Store.replaceAll(Store.parseImport({ ...Store.exportPayload(), toner: list }));
+  // 機器回報 40%：那台用回報的，不列預估的；停用的位置、倉庫的不列
+  set([report('3101R800451', 40), report('B2', 92), report('C3', 100), report('D4', 95)]);
+  assert.deepEqual(plain(due()), [[AX, '25-0002', '廢粉盒', false, 92]]);
+  // 回報 100%：裝滿的算超過，排前面
+  set([report('3101R800451', 100), report('B2', 92)]);
+  assert.deepEqual(plain(due()), [[DH, '24-0001', '廢粉盒', true, 100], [AX, '25-0002', '廢粉盒', false, 92]]);
+  // 沒有百分比的（舊版抄表程式、讀不到）：照舊用預估的；89% 不算快滿
+  set([report('3101R800451', null), report('B2', 89)]);
+  assert.deepEqual(plain(due()), [[DH, '24-0001', '廢粉盒', true, '預估']]);
 });
 
 test('還沒選客戶的位置：客戶空白或打的名字不在客戶裡；倉庫、停用的不算；選了客戶就不列', () => {

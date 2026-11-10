@@ -233,10 +233,10 @@ function fakeSheet(grid, maxColumns = 26) {
   return sheet;
 }
 
-test('最新回報分頁：沒有時建一個（標題、格式照名稱）；以前建的少了 IP 欄時加在最後面；寫一列時 IP 在 IP 那欄', () => {
+test('最新回報分頁：沒有時建一個（標題、格式照名稱）；以前建的少了 IP、廢粉欄時加在最後面；寫一列時照標題找欄', () => {
   const LATEST_HEAD = plain(vm.runInContext('LATEST_HEAD', ctx));
   const FORMATS = vm.runInContext('LATEST_FORMATS', ctx);
-  assert.equal(LATEST_HEAD.at(-1), 'IP');
+  assert.deepEqual(LATEST_HEAD.slice(-2), ['IP', '廢粉']);
   const sheets = {};
   const ss = { getSheetByName: n => sheets[n] || null, insertSheet: n => (sheets[n] = fakeSheet([])) };
 
@@ -244,25 +244,33 @@ test('最新回報分頁：沒有時建一個（標題、格式照名稱）；�
   assert.deepEqual(sheets.最新回報.grid[0], LATEST_HEAD);
   assert.equal(sheets.最新回報.frozen, 1);
   assert.deepEqual(plain(sheets.最新回報.formats), { 1: '@', 2: '@', 3: '@', 4: 'yyyy/mm/dd', 5: '@', 12: '@' });
-  writeLatest_(made, ['A1', '26-0001', 'RNP1', 46326, '08:30', 100, 20, 50, 40, 30, 20, '192.168.1.20']);
-  assert.deepEqual(sheets.最新回報.grid[1], ['A1', '26-0001', 'RNP1', 46326, '08:30', 100, 20, 50, 40, 30, 20, '192.168.1.20']);
+  writeLatest_(made, ['A1', '26-0001', 'RNP1', 46326, '08:30', 100, 20, 50, 40, 30, 20, '192.168.1.20', 35]);
+  assert.deepEqual(sheets.最新回報.grid[1], ['A1', '26-0001', 'RNP1', 46326, '08:30', 100, 20, 50, 40, 30, 20, '192.168.1.20', 35]);
 
-  // 以前的程式建的分頁：沒有 IP 欄，只有 11 欄寬（欄數不夠時先加欄）；原本的列不動，同一台蓋過去時 IP 寫在新的那欄
-  const old = LATEST_HEAD.slice(0, -1);
+  // 以前的程式建的分頁：沒有 IP、廢粉欄，只有 11 欄寬（欄數不夠時先加欄）；原本的列不動，同一台蓋過去時 IP、廢粉寫在新的欄
+  const old = LATEST_HEAD.slice(0, -2);
   sheets.最新回報 = fakeSheet([[...old], ['B2', '26-0002', '', 46320, '09:00', 5, '', 10, '', '', '']], 11);
   const t = tab_(ss, '最新回報', LATEST_HEAD, FORMATS);
   assert.deepEqual(sheets.最新回報.grid[0], LATEST_HEAD);
-  assert.equal(sheets.最新回報.maxColumns, 12);
+  assert.equal(sheets.最新回報.maxColumns, 13);
   assert.deepEqual(plain(sheets.最新回報.formats), { 12: '@' });
-  assert.equal(t.width, 12);
-  writeLatest_(t, ['b2', '26-0002', '', 46326, '10:00', 9, '', 8, '', '', '', '10.0.0.5']);
-  assert.deepEqual(sheets.最新回報.grid.slice(1), [['b2', '26-0002', '', 46326, '10:00', 9, '', 8, '', '', '', '10.0.0.5']]);
+  assert.equal(t.width, 13);
+  writeLatest_(t, ['b2', '26-0002', '', 46326, '10:00', 9, '', 8, '', '', '', '10.0.0.5', 92]);
+  assert.deepEqual(sheets.最新回報.grid.slice(1), [['b2', '26-0002', '', 46326, '10:00', 9, '', 8, '', '', '', '10.0.0.5', 92]]);
+
+  // 上一版建的分頁：有 IP、沒有廢粉：廢粉加在 IP 後面，原本的列不動
+  sheets.最新回報 = fakeSheet([LATEST_HEAD.slice(0, -1), ['D4', '', '', 46320, '09:00', 5, '', 10, '', '', '', '10.0.0.7']], 12);
+  const u = tab_(ss, '最新回報', LATEST_HEAD, FORMATS);
+  assert.deepEqual(sheets.最新回報.grid[0], LATEST_HEAD);
+  assert.equal(sheets.最新回報.maxColumns, 13);
+  assert.equal(u.width, 13);
+  assert.deepEqual(sheets.最新回報.grid[1], ['D4', '', '', 46320, '09:00', 5, '', 10, '', '', '', '10.0.0.7']);
 
   // 欄位順序被人換過：照標題找欄
   sheets.最新回報 = fakeSheet([['IP', ...old]]);
   const moved = tab_(ss, '最新回報', LATEST_HEAD, FORMATS);
-  writeLatest_(moved, ['C3', '', '', 46326, '11:00', 1, '', '', '', '', '', '10.0.0.9']);
-  assert.deepEqual(sheets.最新回報.grid[1], ['10.0.0.9', 'C3', '', '', 46326, '11:00', 1, '', '', '', '', '']);
+  writeLatest_(moved, ['C3', '', '', 46326, '11:00', 1, '', '', '', '', '', '10.0.0.9', 60]);
+  assert.deepEqual(sheets.最新回報.grid[1], ['10.0.0.9', 'C3', '', '', 46326, '11:00', 1, '', '', '', '', '', 60]);
 });
 
 // 試算表上的程式要用的 Google 服務：假的試算表（抄表、設備、_meta）、時區、指令碼屬性、Gmail
@@ -287,13 +295,13 @@ test('抄表程式送來的：都寫最新回報；客戶按提交的（manual�
   const CONFIRM_HEAD = plain(vm.runInContext('CONFIRM_HEAD', ctx));
   const g = fakeGoogle();
   const res = vm.runInContext('writePosted_', ctx)([
-    { serial: 'A1', bw: 100, color: 20, date: '2026-11-01', time: '08:30', toner: {} }, // 背景
-    { serial: 'B2', bw: 50, date: '2026-11-01', time: '09:00', manual: true },         // 客戶按提交（對不到設備）
-    { serial: 'A1', bw: 101, color: 21, date: '2026-11-01', time: '10:00', manual: true }, // 同一台再按一次：蓋過去
+    { serial: 'A1', bw: 100, color: 20, date: '2026-11-01', time: '08:30', toner: {}, waste: 35 }, // 背景
+    { serial: 'B2', bw: 50, date: '2026-11-01', time: '09:00', manual: true, waste: 92 },         // 客戶按提交（對不到設備）
+    { serial: 'A1', bw: 101, color: 21, date: '2026-11-01', time: '10:00', manual: true, waste: -3 }, // 同一台再按一次：蓋過去；廢粉沒有百分比的空白
     { serial: 'C3', bw: 7, date: '2026-11-01', time: '11:00', test: true },
   ]);
   assert.deepEqual(plain(res), [{ serial: 'A1', device: '26-0001' }, { serial: 'B2', device: '' }, { serial: 'A1', device: '26-0001' }, { serial: 'C3', device: '' }]);
-  assert.deepEqual(plain(g.sheets.最新回報.grid.slice(1).map(r => [r[0], r[5]])), [['A1', 101], ['B2', 50]]);
+  assert.deepEqual(plain(g.sheets.最新回報.grid.slice(1).map(r => [r[0], r[5], r[12]])), [['A1', 101, ''], ['B2', 50, 92]]);
   assert.deepEqual(plain(g.sheets.待確認抄表.grid), [
     CONFIRM_HEAD,
     ['B2', '', 46327, '09:00', 50, '', '客戶提交'],

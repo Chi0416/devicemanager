@@ -83,7 +83,8 @@ function doGet() {
   return json_(checkMail());
 }
 
-// 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, ip: '192.168.1.20', date: '2026-10-21', time: '08:30', test }] }
+// 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, waste: 廢粉盒已裝幾 %, ip: '192.168.1.20', date: '2026-10-21', time: '08:30', test }] }
+//   舊版抄表程式沒有 waste：最新回報的「廢粉」那格空白
 //   客戶電腦上背景每天一次、客戶在視窗按「提交計數器」都送這個；密語對不上就不收
 //   寫進「最新回報」分頁：一台一列，只留最新一次（再送的蓋過那一列），試算表不會越來越大；沒有這個分頁時自己建
 //     App 同步時讀這個分頁（設備詳情的最新回報卡），要抄表時從那裡帶入張數
@@ -117,7 +118,7 @@ function json_(data) {
 }
 
 const LATEST = '最新回報';
-const LATEST_HEAD = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C', 'IP'];
+const LATEST_HEAD = ['序號', '設備', '主機板號碼', '日期', '時間', '黑白張數', '彩色張數', '碳粉K', '碳粉Y', '碳粉M', '碳粉C', 'IP', '廢粉'];
 const LATEST_FORMATS = { 序號: '@', 設備: '@', 主機板號碼: '@', 日期: 'yyyy/mm/dd', 時間: '@', IP: '@' };
 
 // 待確認抄表：張數信、客戶按「提交計數器」的張數先放這裡，行政人員在 App 確認了才寫進「抄表」（見 records.js 的 toConfirm）
@@ -151,7 +152,7 @@ function writePosted_(list) {
     }
     latest = latest || tab_(ss, LATEST, LATEST_HEAD, LATEST_FORMATS);
     const t = 'KYMC'.split('').map(c => count_((r.toner || {})[c]));
-    writeLatest_(latest, [serial, code, String(r.rnp || ''), serial_(y, m, day), time, bw, color, ...t, String(r.ip || '').trim()]);
+    writeLatest_(latest, [serial, code, String(r.rnp || ''), serial_(y, m, day), time, bw, color, ...t, String(r.ip || '').trim(), count_(r.waste)]);
     if (r.manual === true) confirm(counts, '客戶提交');
     return { serial, device: code };
   });
@@ -163,7 +164,7 @@ function count_(v) {
 }
 
 // 「最新回報」分頁和它的欄位；沒有時建一個，formats 是各欄的格式（{ 日期: 'yyyy/mm/dd' }）
-//   以前建的分頁少了後來加的欄（IP）：加在最後面，格式跟著設
+//   以前建的分頁少了後來加的欄（IP、廢粉）：加在最後面，格式跟著設
 //   App 只讀不寫，同步不會動到
 function tab_(ss, name, heads, formats) {
   let sheet = ss.getSheetByName(name);
