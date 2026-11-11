@@ -1,4 +1,9 @@
-// 資料存放：瀏覽器 localStorage，另可匯出／匯入 data.json
+// 資料存放：瀏覽器的 IndexedDB（放得下幾百 MB；localStorage 只有 5MB，抄表一多就滿），另可匯出／匯入 data.json
+//   資料整份放在記憶體，讀、改都是馬上的；改了之後整份存進 IndexedDB（同一次動作改很多筆只存一次）
+//   打開 App 要先等資料讀出來：Store.ready 好了 app.js 才開始畫
+//   以前存在 localStorage 的：第一次打開時搬過去，搬好才刪掉舊的
+//   瀏覽器沒有 IndexedDB、打不開時照舊存在 localStorage
+//   登入狀態、提醒、畫面記住的選項這些小東西照舊在 localStorage
 //   連結 Google 試算表時（見 sync.js）：試算表是正本，這裡是副本
 //     每次修改都記在待同步清單（哪張表的哪一筆、新增修改或刪除），同步成功後清掉
 //     onChange() 註冊的函式在每次修改後立刻呼叫（還在使用者點擊的當下，可以跳出登入視窗）
@@ -55,8 +60,58 @@ const Store = (() => {
     }
   }
 
+  // ---------- IndexedDB ----------
+  //   一個資料庫（devmgr）一張表（kv），兩筆：data（全部資料）、sync（待同步清單）
+  const DB = 'devmgr';
+  const BOX = 'kv';
+  const MOVED_KEY = `${PREFIX}idb`; // 資料已經在 IndexedDB 了
+  let db = null;        // 打開了才有；沒有時存在 localStorage
+  let unreadable = false; // 資料在 IndexedDB 卻打不開：不能當成沒有資料接著用
+  let timer = null;     // 等一下要存
+  let writing = Promise.resolve(); // 正在存的那一次
+  let failed = false;   // 存失敗只提醒一次
+  const done = req => new Promise((ok, no) => { req.onsuccess = () => ok(req.result); req.onerror = () => no(req.error); });
+  const finished = tx => new Promise((ok, no) => {
+    tx.oncomplete = () => ok();
+    tx.onerror = tx.onabort = () => no(tx.error || new Error('存不進去'));
+  });
+
+  function openDb() {
+    return new Promise((ok, no) => {
+      const req = indexedDB.open(DB, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(BOX);
+      req.onsuccess = () => ok(req.result);
+      req.onerror = () => no(req.error);
+      req.onblocked = () => no(new Error('blocked'));
+    });
+  }
+
+  // 整份存一次；失敗時提醒一次
+  function write() {
+    const tx = db.transaction(BOX, 'readwrite');
+    const box = tx.objectStore(BOX);
+    box.put(data, 'data');
+    box.put(sync, 'sync');
+    return finished(tx).then(() => { failed = false; }, e => {
+      if (!failed) alert(`儲存失敗：${e?.message || e}\n請先匯出 data.json 備份。`);
+      failed = true;
+    });
+  }
+
+  function flush() {
+    clearTimeout(timer);
+    timer = null;
+    writing = writing.then(write);
+    return writing;
+  }
+
   function persist() {
     if (!available) return false;
+    if (db) {
+      // 這一輪的動作做完才存：迴圈裡改幾百筆也只存一次
+      if (!timer) timer = setTimeout(flush, 0);
+      return true;
+    }
     try {
       localStorage.setItem(KEY, JSON.stringify(data));
       localStorage.setItem(SYNC_KEY, JSON.stringify(sync));
@@ -82,18 +137,62 @@ const Store = (() => {
   }
   let sync = loadSync();
 
+  // 打開 IndexedDB、讀出資料；裡面還沒有、localStorage 有舊資料時搬過去（上面已經讀進來了），搬好才刪舊的
+  //   打不開（沒有這個功能、被瀏覽器擋）：照舊用 localStorage
+  async function start() {
+    if (typeof indexedDB === 'undefined') return;
+    try {
+      db = await openDb();
+      const box = db.transaction(BOX).objectStore(BOX);
+      const [d, s] = await Promise.all([done(box.get('data')), done(box.get('sync'))]);
+      if (d) {
+        data = normalize(d);
+        sync = s && typeof s.pending === 'object' ? { pending: s.pending, v: s.v || 0, full: !!s.full } : { pending: {}, v: 0, full: false };
+        version++;
+      } else {
+        const tx = db.transaction(BOX, 'readwrite');
+        tx.objectStore(BOX).put(data, 'data');
+        tx.objectStore(BOX).put(sync, 'sync');
+        await finished(tx);
+      }
+      available = true;
+      try {
+        localStorage.setItem(MOVED_KEY, '1');
+        localStorage.removeItem(KEY);
+        localStorage.removeItem(SYNC_KEY);
+      } catch (_) {}
+    } catch (_) {
+      db = null;
+      // 之前搬過去了，這次卻打不開：這時候改的不存（存了會和 IndexedDB 裡的對不上），請使用者重開
+      let moved = false;
+      try { moved = !!localStorage.getItem(MOVED_KEY); } catch (_) {}
+      if (moved) {
+        unreadable = true;
+        available = false;
+      }
+    }
+  }
+
   function mark(table, id, del = false) {
     (sync.pending[table] ||= {})[id] = { del, v: ++sync.v };
   }
 
   const listeners = [];
   let version = 0;
+  const ready = start();
   let captured = null; // capture() 期間刪掉的
   const changed = () => { version++; listeners.forEach(fn => fn()); };
 
   return {
     PREFIX,
+    // 資料讀出來了（見 start）
+    ready,
+    // 都存好了：清掉資料後要重新載入頁面時先等它
+    saved() {
+      return ready.then(() => (timer ? flush() : writing));
+    },
     get available() { return available; },
+    get unreadable() { return unreadable; },
     get version() { return version; },
 
     list(table) {
@@ -196,6 +295,10 @@ const Store = (() => {
       data = blank();
       sync = { pending: {}, v: 0, full: false };
       version++;
+      if (db) {
+        try { localStorage.setItem(MOVED_KEY, '1'); } catch (_) {}
+        persist();
+      }
     },
 
     // 匯入 data.json、以 Google 為主：加入檔案裡這台沒有的（[{ table, rec }]，見 records.js 的 fileOnly），標成待同步

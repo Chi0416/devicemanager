@@ -10,7 +10,7 @@
 //   設備：用序號到「設備」分頁找設備編號；找不到的空白（App 照序號對，登記了這個序號就對得上）
 //   照信裡的時間由舊到新寫（Gmail 搜尋是新的在前），一台只留最新一封；時間是信裡寫的機器寄出時間
 //   App 確認時：結算月份帶抄表日期的上一個月（11/1 寄來的算 10 月的帳），測試寄的空白（起點，不算帳）；備註寫「張數信 09:50」
-//   寫過的信記在指令碼屬性（信件編號），試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
+//   讀到哪一封為止記在指令碼屬性（mailAt：收信的時間），下次只找之後的信，試算表不多一欄；同一台每個月的信 Gmail 會串成一串，所以不用標籤
 //   每次看完信箱（每小時那次、選單、App 叫的都算）把時間記在 _meta 分頁第 3 列，App 同步後在抄表頁寫「上次讀信」
 //   客戶電腦上的抄表腳本（用 SNMP 問機器）每天把張數、碳粉 POST 到同一個網址，寫進「最新回報」，不算帳（見 doPost），要帶密語
 //     客戶在視窗按「提交計數器」的（manual）也寫進「待確認抄表」，背景自己回報的不寫
@@ -18,8 +18,10 @@
 //   勾了改全部的業務員：讀寫整份試算表都請這裡代做（見 sheetFor_），和管理員一樣
 //   每天備份：整份試算表複製一份到雲端硬碟「設備管理 備份」資料夾（見 backup）
 
-const QUERY = 'subject:"Page Counter" newer_than:7d';
-const KEEP_DAYS = 14; // 寫過的信記多久（比搜尋的 7 天長）
+const QUERY = 'subject:"Page Counter"';
+const FIRST_DAYS = 7;      // 第一次讀信：找最近幾天的
+const MAIL_PAGE = 100;     // 信箱一次找幾串
+const MAIL_BUDGET = 150000; // 一次最多花這麼久看信（毫秒），看不完的下次接著看（Google 一次只讓程式跑 6 分鐘）
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const NEED = ['設備', '抄表日期', '結算月份', '黑白張數', '彩色張數', '備註'];
 
@@ -187,21 +189,31 @@ function tab_(ss, name, heads, formats) {
 }
 
 // 寫一列最新回報：同一台（序號）已經有的蓋過去，沒有的加在最下面
-function writeLatest_({ sheet, col, width }, values) {
+//   哪一台在第幾列只讀一次、記在 box（tab_ 給的那個）：一次寫很多台時不用每台都重讀整欄
+function writeLatest_(box, values) {
+  const { sheet, col, width } = box;
   const row = new Array(width).fill('');
   values.forEach((v, i) => { row[col[i]] = v; });
-  const last = sheet.getLastRow();
-  let at = 0;
-  if (last >= 2) {
-    const serials = sheet.getRange(2, col[0] + 1, last - 1, 1).getValues();
-    const i = serials.findIndex(r => String(r[0]).trim().toUpperCase() === values[0].toUpperCase());
-    if (i >= 0) at = i + 2;
+  if (!box.rows) {
+    box.rows = {};
+    box.last = sheet.getLastRow();
+    if (box.last >= 2) {
+      sheet.getRange(2, col[0] + 1, box.last - 1, 1).getValues().forEach((r, i) => {
+        const k = String(r[0]).trim().toUpperCase();
+        if (k && !box.rows[k]) box.rows[k] = i + 2;
+      });
+    }
   }
-  if (at) sheet.getRange(at, 1, 1, width).setValues([row]);
-  else sheet.appendRow(row);
+  const key = String(values[0]).trim().toUpperCase();
+  if (box.rows[key]) {
+    sheet.getRange(box.rows[key], 1, 1, width).setValues([row]);
+    return;
+  }
+  sheet.appendRow(row);
+  box.rows[key] = ++box.last;
 }
 
-// 先補上「抄表」裡以前對不到的設備，再找最近 7 天的張數信，沒寫過的寫進「待確認抄表」；回傳 { count, fixed, at }
+// 先補上「抄表」裡以前對不到的設備，再找上次讀到的那一封之後的張數信，寫進「待確認抄表」；回傳 { count, fixed, at }
 function checkMail() {
   // 每小時那次和按鈕剛好同時跑時，等前一個跑完，同一封信不會寫兩次
   const lock = LockService.getScriptLock();
@@ -223,40 +235,69 @@ function sheets_() {
 }
 
 function readMail_() {
+  const start = Date.now();
   const { ss, readings, col, codeOf } = sheets_();
   const props = PropertiesService.getScriptProperties();
-  const done = JSON.parse(props.getProperty('done') || '{}');
-  const now = Date.now();
-  for (const id of Object.keys(done)) if (now - done[id] > KEEP_DAYS * 864e5) delete done[id];
   const fixed = fillDevices_(readings, col, codeOf);
   const from = senders_(ss);
   if (!from.length) return { count: 0, fixed, at: stamp_(ss), noSender: true };
 
-  // 這次要寫的信，照信裡的時間由舊到新排好；內文沒有時間的用收信的時間
-  const mails = [];
-  for (const thread of GmailApp.search(`${QUERY} from:(${from.join(' OR ')})`)) {
-    for (const msg of thread.getMessages()) {
-      if (done[msg.getId()] || !from.includes(senderOf_(msg))) continue;
-      const r = parse_(msg.getPlainBody());
-      if (r) mails.push({ msg, r, when: r.when || received_(msg) });
-    }
+  // 上次讀到哪一封（收信的時間）之後的信，照收信的時間由舊到新；第一次讀最近 FIRST_DAYS 天的
+  const last = mailAt_(props);
+  const query = `${QUERY} ${last ? `after:${Math.floor(last / 1000)}` : `newer_than:${FIRST_DAYS}d`} from:(${from.join(' OR ')})`;
+  const found = [];
+  for (let at = 0; ; at += MAIL_PAGE) {
+    const threads = GmailApp.search(query, at, MAIL_PAGE);
+    GmailApp.getMessagesForThreads(threads).forEach(list => list.forEach(msg => {
+      const got = msg.getDate().getTime();
+      if (got > last) found.push({ msg, got });
+    }));
+    if (threads.length < MAIL_PAGE) break;
   }
+  found.sort((a, b) => a.got - b.got);
+
+  // 看信的內文：花太久就先停，剩下的下次接著看
+  const mails = [];
+  let seen = 0;
+  for (; seen < found.length && Date.now() - start < MAIL_BUDGET; seen++) {
+    const { msg } = found[seen];
+    if (!from.includes(senderOf_(msg))) continue;
+    const r = parse_(msg.getPlainBody());
+    if (r) mails.push({ msg, r, when: r.when || received_(msg) });
+  }
+
+  // 照信裡的時間由舊到新（內文沒有時間的用收信的時間），一台只寫最新的那一封
   const at = t => Date.UTC(t[0], t[1] - 1, t[2], t[3], t[4], t[5]);
   mails.sort((a, b) => at(a.when) - at(b.when));
-
+  const newest = {};
+  mails.forEach(m => { newest[m.r.serial.toUpperCase()] = m; });
   let box = null;
-  for (const { msg, r, when } of mails) {
-    const [y, m, d] = when;
+  for (const m of mails) {
+    const { msg, r, when } = m;
+    if (newest[r.serial.toUpperCase()] !== m) continue;
+    const [y, mo, d] = when;
     const test = msg.getSubject().includes('[TEST]');
     const hm = `${String(when[3]).padStart(2, '0')}:${String(when[4]).padStart(2, '0')}`; // 信裡的時間（機器寄出的時間）
     box = box || tab_(ss, CONFIRM, CONFIRM_HEAD, CONFIRM_FORMATS);
-    writeLatest_(box, [r.serial, codeOf[r.serial.toUpperCase()] || '', serial_(y, m, d), hm, r.bw, r.color, test ? '張數信（測試）' : '張數信']);
-    // 每寫一封就記下來：中途出錯時，下次不會重複寫
-    done[msg.getId()] = now;
-    props.setProperty('done', JSON.stringify(done));
+    writeLatest_(box, [r.serial, codeOf[r.serial.toUpperCase()] || '', serial_(y, mo, d), hm, r.bw, r.color, test ? '張數信（測試）' : '張數信']);
   }
-  props.setProperty('done', JSON.stringify(done));
+  // 都寫好了才記讀到哪裡：中途出錯時下次重寫這一批（一台一列、新的蓋舊的，重寫結果一樣）
+  //   還有沒看的：記到第一封沒看的前面
+  if (seen) props.setProperty('mailAt', String(seen < found.length ? found[seen].got - 1 : found[seen - 1].got));
   return { count: mails.length, fixed, at: stamp_(ss) };
+}
+
+// 上次讀到哪一封（收信的時間，毫秒）；還沒讀過是 0
+//   以前每封信記一筆（done：信件編號 → 讀的時間，信一多就超過指令碼屬性的上限）：從最後讀的那次接著算，舊的刪掉
+function mailAt_(props) {
+  const saved = Number(props.getProperty('mailAt')) || 0;
+  if (saved) return saved;
+  let done = {};
+  try { done = JSON.parse(props.getProperty('done') || '{}'); } catch (_) { /* 壞掉的當作沒有 */ }
+  const at = Math.max(0, ...Object.keys(done).map(k => Number(done[k]) || 0));
+  if (at) props.setProperty('mailAt', String(at));
+  if (props.getProperty('done') !== null) props.deleteProperty('done');
+  return at;
 }
 
 // 只讀這幾個寄件人寄來的張數信：App「機器設定」最上面的寄信用 Gmail（存在 _meta 分頁 senderMail 那一列，好幾個用逗號分開）

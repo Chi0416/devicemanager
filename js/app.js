@@ -1,7 +1,8 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份、回收桶
 //   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜更多；更多裡一格一個：合約、保養、翻新、異動、人員、設定（見 IN_MORE）
 //   電腦版的側欄全部展開，不用更多，設定在最下面
-(() => {
+//   資料讀出來了才開始（見 storage.js 的 ready）
+Store.ready.then(() => {
   // 舊資料轉換（位置獨立成表、合約綁位置，見 records.js 的 upgrade）：畫任何東西之前先做
   Records.upgrade();
   // 回收桶超過 90 天的清掉（見 trash.js）
@@ -784,7 +785,7 @@
         syncAction = () => {
           if (!confirm('這台的資料沒有存到 Google，清掉就沒了；要留的話，先到設定「匯出 data.json」。\n\n確定清掉，換成業務員？')) return;
           Store.wipe();
-          location.reload();
+          Store.saved().then(() => location.reload());
         };
       } else {
         text = '收到業務員邀請：用你的 Gmail 登入，看得到你負責的客戶';
@@ -924,7 +925,8 @@
   // ---------- 啟動 ----------
   if (!Store.available) {
     const banner = $('banner');
-    banner.textContent = '這個瀏覽器目前不允許儲存資料（可能是無痕模式或隱私設定），輸入的資料關掉頁面後就會消失。';
+    banner.textContent = Store.unreadable ? '這台存的資料讀不出來：請把這個頁面關掉再打開一次。現在輸入的不會存。'
+      : '這個瀏覽器目前不允許儲存資料（可能是無痕模式或隱私設定），輸入的資料關掉頁面後就會消失。';
     banner.hidden = false;
   }
   // 請瀏覽器盡量不要自動清掉這個網站的資料
@@ -1093,7 +1095,7 @@
     // 登出：這台裝置的資料已經清掉，重新載入頁面，畫面和記在記憶體裡的東西全部從空白開始
     onLogout() {
       try { sessionStorage.setItem(LOGOUT_KEY, '1'); } catch (_) {}
-      location.reload();
+      Store.saved().then(() => location.reload());
     },
   });
 
@@ -1102,4 +1104,4 @@
     const v = new URL(document.currentScript?.src || location.href).searchParams.get('v') || '';
     navigator.serviceWorker.register(`sw.js?v=${encodeURIComponent(v)}`).catch(() => {});
   }
-})();
+});

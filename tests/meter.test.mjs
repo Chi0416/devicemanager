@@ -281,14 +281,18 @@ function fakeGoogle(mails = []) {
     _meta: { getDataRange: () => ({ getValues: () => [['senderMail', 'meter.abc@gmail.com']] }), getRange: () => ({ setNumberFormat() { return this; }, setValues() { return this; } }) },
   };
   const props = {};
+  const queries = [];
   Object.assign(ctx, {
     SpreadsheetApp: { getActive: () => ({ getSheetByName: n => sheets[n] || null, insertSheet: n => (sheets[n] = fakeSheet([])) }) },
     Session: { getScriptTimeZone: () => 'Asia/Taipei' },
     Utilities: { formatDate: () => '2026-11-1-08:30' },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
-    GmailApp: { search: () => [{ getMessages: () => mails }] },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; }, deleteProperty: k => { delete props[k]; } }) },
+    GmailApp: {
+      search: (q, at) => { queries.push(q); return at ? [] : [{}]; },
+      getMessagesForThreads: threads => threads.map(() => mails),
+    },
   });
-  return { sheets, props, done: () => ['SpreadsheetApp', 'Session', 'Utilities', 'PropertiesService', 'GmailApp'].forEach(k => delete ctx[k]) };
+  return { sheets, props, queries, done: () => ['SpreadsheetApp', 'Session', 'Utilities', 'PropertiesService', 'GmailApp'].forEach(k => delete ctx[k]) };
 }
 
 test('抄表程式送來的：都寫最新回報；客戶按提交的（manual）另外寫待確認抄表，背景的不寫；測試的只寫待確認；都不寫抄表', () => {
@@ -312,23 +316,65 @@ test('抄表程式送來的：都寫最新回報；客戶按提交的（manual�
   g.done();
 });
 
-test('讀信：寄信用 Gmail 寄來的張數信寫進待確認抄表（一台只留最新一封，測試的寫張數信（測試）），別人寄的不讀；不寫抄表、記下讀過的信', () => {
+test('讀信：寄信用 Gmail 寄來的張數信寫進待確認抄表（一台只留最新一封，測試的寫張數信（測試）），別人寄的不讀；不寫抄表、記下讀到哪一封', () => {
   const body = (serial, bw, day, hm) => `Serial No.: ${serial}\nDate: Sun Nov  ${day} ${hm}:53 2026\nTotal_Color:20\nTotal_BW:${bw}\n`;
-  const mail = (id, from, subject, text) => ({ getId: () => id, getFrom: () => from, getSubject: () => subject, getPlainBody: () => text });
-  const g = fakeGoogle([
-    mail('m2', 'Meter <meter.abc@gmail.com>', 'Page Counter : A1', body('A1', 600, 2, '09:50')),
-    mail('m1', 'meter.abc@gmail.com', 'Page Counter : A1', body('A1', 500, 1, '09:50')),
-    mail('m3', 'someone@gmail.com', 'Page Counter : A1', body('A1', 1, 2, '10:00')), // 別人寄的假信
-    mail('m4', 'meter.abc@gmail.com', '[TEST] Page Counter : B2', body('B2', 7, 1, '08:00')),
-  ]);
-  const r = vm.runInContext('readMail_', ctx)();
+  const mail = (got, from, subject, text) => ({ getDate: () => new Date(got), getFrom: () => from, getSubject: () => subject, getPlainBody: () => text });
+  const mails = [
+    mail(2000, 'Meter <meter.abc@gmail.com>', 'Page Counter : A1', body('A1', 600, 2, '09:50')),
+    mail(1000, 'meter.abc@gmail.com', 'Page Counter : A1', body('A1', 500, 1, '09:50')),
+    mail(4000, 'someone@gmail.com', 'Page Counter : A1', body('A1', 1, 2, '10:00')), // 別人寄的假信
+    mail(3000, 'meter.abc@gmail.com', '[TEST] Page Counter : B2', body('B2', 7, 1, '08:00')),
+  ];
+  const g = fakeGoogle(mails);
+  const readMail = vm.runInContext('readMail_', ctx);
+  const r = readMail();
   assert.equal(r.count, 3);
   assert.deepEqual(plain(g.sheets.待確認抄表.grid.slice(1)), [
     ['B2', '', 46327, '08:00', 7, 20, '張數信（測試）'], // 照信裡的時間由舊到新寫
-    ['A1', '26-0001', 46328, '09:50', 600, 20, '張數信'], // 11/1 那封被 11/2 的蓋過
+    ['A1', '26-0001', 46328, '09:50', 600, 20, '張數信'], // 11/1 那封不寫，只寫 11/2 的
   ]);
   assert.equal(g.sheets.抄表.grid.length, 1);
-  assert.deepEqual(Object.keys(JSON.parse(g.props.done)).sort(), ['m1', 'm2', 'm4']);
+  // 第一次找最近 7 天的；記到最後看的那一封（別人寄的也算看過）
+  assert.match(g.queries[0], /newer_than:7d from:\(meter\.abc@gmail\.com\)$/);
+  assert.equal(g.props.mailAt, '4000');
+
+  // 下一次：只找那之後的，讀過的不再寫；新來的一封接著寫
+  mails.push(mail(5500, 'meter.abc@gmail.com', 'Page Counter : A1', body('A1', 700, 3, '09:50')));
+  const again = readMail();
+  assert.equal(again.count, 1);
+  assert.match(g.queries.at(-1), / after:4 from:/);
+  assert.deepEqual(plain(g.sheets.待確認抄表.grid[2]), ['A1', '26-0001', 46329, '09:50', 700, 20, '張數信']);
+  assert.equal(g.props.mailAt, '5500');
+  assert.equal(readMail().count, 0);
+  assert.equal(g.props.mailAt, '5500');
+  g.done();
+});
+
+test('讀信：以前每封信記一筆的（done）換成只記讀到哪裡，從最後讀的那次接著算；看不完的下次接著看', () => {
+  const body = (serial, bw) => `Serial No.: ${serial}\nDate: Sun Nov  1 09:50:53 2026\nTotal_BW:${bw}\n`;
+  const mail = (got, serial, bw) => ({ getDate: () => new Date(got), getFrom: () => 'meter.abc@gmail.com', getSubject: () => 'Page Counter', getPlainBody: () => body(serial, bw) });
+  const g = fakeGoogle([mail(8000, 'A1', 1), mail(9500, 'A1', 2), mail(9900, 'B2', 3)]);
+  g.props.done = JSON.stringify({ m1: 7000, m2: 9000 });
+  const readMail = vm.runInContext('readMail_', ctx);
+  assert.equal(readMail().count, 2); // 9000 之前的讀過了
+  assert.match(g.queries[0], / after:9 from:/);
+  assert.equal(g.props.done, undefined);
+  assert.equal(g.props.mailAt, '9900');
+
+  // 時間不夠：只看第一封，記到第二封前面，下次從第二封接著
+  g.props.mailAt = '7999';
+  const clock = vm.runInContext('Date', ctx); // 程式用的是它自己那邊的 Date
+  const now = clock.now;
+  let t = 0;
+  clock.now = () => (t += 100000);
+  try {
+    assert.equal(readMail().count, 1);
+  } finally {
+    clock.now = now;
+  }
+  assert.equal(g.props.mailAt, '9499');
+  assert.equal(readMail().count, 2);
+  assert.equal(g.props.mailAt, '9900');
   g.done();
 });
 
