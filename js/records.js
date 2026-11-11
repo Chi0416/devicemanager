@@ -1138,21 +1138,15 @@ const Records = (() => {
   }
 
   // 要處理的「耗材快到了」：預估 14 天內到、或已經超過的，每個位置每一項一筆；依預估的日子排（超過的在前）
-  //   加上抄表程式回報廢粉盒快滿的（waste：已裝幾 %，見 wasteIsFull；裝滿的算超過）
-  //   機器有回報廢粉盒幾 % 的，那台的廢粉盒用回報的，不列預估的（沒有百分比的照舊預估）
+  //   機器有回報廢粉盒幾 % 的，那台的廢粉盒看回報的（快滿的列在「機器回報」的廢粉盒快滿，見 wasteDue），不列預估的（沒有百分比的照舊預估）
   function consumablesDue() {
     const c = consumeContext();
     const list = reports();
     return Store.list('locations').filter(p => !p.stock && !p.disabled)
       .flatMap(p => {
-        const reported = machinesAt(p.code).map(device => ({ device, waste: latestReport(device, list)?.waste }))
-          .filter(x => typeof x.waste === 'number');
-        const guessed = x => !(key(x.item) === key(WASTE_ITEM) && reported.some(r => r.device.id === x.device.id));
-        return [
-          ...consumablesAt(p.code, c).filter(x => x.soon && guessed(x)).map(x => ({ ...x, place: p, id: `${p.id}:${x.item}` })),
-          ...reported.filter(x => wasteIsFull(x.waste))
-            .map(x => ({ ...x, item: WASTE_ITEM, eta: null, over: x.waste >= 100, place: p, id: `${p.id}:${x.device.id}:${WASTE_ITEM}` })),
-        ];
+        const reported = machinesAt(p.code).filter(d => typeof latestReport(d, list)?.waste === 'number');
+        const guessed = x => !(key(x.item) === key(WASTE_ITEM) && reported.some(d => d.id === x.device.id));
+        return consumablesAt(p.code, c).filter(x => x.soon && guessed(x)).map(x => ({ ...x, place: p, id: `${p.id}:${x.item}` }));
       })
       .sort((a, b) => (b.over - a.over) || cmp(String(a.eta ?? ''), String(b.eta ?? '')));
   }
@@ -1248,7 +1242,7 @@ const Records = (() => {
   // 要列哪幾色：黑白機（Y、M、C 都讀不到）只有 K；沒回報過的四色都列
   const tonerColors = t => (!t || ['Y', 'M', 'C'].some(c => t[c] !== null) ? ['K', 'Y', 'M', 'C'] : ['K']);
   const tonerIsLow = v => typeof v === 'number' && v <= TONER_LOW;
-  // 廢粉盒（抄表程式回報已裝幾 %）：90% 以上算快滿，紅字、列在總覽的耗材快到了；抄表程式的視窗也是 90% 紅字
+  // 廢粉盒（抄表程式回報已裝幾 %）：90% 以上算快滿，紅字、列在總覽「機器回報」的廢粉盒快滿；抄表程式的視窗也是 90% 紅字
   const WASTE_FULL = 90;
   const WASTE_ITEM = '廢粉盒'; // 保養項目的名稱（見 schema.js），總覽列的名稱和它一樣
   const wasteIsFull = v => typeof v === 'number' && v >= WASTE_FULL;
@@ -1306,6 +1300,15 @@ const Records = (() => {
       const report = latestReport(x.device, list);
       return { ...x, id: x.device.id, report, days: reportDays(report) };
     }).filter(x => x.days !== null && x.days > REPORT_OLD).sort((a, b) => b.days - a.days || byPlaceName(a, b));
+  }
+
+  // 廢粉盒快滿：最新回報已裝 90% 以上（見 wasteIsFull），一台一筆，越滿的越上面；倉庫、停用的位置、沒回報過的不列
+  //   [{ id, device, place, report, waste }]
+  function wasteDue(list = reports()) {
+    return placedDevices().map(x => {
+      const report = latestReport(x.device, list);
+      return { ...x, id: x.device.id, report, waste: report?.waste };
+    }).filter(x => wasteIsFull(x.waste)).sort((a, b) => b.waste - a.waste || byPlaceName(a, b));
   }
 
   // 碳粉快沒了：最新回報任何一色 20% 以下（見 tonerIsLow），一台一筆，只留低的那幾色；最低的那一色越少越上面
@@ -1677,7 +1680,7 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
-    shownDevices, isShown, canAdd, TONER_LOW, tonerColors, tonerIsLow, WASTE_FULL, wasteIsFull, customerReports, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, tonerDue, readingsDue, statusMismatch,
+    shownDevices, isShown, canAdd, TONER_LOW, tonerColors, tonerIsLow, WASTE_FULL, wasteIsFull, customerReports, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, tonerDue, wasteDue, readingsDue, statusMismatch,
     toConfirm, confirmsDue, confirmWhen, confirmValues,
     partOrder, partNote, partChoices, partNames, partsHint, saveDeviceParts, partsCheckNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,
   };
