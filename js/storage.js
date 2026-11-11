@@ -7,6 +7,7 @@
 //   連結 Google 試算表時（見 sync.js）：試算表是正本，這裡是副本
 //     每次修改都記在待同步清單（哪張表的哪一筆、新增修改或刪除），同步成功後清掉
 //     onChange() 註冊的函式在每次修改後立刻呼叫（還在使用者點擊的當下，可以跳出登入視窗）
+//   Store.get 用 id 直接查（每張表一份 id → 那一筆的對照表，用到時才建，改資料時跟著改）：同步時每一列都要查一次，從頭找會隨筆數越來越慢
 //   版本號（version）：資料每改一次加 1；records.js 一次整理好的資料（每台設備的紀錄…）看它要不要重新整理
 const Store = (() => {
   const PREFIX = 'devmgr.'; // 這台裝置上存的東西都用這個開頭（和同一個網址底下的其他 App 分開，登出時一起清掉）
@@ -35,7 +36,12 @@ const Store = (() => {
         }
       });
       if (d.lastExportAt) out.lastExportAt = d.lastExportAt;
-      if (Array.isArray(d.toner)) out.toner = d.toner.filter(r => r && typeof r === 'object');
+      // 最新回報的張數、碳粉、廢粉只收數字（畫面上直接寫出來），其他的當作沒有
+      const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+      if (Array.isArray(d.toner)) {
+        out.toner = d.toner.filter(r => r && typeof r === 'object')
+          .map(r => ({ ...r, ...Object.fromEntries(['bw', 'color', 'K', 'Y', 'M', 'C', 'waste'].filter(k => k in r).map(k => [k, num(r[k])])) }));
+      }
       if (Array.isArray(d.toConfirm)) out.toConfirm = d.toConfirm.filter(r => r && typeof r === 'object');
     }
     return out;
@@ -124,6 +130,17 @@ const Store = (() => {
 
   let data = load();
 
+  // id → 那一筆（每張表一份，用到時才建）；整份資料換掉時（讀出來、合併、匯入、登出）全部重建
+  //   同一個 id 有兩筆時是前面那一筆（和以前從頭找一樣）
+  let index = {};
+  const reindex = () => { index = {}; };
+  function byId(table) {
+    if (index[table]) return index[table];
+    const m = new Map();
+    data[table].forEach(r => { if (!m.has(r.id)) m.set(r.id, r); });
+    return (index[table] = m);
+  }
+
   // ---------- 待同步清單 ----------
   // pending：{ 表: { id: { del, v } } }，v 是遞增的版本號
   //   同步開始時先拍一份快照，結束後只清掉版本號沒變的（同步途中又改過的留到下一次）
@@ -147,6 +164,7 @@ const Store = (() => {
       const [d, s] = await Promise.all([done(box.get('data')), done(box.get('sync'))]);
       if (d) {
         data = normalize(d);
+        reindex();
         sync = s && typeof s.pending === 'object' ? { pending: s.pending, v: s.v || 0, full: !!s.full } : { pending: {}, v: 0, full: false };
         version++;
       } else {
@@ -202,6 +220,7 @@ const Store = (() => {
     add(table, rec) {
       const r = { id: U.uid(), ...rec };
       data[table].push(r);
+      if (index[table] && !index[table].has(r.id)) index[table].set(r.id, r);
       mark(table, r.id);
       persist();
       changed();
@@ -212,22 +231,24 @@ const Store = (() => {
       const i = data[table].findIndex(r => r.id === id);
       if (i < 0) return;
       data[table][i] = { ...data[table][i], ...rec, id };
+      index[table]?.set(id, data[table][i]);
       mark(table, id);
       persist();
       changed();
     },
 
     remove(table, id) {
-      const rec = data[table].find(r => r.id === id);
+      const rec = byId(table).get(id);
       if (captured && rec) captured.push({ table, rec });
-      data[table] = data[table].filter(r => r.id !== id);
+      if (rec) data[table] = data[table].filter(r => r.id !== id);
+      index[table]?.delete(id);
       mark(table, id, true);
       persist();
       changed();
     },
 
     get(table, id) {
-      return data[table].find(r => r.id === id);
+      return byId(table).get(id);
     },
 
     // 記下 fn 裡刪掉的每一筆（放進回收桶用，見 trash.js）：回傳 [{ table, rec }]，照刪的順序
@@ -293,6 +314,7 @@ const Store = (() => {
         keys.filter(k => k.startsWith(PREFIX)).forEach(k => localStorage.removeItem(k));
       } catch (_) {}
       data = blank();
+      reindex();
       sync = { pending: {}, v: 0, full: false };
       version++;
       if (db) {
@@ -307,6 +329,7 @@ const Store = (() => {
         data[table].push(rec);
         mark(table, rec.id);
       });
+      reindex();
       persist();
       changed();
     },
@@ -314,6 +337,7 @@ const Store = (() => {
     replaceAll(parsed) {
       const lastExportAt = data.lastExportAt;
       data = normalize(parsed);
+      reindex();
       data.lastExportAt = lastExportAt;
       sync = { pending: {}, v: sync.v, full: true };
       persist();
@@ -366,14 +390,17 @@ const Store = (() => {
         if (keep.includes(t)) { out[t] = data[t]; return; }
         (missing[t] || []).forEach(key => {
           out[t].forEach(r => {
-            const local = data[t].find(x => x.id === r.id);
+            const local = this.get(t, r.id);
             if (local && !(key in r)) r[key] = local[key];
           });
         });
+        const at = new Map();
+        out[t].forEach((r, i) => { if (!at.has(r.id)) at.set(r.id, i); });
+        const gone = new Set();
         Object.entries(sync.pending[t] || {}).forEach(([id, p]) => {
-          const i = out[t].findIndex(r => r.id === id);
+          const i = at.has(id) ? at.get(id) : -1;
           if (p.del) {
-            if (i >= 0) out[t].splice(i, 1);
+            if (i >= 0) gone.add(i);
             return;
           }
           const local = this.get(t, id);
@@ -381,11 +408,13 @@ const Store = (() => {
           if (i >= 0) out[t][i] = local;
           else out[t].push(local);
         });
+        if (gone.size) out[t] = out[t].filter((_, i) => !gone.has(i));
       });
       out.lastExportAt = data.lastExportAt;
       out.toner = data.toner;
       out.toConfirm = data.toConfirm;
       data = normalize(out);
+      reindex();
       version++;
       persist();
     },
@@ -394,6 +423,7 @@ const Store = (() => {
     loadRemote(remote) {
       const { lastExportAt, toner, toConfirm } = data;
       data = normalize(remote);
+      reindex();
       Object.assign(data, { lastExportAt, toner, toConfirm });
       sync = { pending: {}, v: sync.v, full: false };
       version++;

@@ -378,6 +378,32 @@ test('讀信：以前每封信記一筆的（done）換成只記讀到哪裡，�
   g.done();
 });
 
+test('App 叫讀信（doGet）：一分鐘內讀過就不再讀，回上一次的時間、count 是 0', () => {
+  const g = fakeGoogle([]);
+  const cache = {};
+  const made = [];
+  let reads = 0;
+  Object.assign(ctx, {
+    CacheService: { getScriptCache: () => ({ get: k => cache[k] ?? null, put: (k, v, sec) => { cache[k] = v; made.push(sec); } }) },
+    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    ContentService: { createTextOutput: text => ({ setMimeType: () => JSON.parse(text) }), MimeType: { JSON: 'json' } },
+  });
+  ctx.GmailApp.search = () => { reads++; return []; };
+  try {
+    const doGet = vm.runInContext('doGet', ctx);
+    const first = doGet();
+    assert.equal(reads, 1);
+    assert.deepEqual(made, [60]);
+    const again = doGet();
+    assert.equal(reads, 1);
+    assert.equal(again.at, first.at);
+    assert.equal(again.count, 0);
+  } finally {
+    ['CacheService', 'LockService', 'ContentService'].forEach(k => delete ctx[k]);
+    g.done();
+  }
+});
+
 test('每天備份：複製整份試算表到備份資料夾（沒有就建一個、記下 id），丟掉超過 30 天的，時間記在 _meta 第 5 列；下次用同一個資料夾', () => {
   const now = Date.now();
   const props = {};

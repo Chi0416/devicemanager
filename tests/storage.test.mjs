@@ -122,3 +122,35 @@ test('IndexedDB 打不開：還沒搬過的照舊用 localStorage；搬過的不
   assert.equal(ls['devmgr.v1'], undefined);
   assert.equal(idb.box.data.devices.length, 1); // 原本的還在
 });
+
+test('Store.get 用 id 直接查：新增、修改、刪除、整份換掉之後都查得到最新的；匯入的最新回報只收數字', () => {
+  const { Store } = app({});
+  const a = Store.add('devices', { code: '26-0001', name: '#1' });
+  const b = Store.add('devices', { code: '26-0002', name: '#2' });
+  assert.equal(Store.get('devices', a.id).name, '#1');
+  Store.update('devices', a.id, { name: '#1 改' });
+  assert.equal(Store.get('devices', a.id).name, '#1 改');
+  assert.equal(Store.get('devices', a.id), Store.list('devices')[0]);
+  Store.remove('devices', a.id);
+  assert.equal(Store.get('devices', a.id), undefined);
+  assert.equal(Store.get('devices', b.id).name, '#2');
+
+  // 合併試算表的：這台還沒送出的修改、刪除照樣疊上去
+  const c = Store.add('devices', { code: '26-0003', name: '#3' });
+  Store.clearAllPending();
+  Store.update('devices', b.id, { name: '#2 這台改的' });
+  Store.remove('devices', c.id);
+  Store.mergeRemote({ devices: [{ id: b.id, name: '#2' }, { id: c.id, name: '#3' }, { id: 'x1', name: '別台加的' }] });
+  assert.deepEqual(plain(Store.list('devices').map(r => r.name)), ['#2 這台改的', '別台加的']);
+  assert.equal(Store.get('devices', 'x1').name, '別台加的');
+  assert.equal(Store.get('devices', c.id), undefined);
+
+  Store.addAll([{ table: 'devices', rec: { id: 'y1', name: '匯入的' } }]);
+  assert.equal(Store.get('devices', 'y1').name, '匯入的');
+  Store.loadRemote({ devices: [{ id: 'z1', name: '雲端的' }] });
+  assert.equal(Store.get('devices', 'y1'), undefined);
+  assert.equal(Store.get('devices', 'z1').name, '雲端的');
+
+  const parsed = Store.parseImport({ devices: [], toner: [{ serial: 'A1', bw: 10, K: '<img src=x onerror=alert(1)>', Y: 50, waste: '90' }] });
+  assert.deepEqual(plain(parsed.toner), [{ serial: 'A1', bw: 10, K: null, Y: 50, waste: null }]);
+});

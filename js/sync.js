@@ -572,8 +572,10 @@ const Sync = (() => {
   // ---------- 讀信（自動抄表） ----------
   // 叫試算表上的程式讀一次信（讀信網址，見 apps-script/meter.gs 的 doGet），回 { count, fixed, at }；讀信失敗回 { failed: true }
   //   url：業務員叫的是總部的網址（同一支程式）
+  //   網址是從試算表讀回來的：不是我們的總部（被人改過）就不連
   async function readMail(url = cloud.meterUrl) {
     try {
+      if (!(await Google.trusted(url))) return { failed: true };
       const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
       const r = await res.json();
       if (r.at) cloud.meterReadAt = r.at;

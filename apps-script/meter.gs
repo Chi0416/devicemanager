@@ -81,8 +81,15 @@ function resultText_({ count, fixed, noSender }) {
 
 // App 同步前的讀信：部署成網頁應用程式（執行身分：我，誰可以存取：任何人）後，App 打這個網址
 //   只回 { count: 幾封張數信寫進待確認, fixed: 補了幾筆的設備, at: 讀完的時間, noSender: 還沒填寄件人 }，不回任何資料；改了程式要到「管理部署作業」換成新版本，網址不變
+//   MAIL_GAP 秒內讀過就不再讀（網址不用登入就能打，一直打會把 Google 給的額度用完）：回上一次的時間，count、fixed 是 0
+const MAIL_GAP = 60;
 function doGet() {
-  return json_(checkMail());
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('mailRead');
+  if (hit) return json_(JSON.parse(hit));
+  const r = checkMail();
+  cache.put('mailRead', JSON.stringify({ ...r, count: 0, fixed: 0 }), MAIL_GAP);
+  return json_(r);
 }
 
 // 抄表腳本送來的回報：{ key: 密語, readings: [{ serial, bw, color, rnp, toner: { K, Y, M, C }, waste: 廢粉盒已裝幾 %, ip: '192.168.1.20', date: '2026-10-21', time: '08:30', test }] }
@@ -478,10 +485,16 @@ function salesAdd_(token, items) {
     const values = readTabs_(ss, ['人員', '位置', '設備', '異動', '抄表', '保養']);
     const person = salesPerson_(values['人員'], email, today_(ss));
     if (!person) return { error: `${email} 不是業務員，請找管理員`, denied: true };
+    // 同一批裡同一個 id 送了兩次：只新增一次
+    const added = new Set();
     return { results: (Array.isArray(items) ? items : []).map(item => {
       const plan = salesPlan_(values, person, item);
       if (plan.error) return plan;
-      return plan.kind === 'add' ? appendSales_(ss, item, plan) : reportSales_(ss, item.tab, plan);
+      if (plan.kind !== 'add') return reportSales_(ss, item.tab, plan);
+      const key = `${item.tab}:${plan.id}`;
+      if (added.has(key)) return { id: plan.id, ok: true };
+      added.add(key);
+      return appendSales_(ss, item, plan);
     }) };
   } finally {
     lock.releaseLock();

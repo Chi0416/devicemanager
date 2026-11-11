@@ -104,7 +104,7 @@ const Google = (() => {
   // after：跳回來之後要接著做的事（'link' 或 'sync'）
   function redirectLogin({ hint = '', after = '' } = {}) {
     if (!configured()) return;
-    const state = U.uid();
+    const state = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
     store.set(STATE_KEY, state);
     store.set(AFTER_KEY, after);
     const p = new URLSearchParams({
@@ -199,11 +199,12 @@ const Google = (() => {
     });
   }
 
-  // 總部程式網址是不是 config.js 記的總部：網址 /s/ 後面那一串的 SHA-256 一樣才是；config.js 沒記時都算
+  // 總部程式網址是不是 config.js 記的總部：要是 script.google.com 的網址，/s/ 後面那一串的 SHA-256 一樣才是；config.js 沒記時 script.google.com 的都算
+  const HQ_URL = /^https:\/\/script\.google\.com\/(?:a\/macros\/[^/]+|macros)\/s\/([\w-]+)\/exec$/;
   async function trusted(url) {
-    if (!CONFIG.hq) return true;
-    const id = String(url ?? '').match(/\/s\/([\w-]+)\/exec$/)?.[1];
+    const id = String(url ?? '').match(HQ_URL)?.[1];
     if (!id) return false;
+    if (!CONFIG.hq) return true;
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(id));
     return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('') === CONFIG.hq;
   }

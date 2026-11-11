@@ -1656,6 +1656,7 @@ test('總部指紋：登入權杖只送到 config.js 記的總部；假的邀請
   assert.equal(await s.Google.trusted('https://script.google.com/a/macros/example.com/s/hq/exec'), true); // 公司帳號的網址也認得
   assert.equal(await s.Google.trusted(FAKE), false);
   assert.equal(await s.Google.trusted(''), false);
+  assert.equal(await s.Google.trusted('https://evil.example/s/hq/exec'), false); // 後面那一串一樣、不是 script.google.com 的不算
   await s.Sync.join(HQ);
   assert.equal(s.Sync.state().salesName, '阿明');
   const calls = fake.calls.length;
