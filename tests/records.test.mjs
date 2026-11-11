@@ -521,6 +521,33 @@ test('耗材快到了：抄表程式回報廢粉盒 90% 以上的也列，裝滿
   assert.deepEqual(plain(due()), [[DH, '24-0001', '廢粉盒', true, '預估']]);
 });
 
+test('碳粉快沒了：最新回報 20% 以下的一台一筆、只留低的那幾色，最低的越少越上面；回報那天之後換過那一色的不算；倉庫、停用的位置、沒回報的不列', () => {
+  const { Store, Records, add } = withDevices(); // 今天 2026-10-11
+  add('locations', { code: 'L0004', name: '停用的位置', disabled: true });
+  add('moves', { device: '24-0001', date: '2026-06-01', type: '安裝', from: WH, to: DH });
+  Records.syncLocations();
+  add('devices', { code: '25-0002', name: '#1003', serial: 'B2', status: '出租中', location: AX });
+  add('devices', { code: '25-0003', name: '#1004', serial: 'C3', status: '出租中', location: 'L0004' });
+  add('devices', { code: '25-0004', name: '#1005', serial: 'D4', status: '庫存', location: WH });
+  const due = () => Records.tonerDue().map(x => [x.place.code, x.device.code, x.low.map(l => `${l.color}${l.pct}`).join(' ')]);
+  const report = (serial, K, Y = null, M = null, C = null, date = '2026-10-11') => ({ serial, device: '', date, time: '08:30', bw: 1, color: null, K, Y, M, C, waste: null });
+  const set = list => Store.replaceAll(Store.parseImport({ ...Store.exportPayload(), toner: list }));
+  assert.deepEqual(plain(due()), []);
+  // 20% 算低、21% 不算；彩色機只寫低的那幾色；最低的那一色越少越上面；停用的位置、倉庫的不列
+  set([report('3101R800451', 20), report('B2', 50, 21, 8, 15), report('C3', 5), report('D4', 5)]);
+  assert.deepEqual(plain(due()), [[AX, '25-0002', 'M8 C15'], [DH, '24-0001', 'K20']]);
+  // 都不低、讀不到的不列
+  set([report('3101R800451', 21), report('B2', null, null, null, null)]);
+  assert.deepEqual(plain(due()), []);
+  // 回報那天（含）之後換過那一色的不算；之前換的、換別色的照列
+  set([report('3101R800451', 3, null, null, null, '2026-10-08'), report('B2', 10, 80, 8, 80, '2026-10-08')]);
+  add('maintenance', { device: '24-0001', date: '2026-10-07', item: '碳粉 K' });
+  add('maintenance', { device: '25-0002', date: '2026-10-08', item: '碳粉 M' });
+  assert.deepEqual(plain(due()), [[DH, '24-0001', 'K3'], [AX, '25-0002', 'K10']]);
+  add('maintenance', { device: '24-0001', date: '2026-10-09', item: '碳粉 K' });
+  assert.deepEqual(plain(due()), [[AX, '25-0002', 'K10']]);
+});
+
 test('還沒選客戶的位置：客戶空白或打的名字不在客戶裡；倉庫、停用的不算；選了客戶就不列', () => {
   const { Store, Records, add } = withCustomers();
   const a = add('locations', { code: 'L0005', name: '安心診所 櫃台' });

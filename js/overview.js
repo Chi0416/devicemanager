@@ -1,7 +1,7 @@
 // 總覽：最上面寫共幾台、幾種機型；下面是狀態方塊、資料錯誤、待處理、各機型有幾台（計算見 records.js）
 //   資料錯誤和待處理分開：資料本身有問題、修好就不見的是錯誤（見 ERRORS）；資料沒問題、該去做的事是待處理；哪一區沒有就不寫
 //   狀態方塊：全部和每一種狀態各一格，寫幾台；點一格，下面的機型只算那個狀態（預設第一個狀態，這台裝置記住上次選的）
-//   要處理：合約到期、快到期，合約還沒簽回（拿走超過 14 天），合約狀態異常（行政狀態和日期對不上），保固 30 天內到期，耗材快到了（預估 14 天內，或機器回報廢粉盒快滿），該抄表了，回報停了（超過 3 天），狀態和位置對不上，空著的位置；
+//   要處理：合約到期、快到期，合約還沒簽回（拿走超過 14 天），合約狀態異常（行政狀態和日期對不上），保固 30 天內到期，耗材快到了（預估 14 天內，或機器回報廢粉盒快滿），碳粉快沒了（機器回報 20% 以下），該抄表了，回報停了（超過 3 天），狀態和位置對不上，空著的位置；
 //     依資料算，處理掉就自己不見，沒有的那一列不列
 //     保固…：點一列打開那份清單（#todo-sheet），點一項打開那台設備（一格放好幾台打開那個位置，裝機、撤機還沒抄表打開抄表表單）；空著的位置：到位置頁、篩好空著的（onPlaces）；合約：到合約頁，只列那一格（onContracts）
 //   機型：依世代分組（機型清單的「世代」，空白時照型號猜），標題寫「IM C 系列」和小計，下面一條線；組裡一行一個、照機型清單的順序，細長條是台數
@@ -82,6 +82,14 @@ function createOverview({ onPick, onPlaces, onContracts }) {
         title: `${x.place.name} · ${x.item}`,
         sub: [Records.label(x.device), x.waste !== undefined ? `機器回報已裝 ${x.waste}%` : x.over ? '已經超過了' : `預估 ${Records.etaText(x.eta)}`].join('・'),
       }),
+      open: x => Detail.open(x.device.id),
+    },
+    {
+      // 抄表程式回報碳粉 20% 以下的，一台一列，只寫低的那幾色（見 records.js 的 tonerDue）
+      key: 'toner', title: '碳粉快沒了', icon: 'drop', tone: 'warn',
+      list: () => Records.tonerDue(),
+      summary: () => `機器回報 ${Records.TONER_LOW}% 以下`,
+      row: x => ({ title: x.place.name, sub: `${Records.label(x.device)}・碳粉 ${x.low.map(l => `${l.color} ${l.pct}%`).join('、')}` }),
       open: x => Detail.open(x.device.id),
     },
     {

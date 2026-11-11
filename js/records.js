@@ -1308,6 +1308,22 @@ const Records = (() => {
     }).filter(x => x.days !== null && x.days > REPORT_OLD).sort((a, b) => b.days - a.days || byPlaceName(a, b));
   }
 
+  // 碳粉快沒了：最新回報任何一色 20% 以下（見 tonerIsLow），一台一筆，只留低的那幾色；最低的那一色越少越上面
+  //   回報那天（含）之後換過那一色的不算（保養項目「碳粉 K」，機器還沒再回報）；沒回報過的、倉庫、停用的位置不列
+  //   [{ id, device, place, report, low: [{ color, pct }], min }]
+  const tonerItem = c => new RegExp(`碳粉\\s*${c}$`, 'i');
+  function tonerDue(list = reports()) {
+    const { works } = consumeContext();
+    return placedDevices().map(x => {
+      const report = latestReport(x.device, list);
+      if (!report) return null;
+      const changed = c => (works.get(key(x.device.code)) || NONE)
+        .some(w => tonerItem(c).test(String(w.item ?? '').trim()) && String(w.date ?? '') >= String(report.date ?? ''));
+      const low = ['K', 'Y', 'M', 'C'].filter(c => tonerIsLow(report[c]) && !changed(c)).map(c => ({ color: c, pct: report[c] }));
+      return low.length ? { ...x, id: x.device.id, report, low, min: Math.min(...low.map(l => l.pct)) } : null;
+    }).filter(Boolean).sort((a, b) => a.min - b.min || byPlaceName(a, b));
+  }
+
   // 狀態和位置對不上：出租中卻放在倉庫或沒有位置、庫存卻放在客戶那裡（照異動帶的狀態：安裝帶出租中、撤機帶庫存）
   //   刪掉異動、在試算表裡改了異動時，位置會跟著算，狀態不會（見 applyMoveStatus），列出來自己改
   //   沒有位置的：以前新增設備時預設出租中、位置空白，存進去的看起來像租出去了；庫存、其他狀態沒有位置不算
@@ -1661,7 +1677,7 @@ const Records = (() => {
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
     workNote, workCols, refurbNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
-    shownDevices, isShown, canAdd, TONER_LOW, tonerColors, tonerIsLow, WASTE_FULL, wasteIsFull, customerReports, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, readingsDue, statusMismatch,
+    shownDevices, isShown, canAdd, TONER_LOW, tonerColors, tonerIsLow, WASTE_FULL, wasteIsFull, customerReports, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, tonerDue, readingsDue, statusMismatch,
     toConfirm, confirmsDue, confirmWhen, confirmValues,
     partOrder, partNote, partChoices, partNames, partsHint, saveDeviceParts, partsCheckNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,
   };
