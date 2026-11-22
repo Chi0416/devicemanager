@@ -1329,30 +1329,34 @@ test('翻新：翻新日期、入庫日、工程師（人員）、序號、國�
   assert.equal(Store.get('devices', d1.id).serial, '3101R800451');
 });
 
-test('維修（修理筆記）：機型、故障代碼、狀況、原因、處理方式、備註，不綁哪一台；代碼存大寫、去掉空格；打好代碼，下面列已經寫過的修法', () => {
+test('維修（修理筆記）：機型、發生日期、故障代碼、狀況、原因、處理方式、備註，不綁哪一台；代碼存大寫、去掉空格；打好代碼，下面列已經寫過的修法', () => {
   const { Records, SCHEMAS, field, add } = withDevices();
-  assert.deepEqual(plain(SCHEMAS.repairs.fields.map(x => x.label)), ['機型', '故障代碼', '狀況', '原因', '處理方式', '備註']);
+  assert.deepEqual(plain(SCHEMAS.repairs.fields.map(x => x.label)), ['機型', '發生日期', '故障代碼', '狀況', '原因', '處理方式', '備註']);
   assert.deepEqual(plain(SCHEMAS.repairs.fields.filter(x => !x.optional).map(x => x.key)), ['model', 'fault']); // 發現時先存這兩個，其他修好再補
   assert.equal(field('repairs', 'model').list, '機型');
   assert.equal(field('repairs', 'model').keep, true); // 同一個機型連續寫好幾筆
+  assert.equal(field('repairs', 'date').default(), '2026-10-11'); // 發生日期帶今天，可以改
+  assert.equal(field('repairs', 'date').optional, true); // 加這一欄之前寫的沒有日期
   assert.equal(field('repairs', 'fault').clean('sc 542 ', {}), 'SC542');
   assert.equal(field('repairs', 'fault').clean('ｓｃ５４２', {}), 'SC542'); // 全形
   assert.ok(!Records.TABLES.includes('repairs')); // 沒有設備欄：設備、位置詳情不列
 
-  const a = add('repairs', { model: 'MPC2504', fault: 'SC542', fix: '插頭鬆了，重插' });
-  const b = add('repairs', { model: 'MPC3003', fault: 'SC542', cause: '加熱組壞了' });
-  const c = add('repairs', { model: 'MPC3003', fault: 'SC542', symptom: '跳代碼', fix: '清熱敏電阻\n第二行' });
+  const a = add('repairs', { model: 'MPC2504', date: '2025-12-11', fault: 'SC542', fix: '插頭鬆了，重插' });
+  const c = add('repairs', { model: 'MPC3003', date: '2026-09-30', fault: 'SC542', symptom: '跳代碼', fix: '清熱敏電阻\n第二行' });
+  const b = add('repairs', { model: 'MPC3003', date: '2026-05-02', fault: 'SC542', cause: '加熱組壞了' }); // 補登以前的
   add('repairs', { model: 'MPC3003', fault: 'J007', symptom: '卡紙', fix: '清搓紙輪' });
   const note = field('repairs', 'fault').note;
   assert.equal(note({ model: 'MPC3003', fault: '' }), '');
   assert.equal(note({ model: 'MPC3003', fault: 'SC999' }), '還沒有寫過這個代碼');
-  // 同機型的在前（新寫的在前），其他機型的寫機型；沒寫處理方式的寫原因
-  assert.equal(note({ model: 'mpc3003', fault: 'sc542' }), '這個機型寫過 2 筆，其他機型 1 筆\n・清熱敏電阻\n・加熱組壞了，還沒寫怎麼修\n・MPC2504：插頭鬆了，重插');
+  // 同機型的在前，再來發生日期新的在前（不是寫的先後），其他機型的寫機型；沒寫處理方式的寫原因
+  assert.equal(note({ model: 'mpc3003', fault: 'sc542' }), '這個機型寫過 2 筆，其他機型 1 筆\n・09/30 清熱敏電阻\n・05/02 加熱組壞了，還沒寫怎麼修\n・2025/12/11 MPC2504：插頭鬆了，重插');
   assert.equal(note({ model: '', fault: 'SC542' }).split('\n')[0], '寫過 3 筆');
   assert.equal(note({ id: c.id, model: 'MPC3003', fault: 'SC542' }).split('\n')[0], '這個機型寫過 1 筆，其他機型 1 筆'); // 編輯那一筆時不算自己
   // 卡片：標題寫代碼和狀況第一行，下面寫機型，最下面寫處理方式（沒寫時寫原因）
   assert.equal(SCHEMAS.repairs.card.title(c), 'SC542 跳代碼');
   assert.equal(SCHEMAS.repairs.card.sub(c), 'MPC3003');
+  assert.deepEqual(plain(SCHEMAS.repairs.card.side(c)), { text: '2026/09/30', tone: '' }); // 下面一行右邊
+  assert.equal(SCHEMAS.repairs.card.side({ ...c, date: '' }), null);
   assert.deepEqual(plain(Records.repairNote(c)), { text: '清熱敏電阻', warn: false });
   assert.deepEqual(plain(Records.repairNote(b)), { text: '加熱組壞了', warn: false });
   assert.equal(Records.describe('repairs', b), 'MPC3003 SC542');
@@ -1361,12 +1365,12 @@ test('維修（修理筆記）：機型、故障代碼、狀況、原因、處�
   assert.deepEqual(plain(SCHEMAS.repairs.status(b)), { label: '待補', cls: 'orange' });
   assert.equal(SCHEMAS.repairs.filter.of(b), '待補');
   assert.equal(SCHEMAS.repairs.filter.of(c), '');
-  add('repairs', { model: 'MPC3003', fault: 'SC542', fix: '  ' }); // 只有空白也算沒寫
-  assert.equal(note({ model: 'MPC3003', fault: 'SC542' }).split('\n')[1], '・還沒寫怎麼修');
-  // 列表：機型依名字（清單沒排過），同一個機型依代碼，同一個代碼新寫的在前
-  const rows = [a, b, c, ...[]].concat(add('repairs', { model: 'MPC2504', fix: '沒有代碼的' }));
-  assert.deepEqual(plain([...rows].sort(SCHEMAS.repairs.order).map(r => `${r.model} ${r.fault}`.trim())),
-    ['MPC2504 SC542', 'MPC2504', 'MPC3003 SC542', 'MPC3003 SC542']);
+  add('repairs', { model: 'MPC3003', date: '2026-10-11', fault: 'SC542', fix: '  ' }); // 只有空白也算沒寫
+  assert.equal(note({ model: 'MPC3003', fault: 'SC542' }).split('\n')[1], '・10/11 還沒寫怎麼修');
+  // 列表：機型依名字（清單沒排過），同一個機型依代碼（卡紙這類也是代碼），同一個代碼發生日期新的在前
+  const rows = [b, a, c].concat(add('repairs', { model: 'MPC2504', date: '2026-01-01', fault: '卡紙' }));
+  assert.deepEqual(plain([...rows].sort(SCHEMAS.repairs.order).map(r => `${r.model} ${r.fault} ${r.date}`)),
+    ['MPC2504 卡紙 2026-01-01', 'MPC2504 SC542 2025-12-11', 'MPC3003 SC542 2026-09-30', 'MPC3003 SC542 2026-05-02']);
 });
 
 test('保養項目：預設碳粉、感光鼓…，一筆選一個；幾筆在用、不能刪、改名一起改；不在清單裡的提醒', () => {

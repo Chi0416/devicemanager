@@ -1414,10 +1414,10 @@ const Records = (() => {
   }
 
   // ---------- 維修（修理筆記：機型、故障代碼、怎麼修，不綁哪一台） ----------
-  // 列表：照機型清單的順序，同一個機型依代碼（沒有代碼的排後面），同一個代碼新寫的在前
+  // 列表：照機型清單的順序，同一個機型依代碼（沒有代碼的排後面），同一個代碼發生日期新的在前（沒有日期的排後面），同一天新寫的在前
   //   modelOrder 沒排過的是 Infinity（相減是 NaN，當作一樣，再照名字排）
   const repairOrder = (a, b) => (modelOrder(a.model) - modelOrder(b.model)) || byText(a.model, b.model)
-    || (!a.fault - !b.fault) || byText(a.fault, b.fault) || cmp(String(b.id), String(a.id));
+    || (!a.fault - !b.fault) || byText(a.fault, b.fault) || cmp(String(b.date ?? ''), String(a.date ?? '')) || cmp(String(b.id), String(a.id));
 
   // 還沒寫處理方式的：卡片標「待補」，列表可以篩
   const repairTodo = r => !firstLine(r.fix);
@@ -1425,22 +1425,23 @@ const Records = (() => {
   const repairNote = r => noteLine(firstLine(r.fix) || firstLine(r.cause));
 
   // 表單上故障代碼下面：這個代碼已經寫過的修法（前車之鑑），同機型的在前，其他機型的寫機型；最多列 FAULT_SHOW 筆
-  //   一筆一行：處理方式；還沒寫的寫原因（沒有時寫狀況），後面加「還沒寫怎麼修」
+  //   同機型的在前，再來發生日期新的在前（沒有日期的排後面），同一天後寫的在前
+  //   一筆一行：發生日期 處理方式；還沒寫的寫原因（沒有時寫狀況），後面加「還沒寫怎麼修」
   const FAULT_SHOW = 5;
   function faultNote(values) {
     const code = key(values.fault);
     if (!code) return '';
     const model = key(values.model);
-    // 新寫的在前：照存的先後（後面的是新的）
+    // 同一天的：照存的先後（後面的是新的）
     const past = Store.list('repairs').map((r, i) => ({ r, i, same: !!model && key(r.model) === model }))
       .filter(({ r }) => r.id !== values.id && key(r.fault) === code)
-      .sort((a, b) => (b.same - a.same) || (b.i - a.i));
+      .sort((a, b) => (b.same - a.same) || cmp(String(b.r.date ?? ''), String(a.r.date ?? '')) || (b.i - a.i));
     if (!past.length) return '還沒有寫過這個代碼';
     const same = past.filter(x => x.same).length;
     const head = model ? `這個機型寫過 ${same} 筆${past.length > same ? `，其他機型 ${past.length - same} 筆` : ''}` : `寫過 ${past.length} 筆`;
     const lines = past.slice(0, FAULT_SHOW).map(({ r, same: s }) => {
       const how = firstLine(r.fix) || [firstLine(r.cause) || firstLine(r.symptom), '還沒寫怎麼修'].filter(Boolean).join('，');
-      return `・${!s && r.model ? `${r.model}：` : ''}${how}`;
+      return `・${r.date ? `${shortDate(r.date)} ` : ''}${!s && r.model ? `${r.model}：` : ''}${how}`;
     });
     const more = past.length > FAULT_SHOW ? [`還有 ${past.length - FAULT_SHOW} 筆，到維修頁搜尋 ${String(values.fault).trim()}`] : [];
     return [head, ...lines, ...more].join('\n');

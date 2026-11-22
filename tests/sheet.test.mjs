@@ -83,7 +83,7 @@ const sample = () => ({
     source: '日本拍賣', painted: true, content: '換外殼\n清潔內部', note: '',
   }],
   repairs: [{
-    id: 'x1', model: 'B5402', fault: 'SC542', symptom: '開機後跳代碼\n有焦味', cause: '熱敏電阻壞了', fix: '換熱敏電阻', note: '',
+    id: 'x1', model: 'B5402', date: '2026-04-02', fault: 'SC542', symptom: '開機後跳代碼\n有焦味', cause: '熱敏電阻壞了', fix: '換熱敏電阻', note: '',
   }],
   parts: [{ id: 'a1', device: 'NB-001', name: '送紙匣', serial: 'PB1', installDate: '2026-01-05', removeDate: null, note: '' }],
   // 回收桶：內容是整筆資料的 JSON（文字）

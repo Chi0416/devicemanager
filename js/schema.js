@@ -611,11 +611,14 @@ const SCHEMAS = {
   //   沒有代碼的（卡紙、異音）代碼欄寫「卡紙」「異音」
   //   打好機型、代碼，下面列已經寫過的修法（同機型的在前，見 records.js 的 faultNote）
   //   分兩次寫：發現時先存機型、代碼，修好後再補狀況、原因、處理方式；處理方式空著的卡片標「待補」，列表可以篩待補
+  //   發生日期：新增時帶今天，可以改（補登以前的）；補處理方式時不變；選填（加這一欄之前寫的沒有日期）
   //   業務員整本看得到（只能看，見 apps-script/meter.gs 的 salesRows_）
   repairs: {
     title: '維修',
     order: (a, b) => Records.repairOrder(a, b),
-    card: { title: r => U.joinOnce([r.fault, Records.firstLine(r.symptom)], ' ') || '維修', sub: r => r.model || '', grid: [] },
+    // 卡片：標題寫代碼和狀況，下面一行左邊機型、右邊發生日期
+    card: { title: r => U.joinOnce([r.fault, Records.firstLine(r.symptom)], ' ') || '維修', sub: r => r.model || '',
+      side: r => (r.date ? { text: U.fmtDate(r.date), tone: '' } : null), grid: [] },
     status: r => (Records.repairTodo(r) ? { label: '待補', cls: 'orange' } : null),
     filter: { label: '待補', toggle: [{ value: '待補', label: '待補', tone: 'orange' }], of: r => (Records.repairTodo(r) ? '待補' : '') },
     note: r => Records.repairNote(r),
@@ -626,6 +629,7 @@ const SCHEMAS = {
     fields: [
       // 機型、代碼都佔滿一排：代碼下面要列已經寫過的修法，半格太擠
       { key: 'model',   label: '機型',     type: 'ref', ref: 'options', list: '機型', full: true, keep: true, caps: true },
+      dateField('date', '發生日期', { optional: true, keep: true }),
       { key: 'fault',   label: '故障代碼', type: 'text', full: true, caps: true, clean: v => U.toHalf(v).replace(/\s+/g, '').toUpperCase(),
         hint: '沒有代碼的寫卡紙、異音這類', note: v => Records.faultNote(v), noteLines: 0 },
       { key: 'symptom', label: '狀況',     type: 'text', optional: true, full: true, multiline: true, hint: '看到什麼：卡紙、異音、印出來有黑線…' },
