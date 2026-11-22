@@ -1391,6 +1391,13 @@ test('手冊：代碼、頁數、說明、可能原因、處理方式，App 上�
   add('repairs', { model: 'MPC3003', date: '2026-09-30', fault: 'SC542', fix: '感測器髒，清乾淨' });
   assert.equal(note({ model: 'MPC3003', fault: 'SC542' }).split('\n').slice(-2).join('\n'), '實戰：這個機型寫過 1 筆\n・09/30 感測器髒，清乾淨');
   assert.equal(note({ model: 'MPC3003', fault: 'SC999' }), '手冊：沒有這個代碼\n\n實戰：還沒有寫過這個代碼');
+  // 前面的 SC 可以不打；只打主碼的列細項
+  assert.equal(note({ model: 'MPC3003', fault: '542' }).split('\n')[0], '手冊：加熱溫度異常（第 312 頁）');
+  add('manual', { code: 'SC672-21', page: 690, desc: 'Controller start-up error' });
+  add('manual', { code: 'SC672-10', page: 690, desc: 'Controller communication error' });
+  assert.equal(note({ model: 'MPC3003', fault: 'SC672' }).split('\n\n')[0],
+    '手冊：有 2 個細項\n・SC672-10 Controller communication error（第 690 頁）\n・SC672-21 Controller start-up error（第 690 頁）');
+  assert.equal(note({ model: 'MPC3003', fault: '672-21' }).split('\n')[0], '手冊：Controller start-up error（第 690 頁）');
   // 列表：依代碼（數字照大小）
   assert.deepEqual(plain(['SC542', 'SC101', 'SC1001'].map(code => ({ code, id: code })).sort(SCHEMAS.manual.order).map(r => r.code)), ['SC101', 'SC542', 'SC1001']);
   assert.equal(SCHEMAS.manual.card.sub({ desc: '加熱溫度異常' }), '加熱溫度異常');

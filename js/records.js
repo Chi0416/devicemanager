@@ -1428,16 +1428,26 @@ const Records = (() => {
   const repairNote = r => noteLine(r.fix);
 
   // 表單上故障代碼下面：先列手冊寫的（說明、可能原因、處理方式），空一行，再列實戰的維修筆記（前車之鑑）
-  //   手冊：代碼一樣的全部列（大小寫、全形半形不同也認得）；手冊分頁是空的（還沒匯入、業務員）時不寫手冊那段
+  //   手冊：代碼一樣的全部列（前面的 SC 可以不打）；只打主碼的列細項；手冊分頁是空的（還沒匯入、業務員）時不寫手冊那段
   //   實戰：這個代碼已經寫過的修法，同機型的在前，其他機型的寫機型；最多列 FAULT_SHOW 筆
   //     同機型的在前，再來發生日期新的在前（沒有日期的排後面），同一天後寫的在前
   //     一筆一行：發生日期 處理方式；還沒寫的寫原因（沒有時寫狀況），後面加「還沒寫怎麼修」
   const FAULT_SHOW = 5;
+  // 故障代碼比對：前面的 SC 可以不打（SC542-02、542-02 算一樣），大小寫、全形半形、空格不同也認得
+  const faultKey = v => key(v).replace(/\s+/g, '').replace(/^sc/, '');
+  const MANUAL_SUB = 8; // 只打主碼時，細項最多列幾個
   function manualText(code) {
     const all = Store.list('manual');
     if (!all.length) return [];
-    const hits = all.filter(m => key(m.code) === code).sort(manualOrder);
-    if (!hits.length) return ['手冊：沒有這個代碼'];
+    const hits = all.filter(m => faultKey(m.code) === code).sort(manualOrder);
+    if (!hits.length) {
+      // 只打主碼（SC542）：列手冊裡的細項（SC542-02、SC542-03…），一個一行
+      const subs = all.filter(m => faultKey(m.code).startsWith(`${code}-`)).sort(manualOrder);
+      if (!subs.length) return ['手冊：沒有這個代碼'];
+      return [`手冊：有 ${subs.length} 個細項`,
+        ...subs.slice(0, MANUAL_SUB).map(m => `・${m.code} ${String(m.desc ?? '').trim()}${isNum(m.page) ? `（第 ${m.page} 頁）` : ''}`),
+        ...(subs.length > MANUAL_SUB ? [`還有 ${subs.length - MANUAL_SUB} 個，打完整的代碼（${subs[0].code}）看說明`] : [])];
+    }
     return hits.flatMap(m => [
       `手冊：${[String(m.desc ?? '').trim(), isNum(m.page) && `（第 ${m.page} 頁）`].filter(Boolean).join('') || m.code}`,
       // 可能原因接成一行（「、」隔開），處理方式的步驟照手冊換行
@@ -1446,13 +1456,13 @@ const Records = (() => {
     ]);
   }
   function faultNote(values) {
-    const code = key(values.fault);
+    const code = faultKey(values.fault);
     if (!code) return '';
     const manual = manualText(code);
     const model = key(values.model);
     // 同一天的：照存的先後（後面的是新的）
     const past = Store.list('repairs').map((r, i) => ({ r, i, same: !!model && key(r.model) === model }))
-      .filter(({ r }) => r.id !== values.id && key(r.fault) === code)
+      .filter(({ r }) => r.id !== values.id && faultKey(r.fault) === code)
       .sort((a, b) => (b.same - a.same) || cmp(String(b.r.date ?? ''), String(a.r.date ?? '')) || (b.i - a.i));
     const tag = manual.length ? '實戰：' : '';
     if (!past.length) return [...manual, ...(manual.length ? [''] : []), `${tag}還沒有寫過這個代碼`].join('\n');
