@@ -315,6 +315,8 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     renderChips(matched);
     // 同一天維持輸入順序（sort 為穩定排序）
     const rows = matched.filter(inFilter).sort(compare);
+    // 表格模式：頁面放寬、只在框裡捲（見 style.css）；沒有符合的資料時也是，畫面不會縮回中間
+    listEl.classList.toggle('as-table', !!wide?.matches);
 
     // 有篩選按鈕時，筆數寫在按鈕上
     if (countEl) countEl.textContent = rows.length === all.length ? `${all.length} 筆` : `${rows.length}／${all.length} 筆`;
