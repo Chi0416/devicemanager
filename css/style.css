@@ -669,6 +669,7 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+.field .note.lines-0 { white-space: pre-line; } /* 不留位置的：照 \n 換行（維修的故障代碼下面一筆一行） */
 .field .note.warn { color: var(--warn); }
 .err { margin: 4px 2px 0; font-size: 12px; color: var(--danger); }
 .err:empty { display: none; }

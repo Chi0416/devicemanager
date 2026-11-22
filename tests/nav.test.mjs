@@ -21,7 +21,7 @@ test('手機底部 6 格：總覽、客戶、位置、設備、抄表、更多',
 test('更多裡的頁，電腦版的側欄全部都有，一樣的順序', () => {
   const inMore = [...more.matchAll(/data-tab="([^"]+)"/g)].map(m => m[1]);
   const inSide = buttons.filter(b => b.includes('side-only')).map(tabOf);
-  assert.deepEqual(inMore, ['contracts', 'maintenance', 'refurbs', 'moves', 'people']);
+  assert.deepEqual(inMore, ['contracts', 'maintenance', 'repairs', 'refurbs', 'moves', 'people']);
   assert.deepEqual(inSide, inMore);
   // 這些頁打開時底部的更多要亮著
   assert.deepEqual(JSON.parse(app.match(/const IN_MORE = (\[.*?\]);/)[1].replace(/'/g, '"')), inMore);

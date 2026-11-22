@@ -455,7 +455,7 @@ function serialMap_(sheet) {
 //   第一次加這段要重新授權（會用到 UrlFetchApp）：上方選 install 按「執行」，照畫面允許，再到「管理部署作業」換新版本
 //   不用 Session 拿總部的帳號：那要另外一個權限（userinfo.email），授權時不一定問得到，拿不到會讓整個失敗
 const CLIENT_ID = '460486615404-n7j6akqvhec4at7dt0f4937posghfr4p.apps.googleusercontent.com'; // App 的 OAuth 用戶端 ID（js/config.js）
-const SALES_TABS = ['位置', '客戶', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST, CONFIRM];
+const SALES_TABS = ['位置', '客戶', '設備', '異動', '合約', '合約修改紀錄', '抄表', '保養', '維修', '翻新', '選配件', '狀態', '選項', '人員', '廠商', LATEST, CONFIRM];
 
 //   回傳時另外寫 read：{ via: 怎麼讀的（service／api／sheets，見 readTabs_）, ms: { who, read, total } 各花幾毫秒 }，查慢的時候看
 function salesData_(token) {
@@ -765,7 +765,7 @@ function salesRows_(values, person) {
       open[m.device] = stay;
     }
   });
-  const DATE = { 異動: '日期', 抄表: '抄表日期', 保養: '日期', 翻新: '翻新日期', 選配件: '安裝日期' };
+  const DATE = { 異動: '日期', 抄表: '抄表日期', 保養: '日期', 維修: '日期', 翻新: '翻新日期', 選配件: '安裝日期' };
   const seen = (n, r) => {
     const device = codeKey_(r[col(n, '設備')]);
     if (now.has(device)) return true;

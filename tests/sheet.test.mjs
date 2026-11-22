@@ -82,6 +82,10 @@ const sample = () => ({
     id: 'f1', device: '007', date: '2026-03-01', stockDate: '2026-03-05', engineer: '王小明', serial: '3101R800999', country: '日',
     source: '日本拍賣', painted: true, content: '換外殼\n清潔內部', note: '',
   }],
+  repairs: [{
+    id: 'x1', device: 'NB-001', date: '2026-04-02', fault: 'SC542', symptom: '開機後跳代碼\n有焦味', cause: '熱敏電阻壞了',
+    fix: '換熱敏電阻', engineer: '王小明', result: '修好', link: 'https://drive.google.com/y', note: '',
+  }],
   parts: [{ id: 'a1', device: 'NB-001', name: '送紙匣', serial: 'PB1', installDate: '2026-01-05', removeDate: null, note: '' }],
   // 回收桶：內容是整筆資料的 JSON（文字）
   trash: [{
@@ -316,7 +320,7 @@ test('建立試算表：分頁、格式、下拉選單、保護', () => {
   const body = plain(Sheet.createBody('設備管理'));
   assert.equal(body.properties.title, '設備管理');
   assert.deepEqual(body.sheets.map(s => s.properties.title),
-    ['設備', '位置', '客戶', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '選配件', '狀態', '選項', '人員', '廠商', '回收桶', '_meta']);
+    ['設備', '位置', '客戶', '異動', '合約', '合約修改紀錄', '抄表', '保養', '翻新', '維修', '選配件', '狀態', '選項', '人員', '廠商', '回收桶', '_meta']);
   assert.equal(body.properties.locale, 'zh_TW');
   assert.equal(body.sheets.at(-1).properties.hidden, true);
 
@@ -349,7 +353,7 @@ test('建立試算表：分頁、格式、下拉選單、保護', () => {
   const opt = Sheet.TAB.options.sheetId;
   const box = reqs.find(r => r.setDataValidation?.range.sheetId === opt && r.setDataValidation.range.startColumnIndex === 3);
   assert.equal(box.setDataValidation.rule.condition.type, 'BOOLEAN');
-  assert.equal(reqs.filter(r => r.addProtectedRange).length, 30); // 15 個分頁 × 標題列與 id 欄
+  assert.equal(reqs.filter(r => r.addProtectedRange).length, 32); // 16 個分頁 × 標題列與 id 欄
   // 左右切換的欄位（異動的類型）有下拉選單
   assert.equal(listOf(listsOf(Sheet.TAB.moves.sheetId), 2), '安裝,撤機,移機,其他');
   assert.ok(reqs.filter(r => r.addProtectedRange).every(r => r.addProtectedRange.protectedRange.warningOnly));

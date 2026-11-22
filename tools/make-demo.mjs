@@ -79,7 +79,7 @@ const data = {
   customers: [],
   people: PEOPLE.map(p => rec('people', p)),
   vendors: VENDORS.map(v => rec('vendors', v)),
-  devices: [], moves: [], contracts: [], contractLog: [], readings: [], maintenance: [], refurbs: [], parts: [],
+  devices: [], moves: [], contracts: [], contractLog: [], readings: [], maintenance: [], refurbs: [], repairs: [], parts: [],
 };
 
 // 位置：L0001 起編號；名字 → 編號

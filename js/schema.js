@@ -148,6 +148,7 @@ const CONTRACT_STATUS = [
 const TAX_TYPES = [{ value: '含稅', tone: '' }, { value: '稅外加', tone: '' }, { value: '不計稅', tone: '' }]; // 合約的稅別
 const MOVE_TYPES = [{ value: '安裝', tone: 'blue' }, { value: '撤機', tone: 'gray' }, { value: '移機', tone: 'purple' }, { value: '其他', tone: '' }];
 const COUNTRIES = [{ value: '美', tone: '' }, { value: '日', tone: '' }]; // 翻新的國別
+const REPAIR_RESULTS = [{ value: '修好', tone: 'green' }, { value: '沒修好', tone: 'orange' }, { value: '送修', tone: 'purple' }]; // 維修的結果
 const PAGE_KINDS = [{ value: '全部', tone: '' }, { value: '彩色', tone: '' }]; // 保養項目算哪種張數（全部＝黑白加彩色）
 // 合約的抄表週期（總覽的「該抄表了」照它算，空白當每月，見 records.js 的 readingsDue）
 const READ_CYCLES = ['每月', '雙月', '每季', '半年', '每年'].map(value => ({ value, tone: '' }));
@@ -602,6 +603,38 @@ const SCHEMAS = {
       { key: 'painted',   label: '噴漆', type: 'flag', optional: true },
       { key: 'content',   label: '翻新項目', type: 'text', full: true, multiline: true },
       { ...noteField(), section: '其他' },
+    ],
+  },
+
+  // 維修：修一次記一筆，留著以後同一個故障代碼可以參考（前車之鑑）
+  //   故障代碼存大寫、去掉空格（sc 542 → SC542），才找得到以前的；打好代碼，下面列以前修過的（同機型的在前，見 records.js 的 faultNote）
+  //   換的零件寫在處理方式，不算進保養的張數、壽命
+  repairs: {
+    title: '維修',
+    once: true,
+    period: recordMonth('date'),
+    card: { title: r => U.joinOnce([r.fault, Records.firstLine(r.symptom)], ' ') || '維修', badge: 'result', grid: [] },
+    note: r => Records.repairNote(r),
+    describe: r => Records.describe('repairs', r),
+    filter: 'result',
+    groups: [['fault', '故障代碼']],
+    search: ['device', 'fault', 'symptom', 'cause', 'fix', 'engineer', 'note'],
+    searchText: r => Records.deviceText(r.device, r.date),
+    searchHint: '搜尋位置、故障代碼、處理方式',
+    // 表單上：日期、工程師一排；故障代碼佔滿一排（下面列以前修過的，半格太擠）
+    formOrder: ['device', 'date', 'engineer', 'fault', 'symptom', 'cause', 'fix', 'result', 'link', 'note'],
+    fields: [
+      deviceField(),
+      dateField('date', '日期'),
+      { key: 'fault',    label: '故障代碼', type: 'text', optional: true, full: true, caps: true, clean: v => U.toHalf(v).replace(/\s+/g, '').toUpperCase(),
+        note: v => Records.faultNote(v), noteLines: 0 },
+      { key: 'symptom',  label: '狀況',     type: 'text', optional: true, full: true, multiline: true, hint: '看到什麼：卡紙、異音、印出來有黑線…' },
+      { key: 'cause',    label: '原因',     type: 'text', optional: true, full: true },
+      { key: 'fix',      label: '處理方式', type: 'text', optional: true, full: true, multiline: true, hint: '怎麼修好的、換了什麼零件' },
+      { key: 'engineer', label: '工程師',   type: 'ref', ref: 'people', optional: true },
+      { key: 'result',   label: '結果',     type: 'text', optional: true, toggle: toggleOf(REPAIR_RESULTS) },
+      { key: 'link',     label: '連結',     type: 'url', optional: true, full: true, hint: '照片或雲端硬碟資料夾的網址', section: '其他' },
+      noteField(),
     ],
   },
 

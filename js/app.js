@@ -1,5 +1,5 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份、回收桶
-//   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜更多；更多裡一格一個：合約、保養、翻新、異動、人員、設定（見 IN_MORE）
+//   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜更多；更多裡一格一個：合約、保養、維修、翻新、異動、人員、設定（見 IN_MORE）
 //   電腦版的側欄全部展開，不用更多，設定在最下面
 //   資料讀出來了才開始（見 storage.js 的 ready）
 Store.ready.then(() => {
@@ -49,7 +49,7 @@ Store.ready.then(() => {
 
   // ---------- 頁面 ----------
   // 各種紀錄的頁：[資料表, 新增按鈕上寫的]；抄表在底部自己一格，其他在「更多」裡
-  const RECORD_PAGES = [['maintenance', '保養'], ['refurbs', '翻新'], ['readings', '抄表'], ['contracts', '合約'], ['moves', '異動']];
+  const RECORD_PAGES = [['maintenance', '保養'], ['repairs', '維修'], ['refurbs', '翻新'], ['readings', '抄表'], ['contracts', '合約'], ['moves', '異動']];
   const PAGES = {
     overview: { title: '總覽' },
     customers: { title: '客戶' },
@@ -130,7 +130,7 @@ Store.ready.then(() => {
   const addWhat = addBtn.querySelector('.add-what');
 
   // 更多：收在裡面的頁打開時，底部的更多亮著
-  const IN_MORE = ['contracts', 'maintenance', 'refurbs', 'moves', 'people'];
+  const IN_MORE = ['contracts', 'maintenance', 'repairs', 'refurbs', 'moves', 'people'];
   const moreBtn = $('btn-more');
   const morePanel = $('more-panel');
   const moreScrim = $('more-scrim');
