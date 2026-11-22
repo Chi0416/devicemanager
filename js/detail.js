@@ -115,10 +115,7 @@ function createDetail({ table, dlg, sub, title, infoHTML, rows, onInfoClick = ()
   return { init, open: show, changed, refresh: () => changed(null, null) };
 }
 
-// 維修那一列寫故障代碼，沒有代碼的寫狀況的第一行
-const repairWhat = r => r.fault || Records.firstLine(r.symptom) || '維修';
-
-// 兩個詳情共用的列：合約（目前的合約到期日、合約內容第一行）、抄表（最近一次哪天抄、哪個月的帳）、保養、維修和翻新（最近一次那天做了什麼）
+// 兩個詳情共用的列：合約（目前的合約到期日、合約內容第一行）、抄表（最近一次哪天抄、哪個月的帳）、保養和翻新（最近一次那天做了什麼）
 //   粗體那行有日期時，日期寫在最前面，不加括號
 const DetailRows = {
   // c：目前的合約；all：這個位置所有的合約（還在簽、還沒開始的寫它；提前結束、到期之後沒有新的，寫最後那一份怎麼結束的）
@@ -336,8 +333,6 @@ const Detail = (() => {
       { key: 'readings', label: '抄表', summary: d => DetailRows.reading(Records.of('readings', d.code)), records: mine('readings'), preset: withDevice },
       { key: 'maintenance', label: '保養', summary: d => DetailRows.work(Records.of('maintenance', d.code), 'maintenance', r => r.item),
         records: mine('maintenance'), preset: withDevice },
-      { key: 'repairs', label: '維修', summary: d => DetailRows.work(Records.of('repairs', d.code), 'repairs', repairWhat, Records.repairNote),
-        records: mine('repairs'), preset: withDevice },
       { key: 'refurbs', label: '翻新',
         summary: d => DetailRows.work(Records.of('refurbs', d.code), 'refurbs', r => Records.firstLine(r.content), Records.refurbNote),
         records: mine('refurbs'), preset: withDevice },
@@ -536,8 +531,6 @@ const Place = (() => {
       { key: 'readings', label: '抄表', summary: p => DetailRows.reading(at('readings')(p)), records: at('readings'), preset: theOne, aside: machine },
       { key: 'maintenance', label: '保養', summary: p => DetailRows.work(at('maintenance')(p), 'maintenance', r => r.item),
         records: at('maintenance'), preset: theOne, aside: machine },
-      { key: 'repairs', label: '維修', summary: p => DetailRows.work(at('repairs')(p), 'repairs', repairWhat, Records.repairNote),
-        records: at('repairs'), preset: theOne, aside: machine },
       { key: 'refurbs', label: '翻新', summary: p => DetailRows.work(at('refurbs')(p), 'refurbs', r => Records.firstLine(r.content), Records.refurbNote),
         records: at('refurbs'), preset: theOne, aside: machine },
     ],

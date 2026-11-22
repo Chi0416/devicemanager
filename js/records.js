@@ -1,4 +1,4 @@
-// 紀錄：異動、合約、抄表、保養、翻新、維修、選配件（欄位見 schema.js）共用的計算
+// 紀錄：異動、合約、抄表、保養、翻新、選配件（欄位見 schema.js）共用的計算
 //   每一筆的「設備」欄寫設備編號（24-0001），用編號對到設備（大小寫、全形半形不同也認得）
 //   位置：存位置編號（L0001），畫面上寫名稱；改名時舊名字記在「以前的名字」（見 PLAN.md 第 4-3 節）
 //   位置歷程：設備目前的位置＝最新一筆異動（依日期，同一天依新增的先後）的新位置；設備那一列的「位置」欄由這裡算好填上
@@ -9,7 +9,7 @@
 //   抄表用量：這次減上一次；保養填的張數一起排
 //   每台設備的紀錄、異動、張數一次整理好（cached），資料沒改就直接用；抄表列表每張卡片都要找，一張一張從頭找太慢
 const Records = (() => {
-  const TABLES = ['moves', 'contracts', 'readings', 'maintenance', 'refurbs', 'repairs', 'parts'];
+  const TABLES = ['moves', 'contracts', 'readings', 'maintenance', 'refurbs', 'parts'];
   // 有「設備」欄的紀錄（合約綁位置，沒有）
   const DEVICE_TABLES = TABLES.filter(t => SCHEMAS[t].fields.some(f => f.key === 'device'));
   const WORKS = ['maintenance']; // 保養也可以填張數
@@ -274,12 +274,12 @@ const Records = (() => {
   //   合約寫位置：「大華公司 1F、大華公司 2F 2026/01/05 簽約」
   function describe(table, r) {
     if (table === 'contracts') return [contractPlaces(r).join('、'), startText(r)].filter(Boolean).join(' ');
+    if (table === 'repairs') return [r.model, r.fault || firstLine(r.symptom)].filter(Boolean).join(' ') || '維修';
     const parts = {
       moves: [U.fmtDate(r.date), r.type],
       readings: [r.month ? `${U.fmtMonth(r.month)} 抄表` : `${U.fmtDate(r.date)} 抄表`],
       maintenance: [U.fmtDate(r.date), r.item],
       refurbs: [U.fmtDate(r.date), '翻新'],
-      repairs: [U.fmtDate(r.date), r.fault || '維修'],
       parts: [r.name],
     }[table] || [];
     return [label(device(r.device)) || r.device, ...parts].filter(Boolean).join(' ');
@@ -1413,31 +1413,32 @@ const Records = (() => {
     return text ? { text, warn: false } : null;
   }
 
-  // ---------- 維修 ----------
-  // 維修卡片最下面一行：處理方式的第一行（沒寫時寫原因）、工程師
-  function repairNote(r) {
-    const text = [firstLine(r.fix) || firstLine(r.cause), r.engineer].filter(Boolean).join('・');
-    return text ? { text, warn: false } : null;
-  }
+  // ---------- 維修（修理筆記：機型、故障代碼、怎麼修，不綁哪一台） ----------
+  // 列表：照機型清單的順序，同一個機型依代碼（沒有代碼的排後面），同一個代碼新寫的在前
+  //   modelOrder 沒排過的是 Infinity（相減是 NaN，當作一樣，再照名字排）
+  const repairOrder = (a, b) => (modelOrder(a.model) - modelOrder(b.model)) || byText(a.model, b.model)
+    || (!a.fault - !b.fault) || byText(a.fault, b.fault) || cmp(String(b.id), String(a.id));
 
-  // 維修表單上故障代碼下面：這個代碼以前修過的（前車之鑑），同機型的在前，再來新到舊；最多列 FAULT_SHOW 筆
-  //   一筆一行：日期 位置（不同機型的加機型）：處理方式（沒寫時寫原因、狀況）（結果）
+  // 卡片最下面一行：處理方式的第一行（沒寫時寫原因）
+  const repairNote = r => noteLine(firstLine(r.fix) || firstLine(r.cause));
+
+  // 表單上故障代碼下面：這個代碼已經寫過的修法（前車之鑑），同機型的在前，其他機型的寫機型；最多列 FAULT_SHOW 筆
+  //   一筆一行：處理方式（沒寫時寫原因、狀況）
   const FAULT_SHOW = 5;
   function faultNote(values) {
     const code = key(values.fault);
     if (!code) return '';
-    const model = key(device(values.device)?.model);
-    const past = Store.list('repairs').filter(r => r.id !== values.id && key(r.fault) === code)
-      .map(r => ({ r, same: !!model && key(device(r.device)?.model) === model }))
-      .sort((a, b) => (b.same - a.same) || cmp(String(b.r.date ?? ''), String(a.r.date ?? '')) || cmp(String(b.r.id), String(a.r.id)));
-    if (!past.length) return '以前沒有修過這個代碼';
+    const model = key(values.model);
+    // 新寫的在前：照存的先後（後面的是新的）
+    const past = Store.list('repairs').map((r, i) => ({ r, i, same: !!model && key(r.model) === model }))
+      .filter(({ r }) => r.id !== values.id && key(r.fault) === code)
+      .sort((a, b) => (b.same - a.same) || (b.i - a.i));
+    if (!past.length) return '還沒有寫過這個代碼';
     const same = past.filter(x => x.same).length;
-    const head = `以前修過 ${past.length} 次${same ? `（同機型 ${same} 次）` : ''}`;
+    const head = model ? `這個機型寫過 ${same} 筆${past.length > same ? `，其他機型 ${past.length - same} 筆` : ''}` : `寫過 ${past.length} 筆`;
     const lines = past.slice(0, FAULT_SHOW).map(({ r, same: s }) => {
-      const d = device(r.device);
-      const where = [r.date && shortDate(r.date), placeName(locationAt(r.device, r.date)) || label(d), !s && d?.model].filter(Boolean).join(' ');
       const how = firstLine(r.fix) || firstLine(r.cause) || firstLine(r.symptom) || '沒寫怎麼修';
-      return `・${where}：${how}${r.result ? `（${r.result}）` : ''}`;
+      return `・${!s && r.model ? `${r.model}：` : ''}${how}`;
     });
     const more = past.length > FAULT_SHOW ? [`還有 ${past.length - FAULT_SHOW} 筆，到維修頁搜尋 ${String(values.fault).trim()}`] : [];
     return [head, ...lines, ...more].join('\n');
@@ -1710,7 +1711,7 @@ const Records = (() => {
     contractStarted, contractDate, needsEnd, contractIssue, contractDueDate, compareContractDue, contractStatus, contractTag, contractEndFrom, startText, contractTaker, contractOutText, pendingContracts, pendingShort,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
-    workNote, workCols, refurbNote, repairNote, faultNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
+    workNote, workCols, refurbNote, repairOrder, repairNote, faultNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     shownDevices, isShown, canAdd, TONER_LOW, tonerColors, tonerIsLow, WASTE_FULL, wasteIsFull, customerReports, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, tonerDue, wasteDue, readingsDue, statusMismatch,
     toConfirm, confirmsDue, confirmWhen, confirmValues,
     partOrder, partNote, partChoices, partNames, partsHint, saveDeviceParts, partsCheckNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,

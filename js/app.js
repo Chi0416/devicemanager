@@ -90,9 +90,10 @@ Store.ready.then(() => {
     // 合約：上面四個方塊，下面行政狀態的篩選和清單（見 contracts.js）
     contracts: createContracts(),
     // 紀錄：卡片最上面那一排寫位置、設備，和設備卡片一樣小標題在上，下面才是內容（依紀錄的種類，見 records.js 的 recordCells）
+    //   維修是修理筆記，不綁哪一台：沒有那一排
     ...Object.fromEntries(RECORD_PAGES.filter(([k]) => k !== 'contracts').map(([k]) => [k, createList(k, SCHEMAS[k], {
       openForm: id => Form.open(k, id),
-      device: r => Records.recordCells(k, r),
+      device: Records.DEVICE_TABLES.includes(k) ? r => Records.recordCells(k, r) : null,
     })])),
   };
   Object.values(lists).forEach(l => $('panels').appendChild(l.el));

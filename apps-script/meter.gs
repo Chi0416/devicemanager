@@ -765,7 +765,7 @@ function salesRows_(values, person) {
       open[m.device] = stay;
     }
   });
-  const DATE = { 異動: '日期', 抄表: '抄表日期', 保養: '日期', 維修: '日期', 翻新: '翻新日期', 選配件: '安裝日期' };
+  const DATE = { 異動: '日期', 抄表: '抄表日期', 保養: '日期', 翻新: '翻新日期', 選配件: '安裝日期' };
   const seen = (n, r) => {
     const device = codeKey_(r[col(n, '設備')]);
     if (now.has(device)) return true;
@@ -790,6 +790,7 @@ function salesRows_(values, person) {
     狀態: tab('狀態'),
     選項: tab('選項'),
     廠商: tab('廠商'),
+    維修: tab('維修'), // 修理筆記不綁機器，整本都給
     人員: people,
   };
   Object.keys(DATE).forEach(n => { out[n] = pick(n, r => seen(n, r)); });
