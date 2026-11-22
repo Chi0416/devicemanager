@@ -6,6 +6,9 @@
 //   schema.note：卡片最下面的一行（例如保固快到期）
 //   schema.card.cols(列)：標題下面的小表格，一欄一種張數 [{ label, use, tone, count }]（抄表、保養的黑白、彩色）
 //     最上面一列寫黑白、彩色；下面兩列是使用量（粗體）、計數器（灰字），左邊寫是哪一列
+//   schema.table：電腦版（960px 以上）改成表格，一列一筆，點一列和點卡片一樣；手機、設備詳情裡照舊是卡片
+//     [{ key } 照欄位的名稱、寫法｜{ label, text(列) } 回傳字或 { text, tone, warn }｜{ label, tag: true } 標籤（和卡片的一樣）]
+//     main: true 粗體（認這一筆的那一欄）；clip: true 長的字只寫一行、多的「…」，分掉剩下的寬度
 //   schema.total 存在時，列表上方顯示合計
 //   schema.statusHead：放在詳情裡（detail）時，狀態標籤寫在日期旁邊、有標籤的卡片藍框；紀錄的頁大多都有標籤，留在卡片上，對齊標題第一行（合約）
 //   rows：要列的資料（設備詳情裡只列這台設備的紀錄）；沒有時列整張表
@@ -146,9 +149,17 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     renderList();
   });
   listEl.addEventListener('click', e => {
-    const card = e.target.closest('.card');
+    const card = e.target.closest('.card, .tbl tr[data-id]');
     if (card) openForm(card.dataset.id);
   });
+  // 表格的一列用 Tab 選到時，按 Enter 打開
+  listEl.addEventListener('keydown', e => {
+    const tr = e.key === 'Enter' && e.target.closest('.tbl tr[data-id]');
+    if (tr) openForm(tr.dataset.id);
+  });
+  // 電腦版用表格：視窗拉寬、拉窄時跟著換
+  const wide = schema.table && !detail ? matchMedia('(min-width: 960px)') : null;
+  wide?.addEventListener('change', () => renderList());
 
   // ---------- 畫面 ----------
   function renderPeriods() {
@@ -218,6 +229,33 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
       </button>`;
   }
 
+  // ---------- 表格（電腦版） ----------
+  const tableCols = (schema.table || []).map(c => (c.key ? { label: byKey[c.key].label, ...c } : c));
+  const cellHTML = (c, r) => {
+    if (c.tag) {
+      const tag = badge ? r[badge] && { label: r[badge], cls: tone(r[badge]) } : statusOf(r);
+      return `<td class="tag">${tag ? `<span class="badge ${tag.cls}">${U.esc(tag.label)}</span>` : ''}</td>`;
+    }
+    const v = c.text ? c.text(r) : U.display(byKey[c.key], r[c.key]);
+    const o = v && typeof v === 'object' ? v : { text: v };
+    // 多行的字接成一行
+    const text = String(o.text ?? '').trim().split(/\s*\n\s*/).join(' ');
+    const cls = [c.main && 'main', c.clip && 'clip', o.tone, o.warn && 'warn', !text && 'none'].filter(Boolean).join(' ');
+    // 只寫一行的，滑鼠停著時看全部
+    return `<td class="${cls}"${c.clip && text ? ` title="${U.esc(text)}"` : ''}>${U.esc(text) || '—'}</td>`;
+  };
+  const rowHTML = r => `
+    <tr data-id="${U.esc(r.id)}" tabindex="0"${r.id === state.flashId ? ' class="flash"' : ''}>
+      ${tableCols.map(c => cellHTML(c, r)).join('')}
+    </tr>`;
+  const tableHTML = groupsList => `
+    <table class="tbl">
+      <thead><tr>${tableCols.map(c => `<th${c.clip ? ' class="clip"' : ''}>${U.esc(c.label || '')}</th>`).join('')}</tr></thead>
+      <tbody>${groupsList.map(g =>
+        (g.head ? `<tr class="tbl-group"><th colspan="${tableCols.length}">${U.esc(g.head)}${g.count ? `<span>${g.count}</span>` : ''}</th></tr>` : '') +
+        g.rows.map(rowHTML).join('')).join('')}</tbody>
+    </table>`;
+
   // 合計目前篩選範圍內的數字；算不出來（空白）的列不計入
   function summaryHTML(rows) {
     const { key, label } = schema.total;
@@ -285,9 +323,9 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
         ? `${introHTML}<p class="empty">沒有符合條件的資料</p>`
         : `<p class="empty">${detail ? `還沒有${U.esc(schema.title)}` : schema.empty || '還沒有資料<br>點右上角「＋ 新增」開始記錄'}</p>`;
     } else {
-      listEl.innerHTML = introHTML + (schema.total ? summaryHTML(rows) : '') + grouped(rows).map(g =>
+      listEl.innerHTML = introHTML + (schema.total ? summaryHTML(rows) : '') + (wide?.matches ? tableHTML(grouped(rows)) : grouped(rows).map(g =>
         (g.head ? `<h3 class="group-head">${U.esc(g.head)}${g.count ? `<span>${g.count}</span>` : ''}${headTag(g.rows)}</h3>` : '') +
-        g.rows.map(cardHTML).join('')).join('');
+        g.rows.map(cardHTML).join('')).join(''));
     }
     state.flashId = null;
   }

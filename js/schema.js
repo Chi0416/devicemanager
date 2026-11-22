@@ -60,6 +60,7 @@
 //                       head(列) 名稱上面一排灰字，有 head 時標籤放在那一排的右邊、
 //                       side(列) sub 那一行的右邊（標籤下面）：{ text, tone } 或 null，tone 是 fresh 綠字／old 橘字
 //                       grid 卡片下方的欄位（沒有時列出其餘全部）
+//   （資料表）table:     電腦版改成表格時的欄位（沒有時電腦版也是卡片），寫法見 list.js
 //   （資料表）status:    沒有 badge 時的標籤：status(列) 回傳 { label, cls } 或 null（目前的合約、已拆除）
 //   （資料表）statusHead: 放在詳情裡時，標籤寫在日期旁邊、有標籤的卡片藍框；紀錄的頁留在卡片上（合約，見 list.js）
 //   （資料表）note:      卡片最下面的一行：note(列) 回傳 { text, warn } 或 null
@@ -279,6 +280,16 @@ const SCHEMAS = {
     // 標題寫機型＋名稱（IMC6000 #1001），下面一行寫機器序號（查機器、印紀錄時最常用）
     //   序號那一行的右邊（狀態標籤下面）寫最新回報多久以前（今天 08:30、5 天前）；沒回報過的不寫（見 records.js 的 reportNote）
     card: { title: r => Records.label(r), sub: r => (r.serial ? `序號 ${r.serial}` : ''), side: r => Records.reportNote(r), badge: 'status', grid: ['location', 'keeper'] },
+    // 電腦版的表格：卡片上的都有，再加保固（卡片最下面那一行）
+    table: [
+      { label: '設備', text: r => Records.label(r), main: true },
+      { key: 'serial' },
+      { key: 'location', clip: true },
+      { key: 'keeper' },
+      { label: '狀態', tag: true },
+      { label: '最新回報', text: r => Records.reportNote(r) },
+      { label: '保固', text: r => warrantyNote(r) },
+    ],
     // 表單上：類別、品牌、機型、名稱（卡片寫機型＋名稱，名稱的提醒要先選機型）；狀態跟著位置帶，放在位置後面
     formOrder: ['code', 'category', 'brand', 'model', 'name', 'serial', 'board', 'location', 'status', 'keeper', 'buyDate', 'price', 'vendor', 'warranty', 'parts'],
     note: warrantyNote,
@@ -623,6 +634,15 @@ const SCHEMAS = {
     // 卡片：最上面一排灰字機型・發生日期（右邊待補）；標題只寫代碼；下面狀況最多兩行（狀況很長也不會撐開）；最下面處理方式的第一行
     card: { head: r => U.joinOnce([r.model, r.date && U.fmtDate(r.date)], ' · '), title: r => r.fault || '維修',
       sub: r => String(r.symptom ?? '').trim().split(/\s*\n\s*/).join(' '), subLines: 2, grid: [] },
+    // 電腦版的表格：狀況、處理方式只寫一行（處理方式寫第一行），點進去看全部
+    table: [
+      { key: 'date' },
+      { key: 'model' },
+      { key: 'fault', main: true },
+      { key: 'symptom', clip: true },
+      { label: '處理方式', text: r => Records.repairNote(r), clip: true },
+      { label: '', tag: true },
+    ],
     status: r => (Records.repairTodo(r) ? { label: '待補', cls: 'orange' } : null),
     filter: { label: '待補', toggle: [{ value: '待補', label: '待補', tone: 'orange' }], of: r => (Records.repairTodo(r) ? '待補' : '') },
     note: r => Records.repairNote(r),
