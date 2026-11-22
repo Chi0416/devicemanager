@@ -185,7 +185,12 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     const st = statusOf(r);
     const tag = statusOnHead ? null : badge ? r[badge] && { label: r[badge], cls: tone(r[badge]) } : st;
     const note = noteOf ? noteOf(r) : null;
+    // head：標題上面一排灰色小字，標籤放在它的右邊（維修的機型・發生日期）
+    const head = card.head?.(r) || '';
+    const tagHTML = tag ? `<span class="badge ${tag.cls}">${U.esc(tag.label)}</span>` : '';
     const sub = card.sub?.(r) || '';
+    // subLines：名稱下面那行最多幾行，多的用「…」（維修的狀況）
+    const subCls = card.subLines ? ` clamp-${card.subLines}` : '';
     const side = card.side?.(r);
     const sideHTML = side ? `<span class="card-side ${side.tone}">${U.esc(side.text)}</span>` : '';
     const dev = device ? device(r) : [];
@@ -199,13 +204,14 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     return `
       <button type="button" class="card${r.id === state.flashId ? ' flash' : ''}${st?.pending ? ' pending' : ''}${statusOnHead && st && !st.pending ? ' marked' : ''}" data-id="${U.esc(r.id)}">
         ${devCells ? `<span class="card-grid rec cols-${dev.length}">${devCells}</span>` : ''}
+        ${head || (card.head && tagHTML) ? `<span class="card-head"><span>${U.esc(head)}</span>${tagHTML}</span>` : ''}
         <span class="card-top${as ? ' with-aside' : ''}${schema.statusHead ? ' tag-top' : ''}">
           <span class="card-title">${code && r[code] ? `<span class="card-code">${U.esc(r[code])}</span>` : ''}${U.esc(titleOf(r))}</span>
           ${as ? `<span class="card-aside${as.warn ? ' warn' : ''}">${U.esc(as.text)}</span>` : ''}
-          ${tag ? `<span class="badge ${tag.cls}">${U.esc(tag.label)}</span>` : ''}
+          ${card.head ? '' : tagHTML}
           ${pf ? `<span class="card-primary"><small>${cardLabel(pf)}</small><b>${show(pf, r[primary])}</b></span>` : ''}
         </span>
-        ${sideHTML ? `<span class="card-sub split"><span>${U.esc(sub)}</span>${sideHTML}</span>` : sub ? `<span class="card-sub">${U.esc(sub)}</span>` : ''}
+        ${sideHTML ? `<span class="card-sub split"><span>${U.esc(sub)}</span>${sideHTML}</span>` : sub ? `<span class="card-sub${subCls}">${U.esc(sub)}</span>` : ''}
         ${cells ? `<span class="card-grid">${cells}</span>` : ''}
         ${counts}
         ${note ?`<span class="card-note${note.warn ? ' warn' : ''}">${U.esc(note.text)}</span>` : ''}

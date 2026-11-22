@@ -244,6 +244,9 @@ body:has(dialog[open]) { overflow: hidden; }
 /* 詳情裡目前的合約：藍框；框線只有 .5px 看不出來，外面用陰影再畫一圈（卡片不會動） */
 .card.marked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
 
+/* 標題上面一排灰色小字，右邊是標籤（維修的機型・發生日期、待補） */
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 20px; margin-bottom: 4px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.card-head > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 /* 卡片頂端：名稱、狀態標籤、右上角的數字 */
 .card-top { display: flex; align-items: center; gap: 10px; }
 /* 標題折行時，標籤對齊第一行（紀錄的合約） */
@@ -304,6 +307,8 @@ body:has(dialog[open]) { overflow: hidden; }
 /* 序號那一行的右邊（狀態標籤下面）：最新回報多久以前，3 天內綠字、超過 30 天橘字 */
 .card-sub.split { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .card-sub.split > span:first-child { min-width: 0; }
+/* 最多兩行，多的「…」（維修的狀況，點進去看全部） */
+.card-sub.clamp-2 { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .card-side { flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .card-side.fresh { color: var(--ok); }
 .card-side.old { color: var(--warn); }

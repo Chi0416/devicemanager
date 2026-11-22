@@ -1352,13 +1352,15 @@ test('維修（修理筆記）：機型、發生日期、故障代碼、狀況�
   assert.equal(note({ model: 'mpc3003', fault: 'sc542' }), '這個機型寫過 2 筆，其他機型 1 筆\n・09/30 清熱敏電阻\n・05/02 加熱組壞了，還沒寫怎麼修\n・2025/12/11 MPC2504：插頭鬆了，重插');
   assert.equal(note({ model: '', fault: 'SC542' }).split('\n')[0], '寫過 3 筆');
   assert.equal(note({ id: c.id, model: 'MPC3003', fault: 'SC542' }).split('\n')[0], '這個機型寫過 1 筆，其他機型 1 筆'); // 編輯那一筆時不算自己
-  // 卡片：標題寫代碼和狀況第一行，下面寫機型，最下面寫處理方式（沒寫時寫原因）
-  assert.equal(SCHEMAS.repairs.card.title(c), 'SC542 跳代碼');
-  assert.equal(SCHEMAS.repairs.card.sub(c), 'MPC3003');
-  assert.deepEqual(plain(SCHEMAS.repairs.card.side(c)), { text: '2026/09/30', tone: '' }); // 下面一行右邊
-  assert.equal(SCHEMAS.repairs.card.side({ ...c, date: '' }), null);
+  // 卡片：最上面一排機型・發生日期，標題只寫代碼，下面狀況（換行接成一行，最多兩行），最下面處理方式的第一行（沒寫時空著）
+  const card = SCHEMAS.repairs.card;
+  assert.equal(card.head(c), 'MPC3003 · 2026/09/30');
+  assert.equal(card.head({ ...c, date: '' }), 'MPC3003');
+  assert.equal(card.title(c), 'SC542');
+  assert.equal(card.sub({ symptom: ' 開機後跳代碼\n 有焦味 ' }), '開機後跳代碼 有焦味');
+  assert.equal(card.subLines, 2);
   assert.deepEqual(plain(Records.repairNote(c)), { text: '清熱敏電阻', warn: false });
-  assert.deepEqual(plain(Records.repairNote(b)), { text: '加熱組壞了', warn: false });
+  assert.equal(Records.repairNote(b), null);
   assert.equal(Records.describe('repairs', b), 'MPC3003 SC542');
   // 還沒寫處理方式的：卡片標「待補」，列表可以篩；只填了代碼的寫「還沒寫怎麼修」
   assert.equal(SCHEMAS.repairs.status(c), null);

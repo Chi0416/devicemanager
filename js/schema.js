@@ -56,7 +56,8 @@
 //                       停用放最後，新增時不出現（showIf: v => !!v.id）
 //   （資料表）describe:  一筆資料的簡短說明（儲存後的提示、提醒裡用）：describe(列)；沒有時用 card 的編號、名稱、標籤
 //   （資料表）unit:      筆數的單位（「3 台設備」），被清單引用時的說明用
-//   （資料表）card:      列表卡片：code 灰色小字、title 名稱（可以是函式：title(列)）、sub(列) 名稱下面一行小字、badge 標籤、primary 右上角、
+//   （資料表）card:      列表卡片：code 灰色小字、title 名稱（可以是函式：title(列)）、sub(列) 名稱下面一行小字（subLines 最多幾行）、badge 標籤、primary 右上角、
+//                       head(列) 名稱上面一排灰字，有 head 時標籤放在那一排的右邊、
 //                       side(列) sub 那一行的右邊（標籤下面）：{ text, tone } 或 null，tone 是 fresh 綠字／old 橘字
 //                       grid 卡片下方的欄位（沒有時列出其餘全部）
 //   （資料表）status:    沒有 badge 時的標籤：status(列) 回傳 { label, cls } 或 null（目前的合約、已拆除）
@@ -616,9 +617,9 @@ const SCHEMAS = {
   repairs: {
     title: '維修',
     order: (a, b) => Records.repairOrder(a, b),
-    // 卡片：標題寫代碼和狀況，下面一行左邊機型、右邊發生日期
-    card: { title: r => U.joinOnce([r.fault, Records.firstLine(r.symptom)], ' ') || '維修', sub: r => r.model || '',
-      side: r => (r.date ? { text: U.fmtDate(r.date), tone: '' } : null), grid: [] },
+    // 卡片：最上面一排灰字機型・發生日期（右邊待補）；標題只寫代碼；下面狀況最多兩行（狀況很長也不會撐開）；最下面處理方式的第一行
+    card: { head: r => U.joinOnce([r.model, r.date && U.fmtDate(r.date)], ' · '), title: r => r.fault || '維修',
+      sub: r => String(r.symptom ?? '').trim().split(/\s*\n\s*/).join(' '), subLines: 2, grid: [] },
     status: r => (Records.repairTodo(r) ? { label: '待補', cls: 'orange' } : null),
     filter: { label: '待補', toggle: [{ value: '待補', label: '待補', tone: 'orange' }], of: r => (Records.repairTodo(r) ? '待補' : '') },
     note: r => Records.repairNote(r),

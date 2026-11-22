@@ -1421,8 +1421,8 @@ const Records = (() => {
 
   // 還沒寫處理方式的：卡片標「待補」，列表可以篩
   const repairTodo = r => !firstLine(r.fix);
-  // 卡片最下面一行：處理方式的第一行（沒寫時寫原因）
-  const repairNote = r => noteLine(firstLine(r.fix) || firstLine(r.cause));
+  // 卡片最下面一行：處理方式的第一行（沒寫時空著，卡片上有待補）
+  const repairNote = r => noteLine(r.fix);
 
   // 表單上故障代碼下面：這個代碼已經寫過的修法（前車之鑑），同機型的在前，其他機型的寫機型；最多列 FAULT_SHOW 筆
   //   同機型的在前，再來發生日期新的在前（沒有日期的排後面），同一天後寫的在前
