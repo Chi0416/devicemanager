@@ -1375,10 +1375,11 @@ test('維修（修理筆記）：機型、發生日期、故障代碼、狀況�
     ['MPC2504 卡紙 2026-01-01', 'MPC2504 SC542 2025-12-11', 'MPC3003 SC542 2026-09-30', 'MPC3003 SC542 2026-05-02']);
 });
 
-test('手冊：代碼、頁數、說明、可能原因、處理方式；維修打代碼時先列手冊，空一行，再列實戰', () => {
+test('手冊：代碼、頁數、說明、可能原因、處理方式，App 上只能看；維修打代碼時先列手冊，空一行，再列實戰', () => {
   const { SCHEMAS, field, add } = withDevices();
   assert.deepEqual(plain(SCHEMAS.manual.fields.map(x => x.label)), ['故障代碼', '頁數', '說明', '可能原因', '處理方式']);
   assert.deepEqual(plain(SCHEMAS.manual.fields.filter(x => !x.optional).map(x => x.key)), ['code']);
+  assert.equal(SCHEMAS.manual.readOnly, true); // App 上只能看，要改到試算表上改
   assert.equal(field('manual', 'code').clean('sc 542', {}), 'SC542'); // 和維修的寫法一樣才對得起來
   const note = field('repairs', 'fault').note;
   // 手冊還是空的（還沒匯入、業務員）：不寫手冊那段

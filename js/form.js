@@ -77,18 +77,22 @@ const Form = (() => {
     const sales = typeof Sync !== 'undefined' && Sync.isSales();
     if (sales && (id ? !Sync.salesSee(tableKey) : !Sync.salesCan(tableKey))) return;
     const schema = SCHEMAS[tableKey];
+    // 只能看的表（手冊：資料只從試算表來）：不能新增；打開一筆時全部只顯示，沒有儲存、刪除
+    const readOnly = !!schema.readOnly;
+    if (readOnly && !id) return;
     const rec = id ? Store.get(tableKey, id) : null;
     if (id && !rec) return;
     // 表單上的順序（schema 的 formOrder 寫的先排，異動的類型在最上面）；試算表照 fields 的順序
     const first = schema.formOrder || [];
     const all = [...schema.fields, ...(schema.extra || [])];
     const fields = [...first.map(k => all.find(f => f.key === k)), ...all.filter(f => !first.includes(f.key))];
-    ctx = { tableKey, schema, id, count: 0, fields, preset, fixed, view: sales && !!id };
+    ctx = { tableKey, schema, id, count: 0, fields, preset, fixed, view: (sales && !!id) || readOnly, readOnly };
     // 標題：選項寫它屬於哪一份清單（「編輯保養項目」），其他寫表的名稱
     const name = typeof schema.formTitle === 'function' ? schema.formTitle(rec || preset) : schema.formTitle || schema.title;
     ctx.name = name;
-    titleEl.textContent = ctx.view ? `${name}・回報問題` : `${id ? '編輯' : '新增'}${name}`;
-    setCloseLabel('取消');
+    titleEl.textContent = readOnly ? name : ctx.view ? `${name}・回報問題` : `${id ? '編輯' : '新增'}${name}`;
+    setCloseLabel(readOnly ? '關閉' : '取消');
+    saveBtn.hidden = readOnly;
     resetDelete();
     delBtn.hidden = !id || ctx.view;
     anotherBtn.hidden = !!id || !!schema.once;
@@ -212,7 +216,8 @@ const Form = (() => {
         if (inp.tagName === 'TEXTAREA') inp.hidden = true;
         else inp.type = 'hidden';
         autos[i] = document.createElement('div');
-        autos[i].className = 'auto-value';
+        // 多行的（手冊的處理方式、備註）照打的換行、高度跟著字，不截掉
+        autos[i].className = `auto-value${f.multiline ? ' lines' : ''}`;
         wrap.append(inp, autos[i]);
       } else if ((f.toggle && !f.select) || f.type === 'multi') {
         label.removeAttribute('for');
@@ -747,6 +752,7 @@ const Form = (() => {
 
   // again：新增後留在表單，接著填下一筆
   function save(again = false) {
+    if (ctx.readOnly) return;
     // 打了字馬上按儲存：離開這一格後要等一下才換成打的值（見 buildCombo 的 blur），這裡先換，不然會存到原本的
     combos.forEach((c, i) => {
       if (!c) return;

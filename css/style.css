@@ -822,6 +822,9 @@ dialog.sheet::backdrop { background: rgba(15, 23, 42, .4); }
 .auto-value b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .auto-value small { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
 .auto-value.pending b { color: var(--text-2); }
+/* 多行的只顯示（手冊的處理方式、備註）：照換行寫，高度跟著字 */
+.auto-value.lines { height: auto; min-height: 46px; padding: 12px; align-items: flex-start; white-space: pre-line; overflow-wrap: anywhere; }
+.auto-value.lines b { font-weight: 500; line-height: 1.5; }
 
 /* 勾選（停用）：整列是開關，開關在說明的右邊（蓋過 .field label 的寫法） */
 .flag-field .switch-row { display: flex; margin: 0; font-size: 15px; font-weight: 400; color: var(--text); box-shadow: none; }

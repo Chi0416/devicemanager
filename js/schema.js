@@ -96,6 +96,7 @@
 //   （資料表）action:    編輯時表單下面另一個按鈕（和 copy 同一個位置，人員的「複製邀請連結」）：
 //                       { key, label 按鈕上的字, show(這一筆) 要不要出現, note(這一筆) 按鈕下面的說明 }；按了交給 app.js（Form.init 的 action）
 //   （資料表）history:   編輯時表單最下面的修改紀錄：history(這一筆) 回傳 [{ date, text }]
+//   （資料表）readOnly:  只能看：沒有新增按鈕，打開一筆時全部只顯示，沒有儲存、刪除（手冊，資料只從試算表來）
 //   （資料表）once:      新增時沒有「儲存，再新增一筆」（異動、抄表、翻新、合約：一次一筆，連續輸入很容易同一台機器多存一筆）
 //   （資料表）next:      新增好按「儲存」後接著打開的表單：next(存好的那一筆) 回傳 { table, preset, message, stress（要強調的一句，可以沒有） } 或 null（安裝、撤機後抄表）
 //   （資料表）extra:     只在表單上、不是這張表的欄位（試算表沒有這一欄，設備的選配件）：寫法和 fields 一樣，formOrder 可以排它；目前只有複選
@@ -645,8 +646,10 @@ const SCHEMAS = {
   // 手冊：原廠維修手冊的故障碼表（從 PDF 轉出來，貼進試算表的「手冊」分頁），不分機型、世代（幾份手冊的故障碼幾乎一樣）
   //   維修表單打好故障代碼時，先列手冊的說明、可能原因、處理方式，再列實戰的維修筆記（見 records.js 的 faultNote）
   //   原廠手冊有版權：只放在自己的試算表，不放進 GitHub；業務員看不到（總部程式不給這個分頁，App 的頁也藏起來）
+  //   App 上只能看、不能新增、修改、刪除（readOnly，見 form.js）：要改到試算表上改
   manual: {
     title: '手冊',
+    readOnly: true,
     order: (a, b) => Records.manualOrder(a, b),
     card: { title: r => r.code || '手冊', sub: r => r.desc || '', grid: [] },
     note: r => Records.noteLine(r.fix),

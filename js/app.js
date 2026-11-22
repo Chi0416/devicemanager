@@ -124,7 +124,8 @@ Store.ready.then(() => {
 
   // ---------- 分頁 ----------
   // 新增按鈕：這一頁新增到哪張表、按鈕上寫什麼；總覽沒有新增按鈕
-  const ADD = { customers: ['customers', '客戶'], locations: ['locations', '位置'], people: ['people', '人員'], devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.map(([k, what]) => [k, [k, what]])) };
+  // 只能看的表（手冊）沒有新增按鈕
+  const ADD = { customers: ['customers', '客戶'], locations: ['locations', '位置'], people: ['people', '人員'], devices: ['devices', '設備'], ...Object.fromEntries(RECORD_PAGES.filter(([k]) => !SCHEMAS[k].readOnly).map(([k, what]) => [k, [k, what]])) };
   // 底部、側欄、更多裡的格子
   const tabBtns = [...document.querySelectorAll('[data-tab]')];
   const addBtn = $('btn-add');
