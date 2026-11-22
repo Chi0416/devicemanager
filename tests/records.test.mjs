@@ -1332,7 +1332,7 @@ test('翻新：翻新日期、入庫日、工程師（人員）、序號、國�
 test('維修（修理筆記）：機型、故障代碼、狀況、原因、處理方式、備註，不綁哪一台；代碼存大寫、去掉空格；打好代碼，下面列已經寫過的修法', () => {
   const { Records, SCHEMAS, field, add } = withDevices();
   assert.deepEqual(plain(SCHEMAS.repairs.fields.map(x => x.label)), ['機型', '故障代碼', '狀況', '原因', '處理方式', '備註']);
-  assert.deepEqual(plain(SCHEMAS.repairs.fields.filter(x => !x.optional).map(x => x.key)), ['model', 'fix']);
+  assert.deepEqual(plain(SCHEMAS.repairs.fields.filter(x => !x.optional).map(x => x.key)), ['model', 'fault']); // 發現時先存這兩個，其他修好再補
   assert.equal(field('repairs', 'model').list, '機型');
   assert.equal(field('repairs', 'model').keep, true); // 同一個機型連續寫好幾筆
   assert.equal(field('repairs', 'fault').clean('sc 542 ', {}), 'SC542');
@@ -1347,7 +1347,7 @@ test('維修（修理筆記）：機型、故障代碼、狀況、原因、處�
   assert.equal(note({ model: 'MPC3003', fault: '' }), '');
   assert.equal(note({ model: 'MPC3003', fault: 'SC999' }), '還沒有寫過這個代碼');
   // 同機型的在前（新寫的在前），其他機型的寫機型；沒寫處理方式的寫原因
-  assert.equal(note({ model: 'mpc3003', fault: 'sc542' }), '這個機型寫過 2 筆，其他機型 1 筆\n・清熱敏電阻\n・加熱組壞了\n・MPC2504：插頭鬆了，重插');
+  assert.equal(note({ model: 'mpc3003', fault: 'sc542' }), '這個機型寫過 2 筆，其他機型 1 筆\n・清熱敏電阻\n・加熱組壞了，還沒寫怎麼修\n・MPC2504：插頭鬆了，重插');
   assert.equal(note({ model: '', fault: 'SC542' }).split('\n')[0], '寫過 3 筆');
   assert.equal(note({ id: c.id, model: 'MPC3003', fault: 'SC542' }).split('\n')[0], '這個機型寫過 1 筆，其他機型 1 筆'); // 編輯那一筆時不算自己
   // 卡片：標題寫代碼和狀況第一行，下面寫機型，最下面寫處理方式（沒寫時寫原因）
@@ -1356,6 +1356,13 @@ test('維修（修理筆記）：機型、故障代碼、狀況、原因、處�
   assert.deepEqual(plain(Records.repairNote(c)), { text: '清熱敏電阻', warn: false });
   assert.deepEqual(plain(Records.repairNote(b)), { text: '加熱組壞了', warn: false });
   assert.equal(Records.describe('repairs', b), 'MPC3003 SC542');
+  // 還沒寫處理方式的：卡片標「待補」，列表可以篩；只填了代碼的寫「還沒寫怎麼修」
+  assert.equal(SCHEMAS.repairs.status(c), null);
+  assert.deepEqual(plain(SCHEMAS.repairs.status(b)), { label: '待補', cls: 'orange' });
+  assert.equal(SCHEMAS.repairs.filter.of(b), '待補');
+  assert.equal(SCHEMAS.repairs.filter.of(c), '');
+  add('repairs', { model: 'MPC3003', fault: 'SC542', fix: '  ' }); // 只有空白也算沒寫
+  assert.equal(note({ model: 'MPC3003', fault: 'SC542' }).split('\n')[1], '・還沒寫怎麼修');
   // 列表：機型依名字（清單沒排過），同一個機型依代碼，同一個代碼新寫的在前
   const rows = [a, b, c, ...[]].concat(add('repairs', { model: 'MPC2504', fix: '沒有代碼的' }));
   assert.deepEqual(plain([...rows].sort(SCHEMAS.repairs.order).map(r => `${r.model} ${r.fault}`.trim())),

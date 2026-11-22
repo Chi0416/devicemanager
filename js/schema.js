@@ -68,6 +68,7 @@
 //   （資料表）order:     沒有 period 時的排序：order(a, b)，和陣列的 sort 一樣
 //   （資料表）sort:      沒有 period、order 時的排序欄位（由小到大）
 //   （資料表）filter:    列表上方的篩選按鈕（依這個欄位：toggle 的選項，或從清單選的欄位的清單，例如狀態）
+//                       也可以是算出來的：{ label, toggle: [{ value, label, tone }], of(列) 回傳 value 或空字串 }（維修的待補）
 //   （資料表）groups:    可以選的分組方式：[[欄位, 名稱]]
 //   （資料表）search:    搜尋框找哪些欄位；沒有時找 card 的 code 和 title
 //   （資料表）searchText: 另外讓搜尋找得到的字：searchText(列)（紀錄的設備名稱、位置）
@@ -607,12 +608,16 @@ const SCHEMAS = {
 
   // 維修：修理筆記，一筆記一個機型的一個故障代碼怎麼修（前車之鑑）；不記哪一台、在哪裡、哪天
   //   故障代碼存大寫、去掉空格（sc 542 → SC542），才找得到；同一個機型、同一個代碼可以寫好幾筆（原因不同、修法不同）
-  //   打好機型、代碼，下面列已經寫過的修法（同機型的在前，見 records.js 的 faultNote）；沒有代碼的（卡紙、異音）寫狀況
+  //   沒有代碼的（卡紙、異音）代碼欄寫「卡紙」「異音」
+  //   打好機型、代碼，下面列已經寫過的修法（同機型的在前，見 records.js 的 faultNote）
+  //   分兩次寫：發現時先存機型、代碼，修好後再補狀況、原因、處理方式；處理方式空著的卡片標「待補」，列表可以篩待補
   //   業務員整本看得到（只能看，見 apps-script/meter.gs 的 salesRows_）
   repairs: {
     title: '維修',
     order: (a, b) => Records.repairOrder(a, b),
     card: { title: r => U.joinOnce([r.fault, Records.firstLine(r.symptom)], ' ') || '維修', sub: r => r.model || '', grid: [] },
+    status: r => (Records.repairTodo(r) ? { label: '待補', cls: 'orange' } : null),
+    filter: { label: '待補', toggle: [{ value: '待補', label: '待補', tone: 'orange' }], of: r => (Records.repairTodo(r) ? '待補' : '') },
     note: r => Records.repairNote(r),
     describe: r => Records.describe('repairs', r),
     groups: [['model', '機型'], ['fault', '故障代碼']],
@@ -621,11 +626,11 @@ const SCHEMAS = {
     fields: [
       // 機型、代碼都佔滿一排：代碼下面要列已經寫過的修法，半格太擠
       { key: 'model',   label: '機型',     type: 'ref', ref: 'options', list: '機型', full: true, keep: true, caps: true },
-      { key: 'fault',   label: '故障代碼', type: 'text', optional: true, full: true, caps: true, clean: v => U.toHalf(v).replace(/\s+/g, '').toUpperCase(),
-        hint: '沒有代碼的空白，寫狀況', note: v => Records.faultNote(v), noteLines: 0 },
+      { key: 'fault',   label: '故障代碼', type: 'text', full: true, caps: true, clean: v => U.toHalf(v).replace(/\s+/g, '').toUpperCase(),
+        hint: '沒有代碼的寫卡紙、異音這類', note: v => Records.faultNote(v), noteLines: 0 },
       { key: 'symptom', label: '狀況',     type: 'text', optional: true, full: true, multiline: true, hint: '看到什麼：卡紙、異音、印出來有黑線…' },
       { key: 'cause',   label: '原因',     type: 'text', optional: true, full: true },
-      { key: 'fix',     label: '處理方式', type: 'text', full: true, multiline: true, hint: '怎麼修好的、換了什麼零件' },
+      { key: 'fix',     label: '處理方式', type: 'text', optional: true, full: true, multiline: true, hint: '怎麼修好的、換了什麼零件；空著的列表上標「待補」' },
       noteField(),
     ],
   },

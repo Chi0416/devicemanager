@@ -1419,11 +1419,13 @@ const Records = (() => {
   const repairOrder = (a, b) => (modelOrder(a.model) - modelOrder(b.model)) || byText(a.model, b.model)
     || (!a.fault - !b.fault) || byText(a.fault, b.fault) || cmp(String(b.id), String(a.id));
 
+  // 還沒寫處理方式的：卡片標「待補」，列表可以篩
+  const repairTodo = r => !firstLine(r.fix);
   // 卡片最下面一行：處理方式的第一行（沒寫時寫原因）
   const repairNote = r => noteLine(firstLine(r.fix) || firstLine(r.cause));
 
   // 表單上故障代碼下面：這個代碼已經寫過的修法（前車之鑑），同機型的在前，其他機型的寫機型；最多列 FAULT_SHOW 筆
-  //   一筆一行：處理方式（沒寫時寫原因、狀況）
+  //   一筆一行：處理方式；還沒寫的寫原因（沒有時寫狀況），後面加「還沒寫怎麼修」
   const FAULT_SHOW = 5;
   function faultNote(values) {
     const code = key(values.fault);
@@ -1437,7 +1439,7 @@ const Records = (() => {
     const same = past.filter(x => x.same).length;
     const head = model ? `這個機型寫過 ${same} 筆${past.length > same ? `，其他機型 ${past.length - same} 筆` : ''}` : `寫過 ${past.length} 筆`;
     const lines = past.slice(0, FAULT_SHOW).map(({ r, same: s }) => {
-      const how = firstLine(r.fix) || firstLine(r.cause) || firstLine(r.symptom) || '沒寫怎麼修';
+      const how = firstLine(r.fix) || [firstLine(r.cause) || firstLine(r.symptom), '還沒寫怎麼修'].filter(Boolean).join('，');
       return `・${!s && r.model ? `${r.model}：` : ''}${how}`;
     });
     const more = past.length > FAULT_SHOW ? [`還有 ${past.length - FAULT_SHOW} 筆，到維修頁搜尋 ${String(values.fault).trim()}`] : [];
@@ -1711,7 +1713,7 @@ const Records = (() => {
     contractStarted, contractDate, needsEnd, contractIssue, contractDueDate, compareContractDue, contractStatus, contractTag, contractEndFrom, startText, contractTaker, contractOutText, pendingContracts, pendingShort,
     logContract, contractHistory, dropContractLog,
     countsText, usage, usageNote, readingKind, readingUse, readingCols, readingTag, monthNote, countNote, usageByPlace, placeUsage, usageSummary, monthlyUsage, yearOverYear, currentContracts, contractShort,
-    workNote, workCols, refurbNote, repairOrder, repairNote, faultNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
+    workNote, workCols, refurbNote, repairOrder, repairTodo, repairNote, faultNote, serialNote, itemKind, pagesNote, counterAt, consumablesAt, consumablesDue, etaText, itemNote,
     shownDevices, isShown, canAdd, TONER_LOW, tonerColors, tonerIsLow, WASTE_FULL, wasteIsFull, customerReports, latestReport, reportDays, reportTone, reportWhen, reportNote, reportsDue, tonerDue, wasteDue, readingsDue, statusMismatch,
     toConfirm, confirmsDue, confirmWhen, confirmValues,
     partOrder, partNote, partChoices, partNames, partsHint, saveDeviceParts, partsCheckNote, statusOf, modelCounts, guessGen, genNote, modelGroups, OTHER_GEN, orphans, lostPlaces, followCodes, fixPlaceRefs, upgrade, fileOnly, fileCodes,

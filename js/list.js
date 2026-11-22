@@ -30,7 +30,8 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     : fields.filter(f => ![period?.key, code, title, badge, primary].includes(f.key) && !f.multiline);
   const searchKeys = schema.search || [code, title].filter(k => typeof k === 'string');
   const getRows = rows || schema.rows || (() => Store.list(tableKey));
-  const filterField = filterKey ? byKey[filterKey] : null;
+  // filter 也可以是算出來的：{ label, toggle: [{ value, label, tone }], of(列) 回傳 value 或空字串 }（維修的待補，不是存的欄位）
+  const filterField = !filterKey ? null : typeof filterKey === 'object' ? filterKey : byKey[filterKey];
   const groups = schema.groups || [];
   const GROUP_KEY = `${Store.PREFIX}group.${tableKey}`;
   let savedGroup = '';
@@ -55,6 +56,7 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     .join(' ').toLowerCase().includes(state.keyword.trim().toLowerCase());
   // 篩選按鈕：toggle 的哪一個（試算表手打的字也認得）；從清單選的欄位：清單裡的哪一項（大小寫、全形半形不同也認得）
   const filterOf = r => {
+    if (filterField.of) return filterField.of(r) || filterEmpty;
     const v = String(r[filterField.key] ?? '').trim();
     if (filterField.toggle) return filterField.toggle.find(o => o.match.test(v))?.value ?? filterEmpty;
     const hit = Refs.find(filterField, v);
