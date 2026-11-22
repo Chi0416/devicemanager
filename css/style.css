@@ -450,7 +450,7 @@ body:has(dialog[open]) { overflow: hidden; }
 }
 .tabbar button[aria-selected="true"] svg { background: var(--accent-soft); }
 /* 底部 6 格：更多；電腦版的側欄全部展開，不用更多 */
-.tabbar .side-only, .tabbar .side-settings, .side-sep { display: none; }
+.tabbar .side-only, .tabbar .side-settings, .side-sep, .side-label { display: none; }
 .tabbar .more-tab svg circle { fill: currentColor; stroke: none; }
 .tabbar .more-tab[aria-expanded="true"] { color: var(--accent-text); font-weight: 600; }
 .tabbar .more-tab[aria-expanded="true"] svg { background: var(--accent-soft); }
@@ -1457,7 +1457,7 @@ dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 
 /* ---------- 寬螢幕：左側欄 ---------- */
 @media (min-width: 960px) {
-  :root { --side-w: 248px; }
+  :root { --side-w: 190px; }
   body { padding-left: var(--side-w); }
   .app { max-width: 760px; padding: 0 40px 64px; }
   .appbar { padding-top: 32px; }
@@ -1467,7 +1467,7 @@ dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
     top: 0;
     right: auto;
     width: var(--side-w);
-    padding: 0 12px;
+    padding: 0 10px;
     background: var(--sidebar);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -1476,30 +1476,46 @@ dialog #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
   }
   .side-brand {
     display: block;
-    height: 68px;
-    padding: 22px 8px 0;
-    font-size: 19px;
+    height: 52px;
+    padding: 16px 10px 0;
+    font-size: 15px;
     font-weight: 700;
     letter-spacing: .01em;
   }
   .tabbar { display: flex; flex-direction: column; }
-  .tabbar-inner { flex-direction: column; gap: 2px; height: auto; max-width: none; margin: 4px 0 0; }
+  .tabbar-inner { flex-direction: column; gap: 1px; height: auto; max-width: none; margin: 4px 0 0; overflow-y: auto; }
   .tabbar button.side-only, .tabbar button.side-settings { display: flex; }
   .tabbar .more-tab, .more-panel, .more-scrim { display: none !important; }
-  .side-sep { display: block; height: .5px; margin: 8px 10px; background: var(--border); }
+  /* 分類小標題：總覽／資料（客戶、位置、設備、人員）／紀錄（抄表…異動）／參考（手冊）；按鈕在 HTML 裡照手機的順序，這裡重排 */
+  .side-label { display: block; margin: 14px 0 4px; padding: 0 10px; font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--muted); }
+  .tabbar-inner > [data-tab="overview"] { order: 1; }
+  .side-label[data-group="data"] { order: 2; }
+  .tabbar-inner > [data-tab="customers"] { order: 3; }
+  .tabbar-inner > [data-tab="locations"] { order: 4; }
+  .tabbar-inner > [data-tab="devices"] { order: 5; }
+  .tabbar-inner > [data-tab="people"] { order: 6; }
+  .side-label[data-group="records"] { order: 7; }
+  .tabbar-inner > [data-tab="readings"] { order: 8; }
+  .tabbar-inner > [data-tab="contracts"] { order: 9; }
+  .tabbar-inner > [data-tab="maintenance"] { order: 10; }
+  .tabbar-inner > [data-tab="repairs"] { order: 11; }
+  .tabbar-inner > [data-tab="refurbs"] { order: 12; }
+  .tabbar-inner > [data-tab="moves"] { order: 13; }
+  .side-label[data-group="ref"] { order: 14; }
+  .tabbar-inner > [data-tab="manual"] { order: 15; }
   .tabbar .side-settings { margin: auto 0 12px; }
   .tabbar button {
     flex: none;
     flex-direction: row;
     justify-content: flex-start;
-    gap: 10px;
-    height: 38px;
+    gap: 9px;
+    height: 30px;
     padding: 0 10px;
-    border-radius: 10px;
-    font-size: 14px;
+    border-radius: 6px;
+    font-size: 13px;
     color: var(--text-2);
   }
-  .tabbar svg { width: 20px; height: 20px; padding: 0; border-radius: 0; }
+  .tabbar svg { width: 16px; height: 16px; padding: 0; border-radius: 0; }
   .tabbar button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
   .tabbar button[aria-selected="true"] svg { background: none; }
 
@@ -1531,8 +1547,7 @@ body.more-open .tabbar button[aria-selected="true"]:not(.more-tab) svg { backgro
   overflow: auto;
   background: var(--surface);
   border: .5px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
+  border-radius: 6px;
 }
 .tbl {
   width: 100%;
@@ -1541,9 +1556,9 @@ body.more-open .tabbar button[aria-selected="true"]:not(.more-tab) svg { backgro
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
-.tbl th, .tbl td { padding: 8px 12px; text-align: left; white-space: nowrap; border-bottom: .5px solid var(--border); }
+.tbl th, .tbl td { height: 34px; padding: 0 12px; text-align: left; white-space: nowrap; border-bottom: .5px solid var(--border); }
 /* 表頭：捲動時留在框的最上面 */
-.tbl thead th { position: sticky; top: 0; z-index: 2; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface); }
+.tbl thead th { position: sticky; top: 0; z-index: 2; font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--surface); }
 .tbl tbody tr:last-child > * { border-bottom: 0; }
 .tbl tr[data-id] { cursor: pointer; }
 .tbl tr[data-id]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -1553,12 +1568,48 @@ body.more-open .tabbar button[aria-selected="true"]:not(.more-tab) svg { backgro
 .tbl td.main { font-weight: 600; }
 .tbl td.none { color: var(--muted); }
 .tbl td.tag { width: 1%; }
+/* 狀態：只寫彩色的字，不加底色（顏色和卡片的標籤一樣） */
+.tbl td.tag .badge { padding: 0; background: none; font-size: 12px; }
 .tbl td.warn { color: var(--warn); font-weight: 600; }
 .tbl td.fresh { color: var(--ok); }
 .tbl td.old { color: var(--warn); }
 /* 分組（依日期、機型…）：表格裡的一列小標題 */
-.tbl .tbl-group th { padding-top: 14px; font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--bg); }
+.tbl .tbl-group th { height: 30px; font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--sidebar); }
 .tbl .tbl-group span { margin-left: 8px; font-weight: 500; color: var(--muted); }
 @media (hover: hover) {
   .tbl tr[data-id]:hover td { background: var(--hover); }
+}
+
+/* ---------- 電腦版的頁面（960px 以上）：白底、細線、排得緊一點；手機不變 ---------- */
+@media (min-width: 960px) {
+  /* 頁面是白底，側欄淺灰；表單、詳情（在 .app 外面）照原本的底色 */
+  body { background: var(--surface); }
+  .app { --bg: var(--surface); padding: 0 28px 48px; }
+  /* 標題列：小一點，下面一條線 */
+  .appbar { height: 56px; margin: 0 -28px; padding: 0 28px; border-bottom: .5px solid var(--border); }
+  .appbar h1 { font-size: 17px; font-weight: 600; }
+  .add-btn { height: 30px; padding: 0 12px 0 9px; border-radius: 6px; font-size: 13px; }
+  .add-btn svg { width: 16px; height: 16px; }
+  .icon-btn { width: 36px; height: 36px; margin-right: -6px; border-radius: 8px; }
+  .icon-btn svg { width: 20px; height: 20px; }
+
+  /* 篩選列：篩選按鈕變成一組切換鈕，和分組、搜尋放在同一排 */
+  .filterbar { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
+  .filterbar-row { flex: 0 1 460px; margin-left: auto; }
+  .filterbar-row:only-child { flex: 1; }
+  .filterbar select,
+  .filterbar .dropdown-btn,
+  .filterbar input { height: 32px; font-size: 13px; border-color: transparent; border-radius: 6px; box-shadow: none; }
+  .filterbar select,
+  .filterbar .dropdown-btn { background: var(--icon-chevron) right 6px center / 14px no-repeat, var(--sidebar); }
+  .filterbar input { padding-left: 30px; background: var(--icon-search) left 9px center / 15px no-repeat, var(--sidebar); }
+  .filterbar .count { font-size: 12px; }
+  .filter-chips { order: -1; flex: 0 1 auto; min-width: 0; gap: 0; margin: 0; padding: 2px; border-radius: 7px; background: var(--sidebar); }
+  .filter-chips .chip.filter { gap: 5px; padding: 3px 10px; border-color: transparent; border-radius: 5px; background: none; font-size: 13px; color: var(--muted); }
+  .filter-chips .chip.filter.on { border-color: transparent; background: var(--surface); box-shadow: 0 1px 2px rgba(20, 35, 70, .1); }
+  /* 選到的字：有顏色的（狀態）照原本的顏色，其他是藍字 */
+  .filter-chips .chip.filter.on:not(.purple):not(.orange):not(.green):not(.gray):not(.red) { color: var(--accent-text); }
+
+  /* 側欄沒選到的圖示淡一點 */
+  .tabbar button:not([aria-selected="true"]) svg { color: var(--muted); }
 }
