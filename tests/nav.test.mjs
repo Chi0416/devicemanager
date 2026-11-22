@@ -21,7 +21,7 @@ test('手機底部 6 格：總覽、客戶、位置、設備、抄表、更多',
 test('更多裡的頁，電腦版的側欄全部都有，一樣的順序', () => {
   const inMore = [...more.matchAll(/data-tab="([^"]+)"/g)].map(m => m[1]);
   const inSide = buttons.filter(b => b.includes('side-only')).map(tabOf);
-  assert.deepEqual(inMore, ['contracts', 'maintenance', 'repairs', 'refurbs', 'moves', 'people']);
+  assert.deepEqual(inMore, ['contracts', 'maintenance', 'repairs', 'manual', 'refurbs', 'moves', 'people']);
   assert.deepEqual(inSide, inMore);
   // 這些頁打開時底部的更多要亮著
   assert.deepEqual(JSON.parse(app.match(/const IN_MORE = (\[.*?\]);/)[1].replace(/'/g, '"')), inMore);
@@ -34,11 +34,14 @@ test('更多和側欄都能到設定；右上角的 ⋯、紀錄那一格、上�
   assert.ok(!read('css/style.css').includes('.subtabs'));
 });
 
-test('業務員看不到人員：更多、側欄都藏起來，也不會停在人員頁', () => {
-  const people = [...html.matchAll(/<button [^>]*data-tab="people"[^>]*>/g)].map(m => m[0]);
-  assert.equal(people.length, 2);
-  for (const b of people) assert.ok(b.includes('admin-only'), b);
-  assert.match(app, /key === 'people' && Sync\.isSales\(\)/);
+test('業務員看不到人員、手冊：更多、側欄都藏起來，也不會停在那一頁', () => {
+  for (const tab of ['people', 'manual']) {
+    const btns = [...html.matchAll(new RegExp(`<button [^>]*data-tab="${tab}"[^>]*>`, 'g'))].map(m => m[0]);
+    assert.equal(btns.length, 2, tab);
+    for (const b of btns) assert.ok(b.includes('admin-only'), b);
+  }
+  assert.match(app, /const ADMIN_PAGES = \['people', 'manual'\];/);
+  assert.match(app, /ADMIN_PAGES\.includes\(key\) && Sync\.isSales\(\)/);
   // 側欄的按鈕是 display: flex，要贏得過
   assert.match(read('css/style.css'), /\.sales \.tabbar button\.admin-only \{ display: none; \}/);
 });

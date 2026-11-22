@@ -1,5 +1,5 @@
 // 進入點：分頁、列表、表單、設備詳情、位置詳情、客戶詳情、清單、Google 雲端硬碟同步、提醒、資料備份、回收桶
-//   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜更多；更多裡一格一個：合約、保養、維修、翻新、異動、人員、設定（見 IN_MORE）
+//   底部 6 格：總覽｜客戶｜位置｜設備｜抄表｜更多；更多裡一格一個：合約、保養、維修、手冊、翻新、異動、人員、設定（見 IN_MORE）
 //   電腦版的側欄全部展開，不用更多，設定在最下面
 //   資料讀出來了才開始（見 storage.js 的 ready）
 Store.ready.then(() => {
@@ -49,7 +49,7 @@ Store.ready.then(() => {
 
   // ---------- 頁面 ----------
   // 各種紀錄的頁：[資料表, 新增按鈕上寫的]；抄表在底部自己一格，其他在「更多」裡
-  const RECORD_PAGES = [['maintenance', '保養'], ['repairs', '維修'], ['refurbs', '翻新'], ['readings', '抄表'], ['contracts', '合約'], ['moves', '異動']];
+  const RECORD_PAGES = [['maintenance', '保養'], ['repairs', '維修'], ['manual', '故障碼'], ['refurbs', '翻新'], ['readings', '抄表'], ['contracts', '合約'], ['moves', '異動']];
   const PAGES = {
     overview: { title: '總覽' },
     customers: { title: '客戶' },
@@ -131,7 +131,9 @@ Store.ready.then(() => {
   const addWhat = addBtn.querySelector('.add-what');
 
   // 更多：收在裡面的頁打開時，底部的更多亮著
-  const IN_MORE = ['contracts', 'maintenance', 'repairs', 'refurbs', 'moves', 'people'];
+  const IN_MORE = ['contracts', 'maintenance', 'repairs', 'manual', 'refurbs', 'moves', 'people'];
+  // 業務員看不到的頁（人員；手冊是原廠的，總部程式不給，見 schema.js 的 manual）
+  const ADMIN_PAGES = ['people', 'manual'];
   const moreBtn = $('btn-more');
   const morePanel = $('more-panel');
   const moreScrim = $('more-scrim');
@@ -149,9 +151,9 @@ Store.ready.then(() => {
   // 打開時畫面變寬成側欄（平板轉向、拉寬視窗）：關掉，不然頁面會卡住不能捲
   matchMedia('(min-width: 960px)').addEventListener('change', e => { if (e.matches) setMore(false); });
 
-  // key：哪一頁；提醒也會直接指定某一頁；業務員沒有人員頁（這台裝置之前記著人員頁時）
+  // key：哪一頁；提醒也會直接指定某一頁；業務員沒有人員、手冊頁（這台裝置之前記著那一頁時）
   function showTab(key) {
-    if (!lists[key] || (key === 'people' && Sync.isSales())) key = 'devices';
+    if (!lists[key] || (ADMIN_PAGES.includes(key) && Sync.isSales())) key = 'devices';
     current = key;
     renderWho();
     $('page-title').textContent = PAGES[key].title;

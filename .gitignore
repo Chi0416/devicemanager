@@ -2,3 +2,6 @@
 data*.json
 
 .DS_Store
+
+# 原廠手冊轉出來的故障碼（有版權，不放進公開的 GitHub；貼進自己的試算表）
+sccode/

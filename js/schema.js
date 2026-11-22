@@ -140,6 +140,8 @@ const DEFAULT_OPTIONS = [
   { list: '選配件', id: 'part', names: ['送紙匣', '裝訂器', '傳真卡', '底座'] },
 ];
 
+// 故障代碼存大寫、去掉空格（sc 542 → SC542），維修和手冊才對得起來
+const cleanFault = v => U.toHalf(v).replace(/\s+/g, '').toUpperCase();
 // 左右切換的選項：[{ value, tone }] → toggle 的寫法
 const toggleOf = list => list.map(o => ({ value: o.value, label: o.value, tone: o.tone, match: new RegExp(`^${o.value}$`) }));
 // 合約的行政狀態：行政手動切換，報表照它分；到期提醒、目前的合約照日期算，例外：作廢不算目前的合約，合約完成過了到期日算結束，結案的不提醒到期（見 records.js）
@@ -631,12 +633,32 @@ const SCHEMAS = {
       // 機型、代碼都佔滿一排：代碼下面要列已經寫過的修法，半格太擠
       { key: 'model',   label: '機型',     type: 'ref', ref: 'options', list: '機型', full: true, keep: true, caps: true },
       dateField('date', '發生日期', { optional: true, keep: true }),
-      { key: 'fault',   label: '故障代碼', type: 'text', full: true, caps: true, clean: v => U.toHalf(v).replace(/\s+/g, '').toUpperCase(),
+      { key: 'fault',   label: '故障代碼', type: 'text', full: true, caps: true, clean: v => cleanFault(v),
         hint: '沒有代碼的寫卡紙、異音這類', note: v => Records.faultNote(v), noteLines: 0 },
       { key: 'symptom', label: '狀況',     type: 'text', optional: true, full: true, multiline: true, hint: '看到什麼：卡紙、異音、印出來有黑線…' },
       { key: 'cause',   label: '原因',     type: 'text', optional: true, full: true },
       { key: 'fix',     label: '處理方式', type: 'text', optional: true, full: true, multiline: true, hint: '怎麼修好的、換了什麼零件；空著的列表上標「待補」' },
       noteField(),
+    ],
+  },
+
+  // 手冊：原廠維修手冊的故障碼表（從 PDF 轉出來，貼進試算表的「手冊」分頁），不分機型、世代（幾份手冊的故障碼幾乎一樣）
+  //   維修表單打好故障代碼時，先列手冊的說明、可能原因、處理方式，再列實戰的維修筆記（見 records.js 的 faultNote）
+  //   原廠手冊有版權：只放在自己的試算表，不放進 GitHub；業務員看不到（總部程式不給這個分頁，App 的頁也藏起來）
+  manual: {
+    title: '手冊',
+    order: (a, b) => Records.manualOrder(a, b),
+    card: { title: r => r.code || '手冊', sub: r => r.desc || '', grid: [] },
+    note: r => Records.noteLine(r.fix),
+    describe: r => U.joinOnce([r.code, r.desc], ' ') || '手冊',
+    search: ['code', 'desc', 'cause', 'fix'],
+    searchHint: '搜尋故障代碼、說明、處理方式',
+    fields: [
+      { key: 'code',  label: '故障代碼', type: 'text', caps: true, clean: v => cleanFault(v) },
+      { key: 'page',  label: '頁數',     type: 'number', optional: true, hint: '手冊 PDF 的第幾頁' },
+      { key: 'desc',  label: '說明',     type: 'text', optional: true, full: true },
+      { key: 'cause', label: '可能原因', type: 'text', optional: true, full: true, multiline: true },
+      { key: 'fix',   label: '處理方式', type: 'text', optional: true, full: true, multiline: true },
     ],
   },
 

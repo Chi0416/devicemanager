@@ -1375,6 +1375,26 @@ test('維修（修理筆記）：機型、發生日期、故障代碼、狀況�
     ['MPC2504 卡紙 2026-01-01', 'MPC2504 SC542 2025-12-11', 'MPC3003 SC542 2026-09-30', 'MPC3003 SC542 2026-05-02']);
 });
 
+test('手冊：代碼、頁數、說明、可能原因、處理方式；維修打代碼時先列手冊，空一行，再列實戰', () => {
+  const { SCHEMAS, field, add } = withDevices();
+  assert.deepEqual(plain(SCHEMAS.manual.fields.map(x => x.label)), ['故障代碼', '頁數', '說明', '可能原因', '處理方式']);
+  assert.deepEqual(plain(SCHEMAS.manual.fields.filter(x => !x.optional).map(x => x.key)), ['code']);
+  assert.equal(field('manual', 'code').clean('sc 542', {}), 'SC542'); // 和維修的寫法一樣才對得起來
+  const note = field('repairs', 'fault').note;
+  // 手冊還是空的（還沒匯入、業務員）：不寫手冊那段
+  assert.equal(note({ model: 'MPC3003', fault: 'SC542' }), '還沒有寫過這個代碼');
+  add('manual', { code: 'SC542', page: 312, desc: '加熱溫度異常', cause: '熱敏電阻\n加熱燈', fix: '1. 檢查熱敏電阻\n2. 換加熱燈' });
+  add('manual', { code: 'SC101', desc: '曝光燈異常' });
+  assert.equal(note({ model: 'MPC3003', fault: 'sc542' }),
+    '手冊：加熱溫度異常（第 312 頁）\n可能原因：熱敏電阻、加熱燈\n處理方式：1. 檢查熱敏電阻\n2. 換加熱燈\n\n實戰：還沒有寫過這個代碼');
+  add('repairs', { model: 'MPC3003', date: '2026-09-30', fault: 'SC542', fix: '感測器髒，清乾淨' });
+  assert.equal(note({ model: 'MPC3003', fault: 'SC542' }).split('\n').slice(-2).join('\n'), '實戰：這個機型寫過 1 筆\n・09/30 感測器髒，清乾淨');
+  assert.equal(note({ model: 'MPC3003', fault: 'SC999' }), '手冊：沒有這個代碼\n\n實戰：還沒有寫過這個代碼');
+  // 列表：依代碼（數字照大小）
+  assert.deepEqual(plain(['SC542', 'SC101', 'SC1001'].map(code => ({ code, id: code })).sort(SCHEMAS.manual.order).map(r => r.code)), ['SC101', 'SC542', 'SC1001']);
+  assert.equal(SCHEMAS.manual.card.sub({ desc: '加熱溫度異常' }), '加熱溫度異常');
+});
+
 test('保養項目：預設碳粉、感光鼓…，一筆選一個；幾筆在用、不能刪、改名一起改；不在清單裡的提醒', () => {
   const { Store, Refs, field, add } = withDevices();
   const f = field('maintenance', 'item');
