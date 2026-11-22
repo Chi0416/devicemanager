@@ -1516,9 +1516,23 @@ body.more-open .tabbar button[aria-selected="true"]:not(.more-tab) svg { backgro
 .sales .tabbar button.admin-only { display: none; }
 
 /* ---------- 表格（電腦版的設備、維修，見 list.js 的 schema.table） ---------- */
+/* 有表格的頁：整頁不捲，一個視窗高；標題、搜尋、篩選照自己的高度排，表格的框佔剩下的，只有框裡面捲 */
 @media (min-width: 960px) {
-  /* 顯示表格的頁，內容放寬 */
-  .app:has(.panel:not([hidden]) .tbl) { max-width: 1280px; }
+  body:has(.panel:not([hidden]) .tbl) { overflow: hidden; }
+  .app:has(.panel:not([hidden]) .tbl) { display: flex; flex-direction: column; max-width: 1280px; height: 100vh; height: 100dvh; padding-bottom: 24px; }
+  .app:has(.panel:not([hidden]) .tbl) #panels,
+  .panel:has(.tbl),
+  .list:has(> .tbl-wrap) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+}
+/* 筆數少時框跟著變矮，多的時候在框裡面捲 */
+.tbl-wrap {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--surface);
+  border: .5px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
 }
 .tbl {
   width: 100%;
@@ -1526,15 +1540,11 @@ body.more-open .tabbar button[aria-selected="true"]:not(.more-tab) svg { backgro
   border-spacing: 0;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
-  background: var(--surface);
-  border: .5px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
 }
 .tbl th, .tbl td { padding: 8px 12px; text-align: left; white-space: nowrap; border-bottom: .5px solid var(--border); }
-.tbl thead th { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface); }
-.tbl tbody tr:last-child td { border-bottom: 0; }
+/* 表頭：捲動時留在框的最上面 */
+.tbl thead th { position: sticky; top: 0; z-index: 2; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface); }
+.tbl tbody tr:last-child > * { border-bottom: 0; }
 .tbl tr[data-id] { cursor: pointer; }
 .tbl tr[data-id]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tbl tr.flash td { animation: flash 2s ease-out; }

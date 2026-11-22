@@ -248,13 +248,14 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
     <tr data-id="${U.esc(r.id)}" tabindex="0"${r.id === state.flashId ? ' class="flash"' : ''}>
       ${tableCols.map(c => cellHTML(c, r)).join('')}
     </tr>`;
+  // tbl-wrap：電腦版整頁不捲，只有這個框裡面捲，表頭留在框的最上面（見 style.css）
   const tableHTML = groupsList => `
-    <table class="tbl">
+    <div class="tbl-wrap"><table class="tbl">
       <thead><tr>${tableCols.map(c => `<th${c.clip ? ' class="clip"' : ''}>${U.esc(c.label || '')}</th>`).join('')}</tr></thead>
       <tbody>${groupsList.map(g =>
         (g.head ? `<tr class="tbl-group"><th colspan="${tableCols.length}">${U.esc(g.head)}${g.count ? `<span>${g.count}</span>` : ''}</th></tr>` : '') +
         g.rows.map(rowHTML).join('')).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 
   // 合計目前篩選範圍內的數字；算不出來（空白）的列不計入
   function summaryHTML(rows) {
@@ -327,6 +328,8 @@ function createList(tableKey, schema, { openForm, rows = null, detail = false, d
         (g.head ? `<h3 class="group-head">${U.esc(g.head)}${g.count ? `<span>${g.count}</span>` : ''}${headTag(g.rows)}</h3>` : '') +
         g.rows.map(cardHTML).join('')).join(''));
     }
+    // 表格裡剛存好的那一列捲到看得到的地方
+    listEl.querySelector('tr.flash')?.scrollIntoView({ block: 'nearest' });
     state.flashId = null;
   }
 
